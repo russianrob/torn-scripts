@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Faction Offline Highlighter
 // @namespace    torn.faction.offline.highlight
-// @version      1.5.2
+// @version      1.5.3
 // @description  Highlights faction members red who have been offline for over 24 hours on the faction member list. Configurable threshold. PDA compatible.
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
