@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         Torn Faction Offline Highlighter
 // @namespace    torn.faction.offline.highlight
-// @version      1.5.1
+// @version      1.5.2
 // @description  Highlights faction members red who have been offline for over 24 hours on the faction member list. Configurable threshold. PDA compatible.
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
 // @run-at       document-end
+// @changelog    v1.5.2 - API key input now masked with asterisks for security
 // @changelog    v1.5.1 - Fixed Default sort not restoring original member order; Settings panel (API key + threshold) now accessible via gear icon instead of prompt; Added PDA auto-key detection
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
