@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Torn Ranked War Timer
-// @version      1.4
+// @version      1.5
 // @author       RussianRob
 // @description  Timer for Ranked Wars
 // @license      MIT
