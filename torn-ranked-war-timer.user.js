@@ -1,12 +1,11 @@
 // ==UserScript==
 // @name         Torn Ranked War Timer
-// @version      1.5
+// @version      1.6
 // @author       RussianRob
 // @description  Timer for Ranked Wars
 // @license      MIT
 // @match        https://www.torn.com/factions.php*
 
-// @namespace https://greasyfork.org/users/1559564
 // @downloadURL https://update.greasyfork.org/scripts/562468/Torn%20Ranked%20War%20Timer.user.js
 // @updateURL https://update.greasyfork.org/scripts/562468/Torn%20Ranked%20War%20Timer.meta.js
 // ==/UserScript==
@@ -128,16 +127,20 @@
             clearInterval(initInterval);
 
             const display = document.createElement('div');
-            display.style.cssText =
-                'position:absolute;top:2px;right:6px;z-index:10;' +
-                'font-weight:700;cursor:pointer;font-size:11px;' +
-                'white-space:nowrap;padding:1px 6px;border-radius:4px;' +
-                'background:rgba(0,0,0,0.5);letter-spacing:0.3px;';
+            display.style.marginLeft = '10px';
+            display.style.fontWeight = 'bold';
+            display.style.cursor = 'pointer';
+            display.style.display = 'inline-block';
             display.onclick = () => window.open(WIKI_URL, '_blank');
 
-            // Place timer as overlay in top-right of the war box
-            warBox.style.position = 'relative';
-            warBox.appendChild(display);
+            let headerContainer =
+                warBox.querySelector('[class*="header"], [class*="title"]') ||
+                (warBox.children && warBox.children[0]) ||
+                timerBox.parentElement;
+
+            if (!headerContainer) return;
+
+            headerContainer.appendChild(display);
 
             const ok = updateWarTimer(display, warBox);
             if (!ok && !document.body.contains(display)) {
