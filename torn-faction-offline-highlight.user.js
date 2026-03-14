@@ -1,8 +1,9 @@
 // ==UserScript==
 // @name         Torn Faction Offline Highlighter
 // @namespace    torn.faction.offline.highlight
-// @version      1.5.4
-// @description  Highlights faction members red who have been offline for over 24 hours on the faction member list. Configurable threshold. PDA compatible.
+// @version      1.6.0
+// @description  Highlights faction members red who have been offline for over 24 hours on the faction member list. Shows last OC participation on the not-participating panel. Configurable threshold. PDA compatible.
+// @changelog    v1.6.0 - Added OC inactivity tracker on the 'not participating in any scenarios' panel
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
 // @run-at       document-end
@@ -95,26 +96,30 @@
         }
     }
 
-    function fetchMembers(apiKey) {
+    function apiFetch(url) {
         return new Promise((resolve, reject) => {
-            const url = `${API_BASE}/v2/faction/?selections=members&key=${apiKey}`;
-            const doFetch = () => {
-                if (typeof GM_xmlhttpRequest === 'function') {
-                    GM_xmlhttpRequest({
-                        method: 'GET',
-                        url,
-                        onload(res) {
-                            try { resolve(JSON.parse(res.responseText)); }
-                            catch (e) { reject(e); }
-                        },
-                        onerror: reject,
-                    });
-                } else {
-                    fetch(url).then(r => r.json()).then(resolve).catch(reject);
-                }
-            };
-            doFetch();
+            if (typeof GM_xmlhttpRequest === 'function') {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url,
+                    onload(res) {
+                        try { resolve(JSON.parse(res.responseText)); }
+                        catch (e) { reject(e); }
+                    },
+                    onerror: reject,
+                });
+            } else {
+                fetch(url).then(r => r.json()).then(resolve).catch(reject);
+            }
         });
+    }
+
+    function fetchMembers(apiKey) {
+        return apiFetch(`${API_BASE}/v2/faction/?selections=members&key=${apiKey}`);
+    }
+
+    function fetchCompletedCrimes(apiKey) {
+        return apiFetch(`${API_BASE}/v2/faction/crimes?cat=completed&sort=DESC&key=${apiKey}`);
     }
 
     // ─── Time helpers ────────────────────────────────────────
@@ -128,6 +133,125 @@
         const days = Math.floor(hours / 24);
         const rem  = Math.round(hours % 24);
         return rem > 0 ? `${days}d ${rem}h` : `${days}d`;
+    }
+
+    // ─── OC participation tracking ──────────────────────────
+    let lastOCMap = {};  // member ID → { timestamp, crimeName }
+
+    async function buildLastOCMap() {
+        const key = getApiKey();
+        if (!key) return;
+        try {
+            const data = await fetchCompletedCrimes(key);
+            if (data.error) {
+                console.error('[FOH] Crimes API error:', data.error);
+                return;
+            }
+            const crimes = data.crimes || [];
+            const map = {};
+            for (const crime of crimes) {
+                if (!crime.slots) continue;
+                const ts = crime.executed_at || crime.created_at || 0;
+                const name = crime.name || 'Unknown';
+                for (const slot of crime.slots) {
+                    const uid = slot.user && (slot.user.id || slot.user.user_id);
+                    if (!uid) continue;
+                    const id = String(uid);
+                    // Only keep the most recent
+                    if (!map[id] || ts > map[id].timestamp) {
+                        map[id] = { timestamp: ts, crimeName: name };
+                    }
+                }
+            }
+            lastOCMap = map;
+        } catch (err) {
+            console.error('[FOH] Failed to fetch OC data:', err);
+        }
+    }
+
+    function findNotParticipatingPanel() {
+        // Walk all text nodes looking for the specific header,
+        // but exclude chat containers, sidebar, and other non-OC areas
+        const candidates = document.querySelectorAll('[class*="panel"], [class*="section"], [class*="crimes"], [class*="scenario"]');
+        for (const container of candidates) {
+            // Skip chat elements
+            if (container.closest('[class*="chat"]') || container.closest('[class*="Chat"]')) continue;
+            const text = container.textContent || '';
+            if (text.includes("aren't participating in any scenarios")) {
+                return container;
+            }
+        }
+        // Fallback: search headers directly
+        const headers = document.querySelectorAll('h4, h5, [class*="header"], [class*="title"]');
+        for (const el of headers) {
+            if (el.closest('[class*="chat"]') || el.closest('[class*="Chat"]')) continue;
+            if (el.textContent.includes("aren't participating")) {
+                return el.closest('[class*="panel"]') || el.closest('[class*="section"]') || el.parentElement;
+            }
+        }
+        return null;
+    }
+
+    function annotateNotParticipating() {
+        const panel = findNotParticipatingPanel();
+        if (!panel) return;
+
+        // Remove any "Last Action" badges from the offline highlighter on this panel
+        panel.querySelectorAll('.foh-badge').forEach(b => b.remove());
+        // Remove highlighting styles from cards in this panel
+        panel.querySelectorAll('.foh-red, .foh-orange, .foh-ok').forEach(el => {
+            el.classList.remove('foh-red', 'foh-orange', 'foh-ok');
+            el.style.removeProperty('background');
+            el.style.removeProperty('border-left');
+        });
+
+        if (Object.keys(lastOCMap).length === 0) return;
+
+        // Find member links in the panel
+        const links = panel.querySelectorAll('a[href*="XID="]');
+        links.forEach(link => {
+            const match = link.href.match(/XID=(\d+)/i);
+            if (!match) return;
+            const id = match[1];
+
+            // Find the member's card/container within the panel
+            const card = link.closest('[class*="member"]') || link.closest('[class*="user"]') ||
+                         link.closest('li') || link.closest('div[class]') || link.parentElement;
+            if (!card) return;
+
+            // Don't add duplicate badges
+            if (card.querySelector('.foh-oc-badge')) return;
+
+            const badge = document.createElement('div');
+            badge.className = 'foh-oc-badge';
+
+            const ocInfo = lastOCMap[id];
+            if (ocInfo) {
+                const hrsAgo = hoursAgo(ocInfo.timestamp);
+                const timeStr = formatDuration(hrsAgo);
+                badge.textContent = `Last OC: ${timeStr} ago`;
+                // Note: this is last COMPLETED OC, not active/planning
+                badge.title = `${ocInfo.crimeName} - ${new Date(ocInfo.timestamp * 1000).toLocaleDateString()}`;
+                // Color by how long ago
+                if (hrsAgo > 168) { // > 7 days
+                    badge.style.color = '#ff4444';
+                } else if (hrsAgo > 72) { // > 3 days
+                    badge.style.color = '#ffa500';
+                } else {
+                    badge.style.color = '#4caf50';
+                }
+            } else {
+                badge.textContent = 'Last OC: Never';
+                badge.title = 'No completed OC found in recent history';
+                badge.style.color = '#ff4444';
+            }
+
+            badge.style.cssText += ';font-size:9px;font-weight:700;text-align:center;' +
+                'width:100%;display:block;padding:1px 0;letter-spacing:0.3px;';
+
+            card.style.position = 'relative';
+            card.appendChild(badge);
+        });
     }
 
     // ─── Tab detection ───────────────────────────────────────
@@ -498,6 +622,30 @@
         }
     }
 
+    // ─── OC page detection ───────────────────────────────────
+    function onCrimesTab() {
+        const hash = window.location.hash || '';
+        const url = window.location.href;
+        return url.includes('factions.php') &&
+            (hash.includes('tab=crimes') || hash.includes('tab=crime') ||
+             document.querySelector('[class*="crimes-app"]') !== null ||
+             document.querySelector('[class*="scenario"]') !== null);
+    }
+
+    let ocDataFetched = false;
+
+    async function checkOCPanel() {
+        // Only run if the not-participating panel exists (quick DOM check, not full innerText scan)
+        const panel = findNotParticipatingPanel();
+        if (!panel) return;
+
+        if (!ocDataFetched) {
+            await buildLastOCMap();
+            ocDataFetched = true;
+        }
+        annotateNotParticipating();
+    }
+
     // ─── Observe DOM changes (Torn loads content dynamically) ─
     function init() {
         injectSettingsGear();
@@ -511,6 +659,8 @@
             } else {
                 hideControls();
             }
+            // Also check for OC panel on any faction page
+            checkOCPanel();
         }
 
         checkTab();
@@ -523,10 +673,8 @@
 
         // Re-highlight when Torn dynamically reloads member list
         // Uses a debounce + flag so our own DOM edits don't trigger a loop
+        let ocDebounceTimer = null;
         const observer = new MutationObserver((mutations) => {
-            if (isHighlighting || !memberCache) return;
-            if (!onMemberListTab()) { hideControls(); return; }
-
             // Ignore mutations caused by our own elements
             const dominated = mutations.every(m =>
                 m.target.closest && (
@@ -536,17 +684,24 @@
                     m.target.classList?.contains('foh-badge') ||
                     m.target.classList?.contains('foh-red') ||
                     m.target.classList?.contains('foh-orange') ||
-                    m.target.classList?.contains('foh-ok')
+                    m.target.classList?.contains('foh-ok') ||
+                    m.target.classList?.contains('foh-oc-badge')
                 )
             );
             if (dominated) return;
 
-            // Debounce: wait 500ms after Torn finishes updating the DOM
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(() => {
-                const thresholdH = getThresholdHours();
-                highlightMembers(memberCache, thresholdH);
-            }, 500);
+            // Member list highlighting
+            if (!isHighlighting && memberCache && onMemberListTab()) {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    const thresholdH = getThresholdHours();
+                    highlightMembers(memberCache, thresholdH);
+                }, 500);
+            }
+
+            // OC panel: debounce check when DOM changes
+            clearTimeout(ocDebounceTimer);
+            ocDebounceTimer = setTimeout(() => checkOCPanel(), 800);
         });
         observer.observe(document.body, { childList: true, subtree: true });
     }
