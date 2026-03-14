@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Torn Ranked War Timer
-// @version      1.3
+// @version      1.4
 // @author       RussianRob
 // @description  Timer for Ranked Wars
 // @license      MIT
@@ -128,26 +128,16 @@
             clearInterval(initInterval);
 
             const display = document.createElement('div');
-            display.style.marginLeft = '10px';
-            display.style.fontWeight = 'bold';
-            display.style.cursor = 'pointer';
-            display.style.display = 'inline-block';
+            display.style.cssText =
+                'position:absolute;top:2px;right:6px;z-index:10;' +
+                'font-weight:700;cursor:pointer;font-size:11px;' +
+                'white-space:nowrap;padding:1px 6px;border-radius:4px;' +
+                'background:rgba(0,0,0,0.5);letter-spacing:0.3px;';
             display.onclick = () => window.open(WIKI_URL, '_blank');
 
-            let headerContainer =
-                warBox.querySelector('[class*="header"], [class*="title"]') ||
-                (warBox.children && warBox.children[0]) ||
-                timerBox.parentElement;
-
-            if (!headerContainer) return;
-
-            // Only shrink header font on desktop-like viewports.
-            if (isDesktopLike()) {
-                headerContainer.style.fontSize = '7px'; // adjust if needed
-                headerContainer.style.flexWrap = 'nowrap';
-            }
-
-            headerContainer.appendChild(display);
+            // Place timer as overlay in top-right of the war box
+            warBox.style.position = 'relative';
+            warBox.appendChild(display);
 
             const ok = updateWarTimer(display, warBox);
             if (!ok && !document.body.contains(display)) {
@@ -158,15 +148,6 @@
                 if (!document.body.contains(display)) {
                     clearInterval(refreshInterval);
                     return;
-                }
-
-                // If viewport crosses the breakpoint while open, toggle size.
-                if (isDesktopLike()) {
-                    headerContainer.style.fontSize = '11px';
-                    headerContainer.style.flexWrap = 'nowrap';
-                } else {
-                    headerContainer.style.fontSize = '';
-                    headerContainer.style.flexWrap = '';
                 }
 
                 updateWarTimer(display, warBox);
