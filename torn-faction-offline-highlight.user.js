@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Torn Faction Offline Highlighter
 // @namespace    torn.faction.offline.highlight
-// @version      1.6.0
+// @version      1.6.1
 // @description  Highlights faction members red who have been offline for over 24 hours on the faction member list. Shows last OC participation on the not-participating panel. Configurable threshold. PDA compatible.
-// @changelog    v1.6.0 - Added OC inactivity tracker on the 'not participating in any scenarios' panel
+// @changelog    v1.6.1 - Fixed gear icon and sort toggle showing on OC/crimes pages; controls now only appear on the member list tab
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
 // @run-at       document-end
@@ -258,13 +258,17 @@
     function onMemberListTab() {
         // Check URL hash for member-related tabs
         const hash = window.location.hash || '';
-        // Member list tab: #/tab=info or no hash on factions.php?step=your
-        // Also check if member rows are visible on the page
         const url = window.location.href;
-        const hasMemberRows = document.querySelectorAll('a[href*="profiles.php?XID="]').length > 5;
-        const isInfoTab = hash.includes('tab=info') || hash === '' || hash === '#';
         const isYourFaction = url.includes('step=your');
-        return isYourFaction && (isInfoTab || hasMemberRows);
+        if (!isYourFaction) return false;
+
+        // Explicitly exclude OC / crimes tabs so gear+sort stay hidden there
+        if (hash.includes('tab=crimes') || hash.includes('tab=crime')) return false;
+        if (document.querySelector('[class*="crimes-app"]') || document.querySelector('[class*="scenario"]')) return false;
+
+        const isInfoTab = hash.includes('tab=info') || hash === '' || hash === '#';
+        const hasMemberRows = document.querySelectorAll('a[href*="profiles.php?XID="]').length > 5;
+        return isInfoTab || hasMemberRows;
     }
 
     function showControls() {
