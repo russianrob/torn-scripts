@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn RW Weapon Inline Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      1.7
+// @version      1.8
 // @description  Injects inline price badges on RW weapons and armour in inventory, item market, auction house, and bazaar using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
@@ -412,9 +412,9 @@
             var arr = weaponGroups[key].sort(function(a, b) { return a - b; });
             if (!newWeaponPrices[name]) newWeaponPrices[name] = {};
             newWeaponPrices[name][rar] = [
-                Math.round(percentile(arr, 25)),
+                arr[0],
                 Math.round(percentile(arr, 50)),
-                Math.round(percentile(arr, 75)),
+                arr[arr.length - 1],
                 arr.length
             ];
         });
@@ -427,9 +427,9 @@
             var arr = bonusGroups[key].sort(function(a, b) { return a - b; });
             if (!newBonusPrices[name]) newBonusPrices[name] = {};
             newBonusPrices[name][rar] = [
-                Math.round(percentile(arr, 25)),
+                arr[0],
                 Math.round(percentile(arr, 50)),
-                Math.round(percentile(arr, 75)),
+                arr[arr.length - 1],
                 arr.length
             ];
         });
@@ -442,9 +442,9 @@
             var arr = classGroups[key].sort(function(a, b) { return a - b; });
             if (!newClassPrices[name]) newClassPrices[name] = {};
             newClassPrices[name][rar] = [
-                Math.round(percentile(arr, 25)),
+                arr[0],
                 Math.round(percentile(arr, 50)),
-                Math.round(percentile(arr, 75)),
+                arr[arr.length - 1],
                 arr.length
             ];
         });
@@ -461,9 +461,9 @@
             var comboKey = weapon + '|' + bonus;
             if (!newComboPrices[comboKey]) newComboPrices[comboKey] = {};
             newComboPrices[comboKey][rar] = [
-                Math.round(percentile(arr, 25)),
+                arr[0],
                 Math.round(percentile(arr, 50)),
-                Math.round(percentile(arr, 75)),
+                arr[arr.length - 1],
                 arr.length
             ];
         });
@@ -549,9 +549,9 @@
             var arr = armourGroups[key].sort(function(a, b) { return a - b; });
             if (!newArmourPrices[name]) newArmourPrices[name] = {};
             newArmourPrices[name][rar] = [
-                Math.round(percentile(arr, 25)),
+                arr[0],
                 Math.round(percentile(arr, 50)),
-                Math.round(percentile(arr, 75)),
+                arr[arr.length - 1],
                 arr.length
             ];
         });
@@ -564,9 +564,9 @@
             var arr = bonusGroups[key].sort(function(a, b) { return a - b; });
             if (!newBonusPrices[name]) newBonusPrices[name] = {};
             newBonusPrices[name][rar] = [
-                Math.round(percentile(arr, 25)),
+                arr[0],
                 Math.round(percentile(arr, 50)),
-                Math.round(percentile(arr, 75)),
+                arr[arr.length - 1],
                 arr.length
             ];
         });
@@ -579,9 +579,9 @@
             var arr = setGroups[key].sort(function(a, b) { return a - b; });
             if (!newSetPrices[name]) newSetPrices[name] = {};
             newSetPrices[name][rar] = [
-                Math.round(percentile(arr, 25)),
+                arr[0],
                 Math.round(percentile(arr, 50)),
-                Math.round(percentile(arr, 75)),
+                arr[arr.length - 1],
                 arr.length
             ];
         });
@@ -598,9 +598,9 @@
             var comboKey = armour + '|' + bonus;
             if (!newComboPrices[comboKey]) newComboPrices[comboKey] = {};
             newComboPrices[comboKey][rar] = [
-                Math.round(percentile(arr, 25)),
+                arr[0],
                 Math.round(percentile(arr, 50)),
-                Math.round(percentile(arr, 75)),
+                arr[arr.length - 1],
                 arr.length
             ];
         });
