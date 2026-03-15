@@ -1,8 +1,9 @@
 // ==UserScript==
 // @name         Torn Faction Offline Highlighter
 // @namespace    torn.faction.offline.highlight
-// @version      1.8.0
+// @version      1.9.0
 // @description  Highlights faction members red who have been offline for over 24 hours on the faction member list. Shows OC inactivity badges in chat globally. Configurable threshold. PDA compatible.
+// @changelog    v1.9.0 - Fixed new members (< 72h in faction) incorrectly getting [OC: Never] badges; members in their join cooldown are now excluded from OC participation checks
 // @changelog    v1.8.0 - Fixed gear icon and sort toggle appearing on non-faction pages (e.g. Home); controls now start hidden and only show on member list tab
 // @changelog    v1.7.0 - Added OC inactivity badges in chat globally (shows for members not in any active OC)
 // @changelog    v1.6.0 - Added OC inactivity tracker on the 'not participating in any scenarios' panel
@@ -145,6 +146,7 @@
     let lastOCMap = {};  // member ID → { timestamp, crimeName }
     let notParticipatingIDs = new Set();  // IDs of members not in any active OC
     let allFactionMemberIDs = new Set();  // all faction member IDs
+    let newMemberIDs = new Set();  // IDs of members who joined < 3 days ago (72h OC cooldown)
 
     async function buildLastOCMap() {
         const key = getApiKey();
@@ -191,8 +193,9 @@
                 return;
             }
 
-            // Build set of all faction member IDs
+            // Build set of all faction member IDs and identify new members
             allFactionMemberIDs = new Set();
+            newMemberIDs = new Set();
             let members;
             if (Array.isArray(membersData.members)) {
                 members = membersData.members;
@@ -202,7 +205,13 @@
                 return;
             }
             for (const m of members) {
-                if (m.id) allFactionMemberIDs.add(String(m.id));
+                if (!m.id) continue;
+                const id = String(m.id);
+                allFactionMemberIDs.add(id);
+                // Members with < 3 days in faction can't join OCs (72h cooldown)
+                if (m.days_in_faction != null && m.days_in_faction < 3) {
+                    newMemberIDs.add(id);
+                }
             }
 
             // Build set of member IDs in active OCs
@@ -219,14 +228,15 @@
             }
 
             // Not participating = faction members NOT in any active OC
+            // Exclude new members (< 3 days) who can't join OCs yet
             notParticipatingIDs = new Set();
             for (const id of allFactionMemberIDs) {
-                if (!inActiveOC.has(id)) {
+                if (!inActiveOC.has(id) && !newMemberIDs.has(id)) {
                     notParticipatingIDs.add(id);
                 }
             }
 
-            console.log(`[FOH] ${notParticipatingIDs.size} members not in active OCs, ${inActiveOC.size} in active OCs`);
+            console.log(`[FOH] ${notParticipatingIDs.size} members not in active OCs, ${inActiveOC.size} in active OCs, ${newMemberIDs.size} new members (< 72h)`);
         } catch (err) {
             console.error('[FOH] Failed to build not-participating list:', err);
         }
@@ -331,6 +341,9 @@
             if (!match) return;
             const id = match[1];
 
+            // Skip new members who can't join OCs yet (< 72h cooldown)
+            if (newMemberIDs.has(id)) return;
+
             // Find the member's card/container
             const card = link.closest('[class*="member"]') || link.closest('[class*="user"]') ||
                          link.closest('li') || link.closest('div[class]') || link.parentElement;
@@ -393,6 +406,9 @@
             const match = link.href.match(/XID=(\d+)/i);
             if (!match) return;
             const id = match[1];
+
+            // Skip new members who can't join OCs yet (< 72h cooldown)
+            if (newMemberIDs.has(id)) return;
 
             // Only annotate members who aren't participating in any OC
             if (!notParticipatingIDs.has(id)) return;
