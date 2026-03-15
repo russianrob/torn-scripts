@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Torn RW Weapon Pricer
 // @namespace    torn.rw.weapon.pricer
-// @version      1.0
-// @description  RW weapon price estimator using real auction house data. Shows p25/median/p75 prices by weapon, quality, and bonus from 227K+ auction sales.
+// @version      1.1
+// @description  RW weapon and armour price estimator using real auction house data. Shows p25/median/p75 prices by weapon/armour, quality, and bonus from 227K+ auction sales.
 // @author       RussianRob
 // @match        https://www.torn.com/item*
 // @match        https://www.torn.com/bazaar*
@@ -30,15 +30,32 @@
 
     const ITEM_ID_MAP = {"1":"Hammer","2":"Baseball Bat","3":"Crowbar","4":"Knuckle Dusters","5":"Pen Knife","6":"Kitchen Knife","7":"Dagger","8":"Axe","9":"Scimitar","11":"Samurai Sword","12":"Glock 17","13":"Raven MP25","14":"Ruger 57","15":"Beretta M9","16":"USP","17":"Beretta 92FS","18":"Fiveseven","19":"Magnum","20":"Desert Eagle","22":"Sawed-Off Shotgun","23":"Benelli M1 Tactical","24":"MP5 Navy","25":"P90","26":"AK-47","27":"M4A1 Colt Carbine","28":"Benelli M4 Super","29":"M16 A2 Rifle","30":"Steyr AUG","31":"M249 SAW","63":"Minigun","99":"Springfield 1911","100":"Egg Propelled Launcher","108":"9mm Uzi","109":"RPG Launcher","110":"Leather Bullwhip","111":"Ninja Claws","146":"Yasukuni Sword","173":"Butterfly Knife","174":"XM8 Rifle","177":"Cobra Derringer","189":"S&W Revolver","217":"Claymore Sword","219":"Enfield SA-80","223":"Jackhammer","224":"Swiss Army Knife","225":"Mag 7","227":"Spear","228":"Vektor CR-21","231":"Heckler & Koch SL8","233":"BT MP9","234":"Chain Whip","235":"Wooden Nunchaku","236":"Kama","237":"Kodachi","238":"Sai","240":"Type 98 Anti Tank","243":"Taurus","245":"Bo Staff","247":"Katana","248":"Qsz-92","249":"SKS Carbine","252":"Ithaca 37","253":"Lorcin 380","254":"S&W M29","289":"Dual Axes","290":"Dual Hammers","391":"Macana","395":"Metal Nunchaku","397":"Flail","398":"SIG 552","399":"ArmaLite M-15A4","400":"Guandao","402":"Ice Pick","438":"Cricket Bat","439":"Frying Pan","483":"MP5k","484":"AK74U","485":"Skorpion","486":"TMP","487":"Thompson","488":"MP 40","489":"Luger","490":"Blunderbuss","612":"Tavor TAR-21","613":"Harpoon","614":"Diamond Bladed Knife","615":"Naval Cutlass","830":"Nock Gun","831":"Beretta Pico","832":"Riding Crop","837":"Rheinmetall MG 3","838":"Homemade Pocket Shotgun","846":"Scalpel","850":"Sledgehammer","1053":"Bread Knife","1055":"Poison Umbrella","1152":"SMAW Launcher","1153":"China Lake","1154":"Milkor MGL","1155":"PKM","1156":"Negev NG-5","1157":"Stoner 96","1158":"Meat Hook","1159":"Cleaver","1231":"Golf Club","1255":"Bone Saw","1257":"Cattle Prod","1456":"Bolas"};
 
+    // ─── Embedded Armour Price Data ──────────────────────────
+
+    const ARMOUR_PRICES = {"Riot Pants": {"Yellow": [75008802, 93717172, 122222223, 2837]}, "Assault Gloves": {"Yellow": [109000001, 129000001, 175000000, 3079]}, "Dune Helmet": {"Yellow": [70700001, 81780001, 102000001, 2492]}, "Riot Gloves": {"Yellow": [74412778, 90000001, 113498767, 2595]}, "Assault Pants": {"Yellow": [180000001, 215000001, 291388688, 3275]}, "Sentinel Apron": {"Orange": [4000000001, 4360000001, 4910000001, 205]}, "Assault Body": {"Yellow": [224800061, 275000001, 381808057, 3507]}, "Delta Boots": {"Orange": [400174273, 500000001, 700147109, 431]}, "Vanguard Body": {"Orange": [3019395964, 3300000001, 3751250001, 252]}, "Vanguard Respirator": {"Orange": [4226320803, 4610555556, 5112005780, 178]}, "Vanguard Gloves": {"Orange": [1611027778, 1731527500, 2000000001, 222]}, "Marauder Pants": {"Orange": [726161613, 926198753, 1115216208, 297]}, "Assault Boots": {"Yellow": [120118070, 145000001, 197993158, 3088]}, "Sentinel Boots": {"Orange": [2016190641, 2250000001, 2525000001, 197]}, "Dune Vest": {"Yellow": [72000001, 87283839, 111737272, 2757]}, "Dune Gloves": {"Yellow": [71000001, 83000001, 101549209, 2158]}, "Dune Boots": {"Yellow": [71000000, 83000000, 100019123, 2365]}, "Riot Boots": {"Yellow": [75000001, 90003309, 111000001, 2728]}, "Riot Body": {"Yellow": [80000001, 104482812, 155661606, 3003]}, "Sentinel Pants": {"Orange": [2500000001, 2770628104, 3100000001, 255]}, "Riot Helmet": {"Yellow": [98000001, 122495620, 160000001, 3038]}, "Delta Body": {"Orange": [623000001, 833333334, 1166777889, 425]}, "Vanguard Pants": {"Orange": [2012908251, 2333166667, 2681165614, 250]}, "Vanguard Boots": {"Orange": [1630521056, 1755122001, 1897500001, 242]}, "Assault Helmet": {"Yellow": [90000652, 105000001, 143161735, 3319]}, "Dune Pants": {"Yellow": [71111112, 84000001, 102000001, 2507]}, "Delta Gas Mask": {"Orange": [1455773798, 1824041897, 2500038498, 392]}, "Marauder Face Mask": {"Orange": [1300991306, 1452111113, 1655303704, 279]}, "Marauder Boots": {"Orange": [703000104, 800000001, 1000000001, 269]}, "Delta Pants": {"Orange": [430000001, 508723474, 651386759, 462]}, "Delta Gloves": {"Orange": [348998333, 436013787, 600550301, 455]}, "EOD Helmet": {"Red": [7011111112, 7950000001, 8750000001, 69]}, "EOD Gloves": {"Red": [4022886960, 4555555668, 5196386465, 67]}, "Marauder Body": {"Orange": [1333517031, 1501000001, 1857274663, 284]}, "Marauder Gloves": {"Orange": [455555556, 534875254, 666500000, 366]}, "EOD Apron": {"Red": [9011111112, 10010000001, 12322890145, 61]}, "Sentinel Helmet": {"Orange": [2459705688, 2749950001, 3065920139, 256]}, "EOD Pants": {"Red": [6312595746, 7009501229, 7613198123, 78]}, "EOD Boots": {"Red": [4233773259, 4629834818, 5013250001, 80]}, "Sentinel Gloves": {"Orange": [1822222223, 2000000001, 2152777778, 275]}, "Hazmat Suit": {"Yellow": [6511830001, 7900830606, 8100125180, 35]}, "M'aol Hooves": {"Yellow": [2501835586, 2501835586, 2501835586, 1]}, "M'aol Visage": {"Yellow": [7931234196, 7931234196, 7931234196, 1]}};
+
+    const ARMOUR_BONUS_PRICES = {"Impregnable": {"Yellow": [78985947, 99150001, 143051066, 14201]}, "Impenetrable": {"Yellow": [120000000, 180000000, 255000001, 16268]}, "Insurmountable": {"Yellow": [71012778, 84000001, 105000001, 12279]}, "Immutable": {"Orange": [2128869886, 2606777778, 3337500000, 1188]}, "Invulnerable": {"Orange": [449000001, 623000001, 1326501656, 2165]}, "Irrepressible": {"Orange": [1800000001, 2435670187, 3455981721, 1144]}, "Imperviable": {"Orange": [670950017, 1010483303, 1417074895, 1495]}, "Impassable": {"Red": [4800000001, 6500000287, 8537651251, 355]}, "Radiation Protection": {"Yellow": [6511830001, 7900830606, 8100125180, 35]}, "Kinetokinesis": {"Yellow": [3859185238, 5216534891, 6573884543, 2]}};
+
+    const ARMOUR_SET_PRICES = {"Riot": {"Yellow": [78985947, 99150001, 143051066, 14201]}, "Assault": {"Yellow": [120000000, 180000000, 255000001, 16268]}, "Dune": {"Yellow": [71012778, 84000001, 105000001, 12279]}, "Sentinel": {"Orange": [2128869886, 2606777778, 3337500000, 1188]}, "Delta": {"Orange": [449000001, 623000001, 1326501656, 2165]}, "Vanguard": {"Orange": [1800000001, 2435670187, 3455981721, 1144]}, "Marauder": {"Orange": [670950017, 1010483303, 1417074895, 1495]}, "EOD": {"Red": [4800000001, 6500000287, 8537651251, 355]}, "Other": {"Yellow": [6511830001, 7900830606, 8100125180, 35]}, "M'aol": {"Yellow": [3859185238, 5216534891, 6573884543, 2]}};
+
+    const ARMOUR_SET = {"M'aol Visage": "M'aol", "M'aol Hooves": "M'aol", "Sentinel Helmet": "Sentinel", "Sentinel Apron": "Sentinel", "Sentinel Pants": "Sentinel", "Sentinel Boots": "Sentinel", "Sentinel Gloves": "Sentinel", "Vanguard Respirator": "Vanguard", "Vanguard Body": "Vanguard", "Vanguard Pants": "Vanguard", "Vanguard Boots": "Vanguard", "Vanguard Gloves": "Vanguard", "Flak Jacket": "Other", "Hazmat Suit": "Other", "Kevlar Gloves": "Other", "WWII Helmet": "Other", "Motorcycle Helmet": "Other", "Construction Helmet": "Other", "Welding Helmet": "Other", "Riot Helmet": "Riot", "Riot Body": "Riot", "Riot Pants": "Riot", "Riot Boots": "Riot", "Riot Gloves": "Riot", "Dune Helmet": "Dune", "Dune Vest": "Dune", "Dune Pants": "Dune", "Dune Boots": "Dune", "Dune Gloves": "Dune", "Assault Helmet": "Assault", "Assault Body": "Assault", "Assault Pants": "Assault", "Assault Boots": "Assault", "Assault Gloves": "Assault", "Delta Gas Mask": "Delta", "Delta Body": "Delta", "Delta Pants": "Delta", "Delta Boots": "Delta", "Delta Gloves": "Delta", "Marauder Face Mask": "Marauder", "Marauder Body": "Marauder", "Marauder Pants": "Marauder", "Marauder Boots": "Marauder", "Marauder Gloves": "Marauder", "EOD Helmet": "EOD", "EOD Apron": "EOD", "EOD Pants": "EOD", "EOD Boots": "EOD", "EOD Gloves": "EOD"};
+
+    const ARMOUR_ID_MAP = {"1164": "M'aol Visage", "1167": "M'aol Hooves", "1307": "Sentinel Helmet", "1308": "Sentinel Apron", "1309": "Sentinel Pants", "1310": "Sentinel Boots", "1311": "Sentinel Gloves", "1355": "Vanguard Respirator", "1356": "Vanguard Body", "1357": "Vanguard Pants", "1358": "Vanguard Boots", "1359": "Vanguard Gloves", "178": "Flak Jacket", "348": "Hazmat Suit", "640": "Kevlar Gloves", "641": "WWII Helmet", "642": "Motorcycle Helmet", "643": "Construction Helmet", "644": "Welding Helmet", "655": "Riot Helmet", "656": "Riot Body", "657": "Riot Pants", "658": "Riot Boots", "659": "Riot Gloves", "660": "Dune Helmet", "661": "Dune Vest", "662": "Dune Pants", "663": "Dune Boots", "664": "Dune Gloves", "665": "Assault Helmet", "666": "Assault Body", "667": "Assault Pants", "668": "Assault Boots", "669": "Assault Gloves", "670": "Delta Gas Mask", "671": "Delta Body", "672": "Delta Pants", "673": "Delta Boots", "674": "Delta Gloves", "675": "Marauder Face Mask", "676": "Marauder Body", "677": "Marauder Pants", "678": "Marauder Boots", "679": "Marauder Gloves", "680": "EOD Helmet", "681": "EOD Apron", "682": "EOD Pants", "683": "EOD Boots", "684": "EOD Gloves"};
+
+    const ARMOUR_BONUS_MAP = {"112": "Kinetokinesis", "115": "Immutable", "121": "Irrepressible", "15": "Impregnable", "17": "Impenetrable", "22": "Imperviable", "26": "Impassable", "90": "Radiation Protection", "91": "Invulnerable", "92": "Insurmountable"};
+
     // ─── Constants ───────────────────────────────────────────
 
     const POS_KEY     = 'rwp_panel_pos';
     const CLOSED_KEY  = 'rwp_panel_closed';
     const TAB_KEY     = 'rwp_active_tab';
+    const MODE_KEY    = 'rwp_mode';
     const color       = '#e8c44a';
     const CLASSES     = ['Pistol / SMG', 'Melee', 'Shotgun / Rifle', 'Heavy'];
+    const ARMOUR_SETS = ['Dune', 'Riot', 'Assault', 'Delta', 'Marauder', 'Sentinel', 'Vanguard', 'EOD', "M'aol", 'Other'];
     const RARITIES    = ['Yellow', 'Orange', 'Red'];
     const RARITY_COLORS = { Yellow: '#e8c44a', Orange: '#ff9933', Red: '#ff4444' };
+    const ARMOUR_SET_SHORT = { Dune: 'Dun', Riot: 'Riot', Assault: 'Aslt', Delta: 'Del', Marauder: 'Mar', Sentinel: 'Sen', Vanguard: 'Van', EOD: 'EOD', "M'aol": "M'aol", Other: 'Oth' };
 
     let panelClosed = false;
 
@@ -78,6 +95,17 @@
 
     function getBonusNames() {
         return Object.keys(BONUS_PRICES).sort();
+    }
+
+    function getArmoursBySet(set) {
+        if (!set) return Object.keys(ARMOUR_PRICES).sort();
+        return Object.keys(ARMOUR_PRICES)
+            .filter(a => ARMOUR_SET[a] === set)
+            .sort();
+    }
+
+    function getArmourBonusNames() {
+        return Object.keys(ARMOUR_BONUS_PRICES).sort();
     }
 
     // ─── Inject CSS ──────────────────────────────────────────
@@ -254,6 +282,32 @@
     font-size: 9px;
     color: #666;
 }
+.rwp-mode-bar {
+    display: flex;
+    border-bottom: 1px solid rgba(232, 196, 74, 0.3);
+}
+.rwp-mode-btn {
+    flex: 1;
+    text-align: center;
+    padding: 5px 4px;
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: 700;
+    color: #888;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+    font-family: Verdana, Arial, sans-serif;
+}
+.rwp-mode-btn:hover {
+    color: #bbb;
+}
+.rwp-mode-btn.active {
+    color: ${color};
+    border-bottom-color: ${color};
+    background: rgba(232, 196, 74, 0.08);
+}
 `;
     document.head.appendChild(style);
 
@@ -355,6 +409,8 @@
         }
 
         const activeTab = getStored(TAB_KEY, 0);
+        const activeMode = getStored(MODE_KEY, 'weapon');
+        const refLabel = activeMode === 'armour' ? 'Armour Ref' : 'Weapon Ref';
 
         panel.innerHTML =
             '<div class="rwp-title">' +
@@ -364,10 +420,14 @@
                     '<button id="rwp-close-btn" class="rwp-btn" title="Close">✖</button>' +
                 '</span>' +
             '</div>' +
+            '<div class="rwp-mode-bar">' +
+                '<button class="rwp-mode-btn' + (activeMode === 'weapon' ? ' active' : '') + '" data-mode="weapon">\u2694 Weapons</button>' +
+                '<button class="rwp-mode-btn' + (activeMode === 'armour' ? ' active' : '') + '" data-mode="armour">\uD83D\uDEE1 Armour</button>' +
+            '</div>' +
             '<div class="rwp-tabs">' +
                 '<div class="rwp-tab' + (activeTab === 0 ? ' active' : '') + '" data-tab="0">Calculator</div>' +
                 '<div class="rwp-tab' + (activeTab === 1 ? ' active' : '') + '" data-tab="1">Bonus Ref</div>' +
-                '<div class="rwp-tab' + (activeTab === 2 ? ' active' : '') + '" data-tab="2">Weapon Ref</div>' +
+                '<div class="rwp-tab' + (activeTab === 2 ? ' active' : '') + '" data-tab="2">' + refLabel + '</div>' +
             '</div>' +
             '<div class="rwp-body" id="rwp-body"></div>';
 
@@ -382,6 +442,7 @@
         const closeBtn   = panel.querySelector('#rwp-close-btn');
         const refreshBtn = panel.querySelector('#rwp-refresh-btn');
         const tabs       = panel.querySelectorAll('.rwp-tab');
+        const modeBtns   = panel.querySelectorAll('.rwp-mode-btn');
         const body       = panel.querySelector('#rwp-body');
 
         closeBtn.addEventListener('click', () => {
@@ -390,7 +451,7 @@
         });
 
         refreshBtn.addEventListener('click', () => {
-            renderTab(body, getCurrentTab());
+            renderTab(body, getCurrentTab(), getCurrentMode());
         });
 
         function getCurrentTab() {
@@ -398,24 +459,48 @@
             return active ? parseInt(active.dataset.tab) : 0;
         }
 
+        function getCurrentMode() {
+            const active = panel.querySelector('.rwp-mode-btn.active');
+            return active ? active.dataset.mode : 'weapon';
+        }
+
+        modeBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                modeBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                const mode = btn.dataset.mode;
+                setStored(MODE_KEY, mode);
+                // Update third tab label
+                const tab2 = panel.querySelector('.rwp-tab[data-tab="2"]');
+                if (tab2) tab2.textContent = mode === 'armour' ? 'Armour Ref' : 'Weapon Ref';
+                renderTab(body, getCurrentTab(), mode);
+            });
+        });
+
         tabs.forEach(tab => {
             tab.addEventListener('click', () => {
                 tabs.forEach(t => t.classList.remove('active'));
                 tab.classList.add('active');
                 const idx = parseInt(tab.dataset.tab);
                 setStored(TAB_KEY, idx);
-                renderTab(body, idx);
+                renderTab(body, idx, getCurrentMode());
             });
         });
 
-        renderTab(body, initialTab);
+        renderTab(body, initialTab, getStored(MODE_KEY, 'weapon'));
     }
 
-    function renderTab(body, idx) {
+    function renderTab(body, idx, mode) {
         body.innerHTML = '';
-        if (idx === 0) renderCalculator(body);
-        else if (idx === 1) renderBonusRef(body);
-        else if (idx === 2) renderWeaponRef(body);
+        if (mode === 'armour') {
+            if (idx === 0) renderArmourCalculator(body);
+            else if (idx === 1) renderArmourBonusRef(body);
+            else if (idx === 2) renderArmourRef(body);
+        } else {
+            if (idx === 0) renderCalculator(body);
+            else if (idx === 1) renderBonusRef(body);
+            else if (idx === 2) renderWeaponRef(body);
+        }
     }
 
     // ─── Tab 1: Calculator ───────────────────────────────────
@@ -688,6 +773,287 @@
             html += '<tr>' +
                 '<td style="color:#ddd;font-weight:700;white-space:nowrap">' + w.name + '</td>' +
                 '<td style="color:#888;font-size:9px">' + shortCls + '</td>' +
+                '<td style="color:' + RARITY_COLORS.Yellow + '">' + ym + '</td>' +
+                '<td style="color:' + RARITY_COLORS.Orange + '">' + om + '</td>' +
+                '<td style="color:' + RARITY_COLORS.Red + '">' + rm + '</td>' +
+                '</tr>';
+        }
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    }
+
+    // ─── Tab 1 (Armour): Calculator ─────────────────────────
+
+    function renderArmourCalculator(container) {
+        // Set select
+        var setLabel = document.createElement('span');
+        setLabel.className = 'rwp-label';
+        setLabel.textContent = 'Armour Set';
+        container.appendChild(setLabel);
+
+        var setSelect = document.createElement('select');
+        setSelect.className = 'rwp-select';
+        setSelect.innerHTML = '<option value="">All Sets</option>' +
+            ARMOUR_SETS.map(function(s) { return '<option value="' + s + '">' + s + '</option>'; }).join('');
+        container.appendChild(setSelect);
+
+        // Armour piece select
+        var pieceLabel = document.createElement('span');
+        pieceLabel.className = 'rwp-label';
+        pieceLabel.textContent = 'Armour Piece';
+        container.appendChild(pieceLabel);
+
+        var pieceSelect = document.createElement('select');
+        pieceSelect.className = 'rwp-select';
+        container.appendChild(pieceSelect);
+
+        function populatePieces() {
+            var set = setSelect.value;
+            var pieces = getArmoursBySet(set || null);
+            pieceSelect.innerHTML = '<option value="">-- Select Armour --</option>' +
+                pieces.map(function(a) { return '<option value="' + a.replace(/"/g, '&quot;') + '">' + a + '</option>'; }).join('');
+        }
+        populatePieces();
+
+        // Quality select
+        var qualLabel = document.createElement('span');
+        qualLabel.className = 'rwp-label';
+        qualLabel.textContent = 'Quality';
+        container.appendChild(qualLabel);
+
+        var qualSelect = document.createElement('select');
+        qualSelect.className = 'rwp-select';
+        RARITIES.forEach(function(r) {
+            var opt = document.createElement('option');
+            opt.value = r;
+            opt.textContent = r;
+            opt.style.color = RARITY_COLORS[r];
+            qualSelect.appendChild(opt);
+        });
+        qualSelect.value = 'Orange';
+        container.appendChild(qualSelect);
+
+        // Bonus 1
+        var bonus1Label = document.createElement('span');
+        bonus1Label.className = 'rwp-label';
+        bonus1Label.textContent = 'Bonus 1';
+        container.appendChild(bonus1Label);
+
+        var bonus1Select = document.createElement('select');
+        bonus1Select.className = 'rwp-select';
+        var aBonusNames = getArmourBonusNames();
+        bonus1Select.innerHTML = '<option value="">None</option>' +
+            aBonusNames.map(function(b) { return '<option value="' + b + '">' + b + '</option>'; }).join('');
+        container.appendChild(bonus1Select);
+
+        // Bonus 2
+        var bonus2Label = document.createElement('span');
+        bonus2Label.className = 'rwp-label';
+        bonus2Label.textContent = 'Bonus 2';
+        container.appendChild(bonus2Label);
+
+        var bonus2Select = document.createElement('select');
+        bonus2Select.className = 'rwp-select';
+        bonus2Select.innerHTML = '<option value="">None</option>' +
+            aBonusNames.map(function(b) { return '<option value="' + b + '">' + b + '</option>'; }).join('');
+        container.appendChild(bonus2Select);
+
+        // Result area
+        var resultDiv = document.createElement('div');
+        resultDiv.id = 'rwp-result-area';
+        container.appendChild(resultDiv);
+
+        function updateBonus2State() {
+            if (qualSelect.value === 'Yellow') {
+                bonus2Select.value = '';
+                bonus2Select.disabled = true;
+                bonus2Select.style.opacity = '0.4';
+            } else {
+                bonus2Select.disabled = false;
+                bonus2Select.style.opacity = '1';
+            }
+        }
+
+        function updateResults() {
+            updateBonus2State();
+            var piece  = pieceSelect.value;
+            var rarity = qualSelect.value;
+            var bonus1 = bonus1Select.value;
+            var bonus2 = bonus2Select.value;
+            var set    = setSelect.value || (piece ? ARMOUR_SET[piece] : null);
+
+            resultDiv.innerHTML = '';
+
+            if (!rarity) return;
+
+            var resultBox = document.createElement('div');
+            resultBox.className = 'rwp-result';
+
+            // Set baseline
+            if (set && ARMOUR_SET_PRICES[set] && ARMOUR_SET_PRICES[set][rarity]) {
+                var sd = ARMOUR_SET_PRICES[set][rarity];
+                resultBox.innerHTML +=
+                    '<div class="rwp-result-row">' +
+                        '<span class="rwp-result-label">' + set + ' set median</span>' +
+                        '<span class="rwp-result-value" style="color:' + RARITY_COLORS[rarity] + '">' + fmtMoney(sd[1]) + '</span>' +
+                    '</div>';
+            }
+
+            // Piece specific
+            var pData = null;
+            if (piece && ARMOUR_PRICES[piece] && ARMOUR_PRICES[piece][rarity]) {
+                pData = ARMOUR_PRICES[piece][rarity];
+                resultBox.innerHTML +=
+                    '<div style="margin-top:6px;font-size:10px;color:' + color + ';font-weight:700;">' + piece + ' (' + rarity + ')</div>' +
+                    '<div class="rwp-result-row">' +
+                        '<span class="rwp-result-label">P25 (Low)</span>' +
+                        '<span class="rwp-result-value">' + fmtMoney(pData[0]) + '</span>' +
+                    '</div>' +
+                    '<div class="rwp-result-row">' +
+                        '<span class="rwp-result-label">Median</span>' +
+                        '<span class="rwp-result-value" style="color:' + RARITY_COLORS[rarity] + '">' + fmtMoney(pData[1]) + '</span>' +
+                    '</div>' +
+                    '<div class="rwp-result-row">' +
+                        '<span class="rwp-result-label">P75 (High)</span>' +
+                        '<span class="rwp-result-value">' + fmtMoney(pData[2]) + '</span>' +
+                    '</div>' +
+                    '<div class="rwp-result-row">' +
+                        '<span class="rwp-result-label">Sales</span>' +
+                        '<span class="rwp-count">' + pData[3] + ' auctions</span>' +
+                    '</div>';
+            } else if (piece) {
+                resultBox.innerHTML +=
+                    '<div style="margin-top:6px;font-size:10px;color:#888;">No ' + rarity + ' data for ' + piece + ' \u2014 using set data</div>';
+            }
+
+            // Bonus data
+            [bonus1, bonus2].forEach(function(b, i) {
+                if (!b) return;
+                if (ARMOUR_BONUS_PRICES[b] && ARMOUR_BONUS_PRICES[b][rarity]) {
+                    var bd = ARMOUR_BONUS_PRICES[b][rarity];
+                    resultBox.innerHTML +=
+                        '<div style="margin-top:6px;font-size:10px;color:' + color + ';font-weight:700;">Bonus ' + (i + 1) + ': ' + b + ' (' + rarity + ')</div>' +
+                        '<div class="rwp-result-row">' +
+                            '<span class="rwp-result-label">P25 / Median / P75</span>' +
+                            '<span class="rwp-result-value" style="font-size:10px">' + fmtMoney(bd[0]) + ' / ' + fmtMoney(bd[1]) + ' / ' + fmtMoney(bd[2]) + '</span>' +
+                        '</div>' +
+                        '<div class="rwp-result-row">' +
+                            '<span class="rwp-result-label">Sales</span>' +
+                            '<span class="rwp-count">' + bd[3] + ' auctions</span>' +
+                        '</div>';
+                } else if (b) {
+                    resultBox.innerHTML +=
+                        '<div style="margin-top:6px;font-size:10px;color:#888;">No ' + rarity + ' data for bonus: ' + b + '</div>';
+                }
+            });
+
+            resultDiv.appendChild(resultBox);
+
+            // Estimated range
+            var effectiveSet = set || (piece ? ARMOUR_SET[piece] : null);
+            var low, mid, high;
+
+            if (pData) {
+                low = pData[0];
+                mid = pData[1];
+                high = pData[2];
+            } else if (effectiveSet && ARMOUR_SET_PRICES[effectiveSet] && ARMOUR_SET_PRICES[effectiveSet][rarity]) {
+                var cd = ARMOUR_SET_PRICES[effectiveSet][rarity];
+                low = cd[0];
+                mid = cd[1];
+                high = cd[2];
+            }
+
+            if (low != null) {
+                var estimate = document.createElement('div');
+                estimate.className = 'rwp-estimate';
+                estimate.innerHTML =
+                    '<div class="rwp-estimate-title">Estimated Range</div>' +
+                    '<div class="rwp-estimate-range">' +
+                        '<span style="color:#aaa">' + fmtMoney(low) + '</span>' +
+                        ' \u2014 ' +
+                        '<span style="color:' + RARITY_COLORS[rarity] + '">' + fmtMoney(mid) + '</span>' +
+                        ' \u2014 ' +
+                        '<span style="color:#aaa">' + fmtMoney(high) + '</span>' +
+                    '</div>';
+                resultDiv.appendChild(estimate);
+            }
+        }
+
+        setSelect.addEventListener('change', function() {
+            populatePieces();
+            updateResults();
+        });
+        pieceSelect.addEventListener('change', updateResults);
+        qualSelect.addEventListener('change', updateResults);
+        bonus1Select.addEventListener('change', updateResults);
+        bonus2Select.addEventListener('change', updateResults);
+
+        updateBonus2State();
+    }
+
+    // ─── Tab 2 (Armour): Bonus Reference ─────────────────────
+
+    function renderArmourBonusRef(container) {
+        var bonuses = Object.keys(ARMOUR_BONUS_PRICES)
+            .map(function(name) {
+                var d = ARMOUR_BONUS_PRICES[name];
+                var orangeMedian = (d.Orange && d.Orange[1]) || 0;
+                var yellowMedian = (d.Yellow && d.Yellow[1]) || 0;
+                return { name: name, data: d, sortVal: orangeMedian || yellowMedian };
+            })
+            .sort(function(a, b) { return b.sortVal - a.sortVal; });
+
+        var html = '<table class="rwp-table"><thead><tr>' +
+            '<th>Bonus</th><th>Yellow</th><th>Orange</th><th>Red</th>' +
+            '</tr></thead><tbody>';
+
+        for (var i = 0; i < bonuses.length; i++) {
+            var b = bonuses[i];
+            var ym = (b.data.Yellow && b.data.Yellow[1]) ? fmtMoney(b.data.Yellow[1]) : 'N/A';
+            var om = (b.data.Orange && b.data.Orange[1]) ? fmtMoney(b.data.Orange[1]) : 'N/A';
+            var rm = (b.data.Red && b.data.Red[1]) ? fmtMoney(b.data.Red[1]) : 'N/A';
+
+            html += '<tr>' +
+                '<td style="color:#ddd;font-weight:700">' + b.name + '</td>' +
+                '<td style="color:' + RARITY_COLORS.Yellow + '">' + ym + '</td>' +
+                '<td style="color:' + RARITY_COLORS.Orange + '">' + om + '</td>' +
+                '<td style="color:' + RARITY_COLORS.Red + '">' + rm + '</td>' +
+                '</tr>';
+        }
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    }
+
+    // ─── Tab 3 (Armour): Armour Reference ─────────────────────
+
+    function renderArmourRef(container) {
+        var armours = Object.keys(ARMOUR_PRICES)
+            .map(function(name) {
+                var d = ARMOUR_PRICES[name];
+                var orangeMedian = (d.Orange && d.Orange[1]) || 0;
+                var yellowMedian = (d.Yellow && d.Yellow[1]) || 0;
+                var redMedian = (d.Red && d.Red[1]) || 0;
+                return { name: name, data: d, set: ARMOUR_SET[name] || '?', sortVal: orangeMedian || redMedian || yellowMedian };
+            })
+            .sort(function(a, b) { return b.sortVal - a.sortVal; });
+
+        var html = '<table class="rwp-table"><thead><tr>' +
+            '<th>Armour</th><th>Set</th><th>Yellow</th><th>Orange</th><th>Red</th>' +
+            '</tr></thead><tbody>';
+
+        for (var i = 0; i < armours.length; i++) {
+            var a = armours[i];
+            var ym = (a.data.Yellow && a.data.Yellow[1]) ? fmtMoney(a.data.Yellow[1]) : 'N/A';
+            var om = (a.data.Orange && a.data.Orange[1]) ? fmtMoney(a.data.Orange[1]) : 'N/A';
+            var rm = (a.data.Red && a.data.Red[1]) ? fmtMoney(a.data.Red[1]) : 'N/A';
+            var shortSet = ARMOUR_SET_SHORT[a.set] || a.set;
+
+            html += '<tr>' +
+                '<td style="color:#ddd;font-weight:700;white-space:nowrap">' + a.name + '</td>' +
+                '<td style="color:#888;font-size:9px">' + shortSet + '</td>' +
                 '<td style="color:' + RARITY_COLORS.Yellow + '">' + ym + '</td>' +
                 '<td style="color:' + RARITY_COLORS.Orange + '">' + om + '</td>' +
                 '<td style="color:' + RARITY_COLORS.Red + '">' + rm + '</td>' +
