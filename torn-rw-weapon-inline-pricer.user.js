@@ -582,14 +582,33 @@
             }
         }
 
-        // Legacy: .iconsbonuses span with title
+        // Auction house: .iconsbonuses span with title (titles contain HTML like "<b>Motivation</b> 15%")
         var legacySpans = el.querySelectorAll('.iconsbonuses span');
         for (var k = 0; k < legacySpans.length; k++) {
             var title = legacySpans[k].getAttribute('title') || '';
-            var lMatch = title.match(/^(\w[\w\s-]*)/);
-            if (lMatch) {
-                var lName = lMatch[1].trim();
-                if ((bonusPrices[lName] || armourBonusPrices[lName]) && bonuses.indexOf(lName) === -1) bonuses.push(lName);
+            // Try HTML-wrapped name first: <b>BonusName</b>
+            var htmlMatch = title.match(/<b>([\w\s-]+)<\/b>/i);
+            if (htmlMatch) {
+                var hName = htmlMatch[1].trim();
+                if ((bonusPrices[hName] || armourBonusPrices[hName]) && bonuses.indexOf(hName) === -1) bonuses.push(hName);
+            } else {
+                // Plain text fallback
+                var lMatch = title.match(/^(\w[\w\s-]*)/);
+                if (lMatch) {
+                    var lName = lMatch[1].trim();
+                    if ((bonusPrices[lName] || armourBonusPrices[lName]) && bonuses.indexOf(lName) === -1) bonuses.push(lName);
+                }
+            }
+        }
+
+        // Auction house: display-bonus plugin p elements (e.g. "Motivation 15%")
+        var dbBonuses = el.querySelectorAll('p.display-bonus__bonus, [class*="display-bonus__bonus"]');
+        for (var d = 0; d < dbBonuses.length; d++) {
+            var dbText = dbBonuses[d].textContent || '';
+            var dbMatch = dbText.match(/^\s*(\w[\w\s-]*)/);
+            if (dbMatch) {
+                var dbName = dbMatch[1].trim();
+                if ((bonusPrices[dbName] || armourBonusPrices[dbName]) && bonuses.indexOf(dbName) === -1) bonuses.push(dbName);
             }
         }
 
