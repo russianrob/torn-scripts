@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn RW Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      2.7
+// @version      2.8
 // @description  Inline price badges for RW weapons and armour using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
@@ -1118,6 +1118,11 @@
         var tooltipRect = tooltip.getBoundingClientRect();
         var top = rect.bottom + window.scrollY + 6;
         var left = rect.left + window.scrollX + (rect.width / 2) - (tooltipRect.width / 2);
+
+        // If tooltip overflows bottom of viewport, show above the badge instead
+        if (rect.bottom + tooltipRect.height + 6 > window.innerHeight) {
+            top = rect.top + window.scrollY - tooltipRect.height - 6;
+        }
 
         // Keep within viewport horizontally
         if (left < 4) left = 4;
