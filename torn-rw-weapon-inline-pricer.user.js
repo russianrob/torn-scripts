@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn RW Weapon Inline Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      2.2
+// @version      2.3
 // @description  Injects inline price badges on RW weapons and armour in inventory, item market, auction house, and bazaar using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
@@ -1075,8 +1075,9 @@
                 var bArr = bonusPricesData[bName];
                 if (!bArr || bArr.length !== 4) continue;
                 var bColorLabel = (bonusColors && bonusColors[bName]) ? bonusColors[bName] : '';
+                var bColorHex = (bColorLabel && RARITY_COLORS[bColorLabel]) ? RARITY_COLORS[bColorLabel] : '#ccc';
                 html += '<div class="rwp-tooltip-divider"></div>';
-                html += '<div class="rwp-tooltip-bonus-header">' + bName + ' Bonus' + (bColorLabel ? ' <span style="opacity:0.6;">(' + bColorLabel + ')</span>' : '') + '</div>';
+                html += '<div class="rwp-tooltip-bonus-header" style="color:' + bColorHex + ';">' + bName + ' Bonus' + (bColorLabel ? ' <span style="opacity:0.6;">(' + bColorLabel + ')</span>' : '') + '</div>';
                 html += '<div class="rwp-tooltip-section">';
                 html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Min:</span><span class="rwp-tooltip-value">' + fmtMoney(bArr[0]) + '</span></div>';
                 html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Median:</span><span class="rwp-tooltip-value">' + fmtMoney(bArr[1]) + '</span></div>';
