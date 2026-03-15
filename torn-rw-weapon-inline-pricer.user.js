@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn RW Weapon Inline Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      1.6
+// @version      1.7
 // @description  Injects inline price badges on RW weapons and armour in inventory, item market, auction house, and bazaar using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
@@ -27,7 +27,7 @@
     // ─── CDN URL & Cache Config ──────────────────────────────
     var WEAPON_CDN_URL = 'https://cdn.marches.cafe/items/weapon-auctions4.csv.gz';
     var ARMOUR_CDN_URL = 'https://cdn.marches.cafe/items/armour-auctions4.csv.gz';
-    var PRICES_JSON_URL = 'https://raw.githubusercontent.com/russianrob/torn-scripts/main/rwp-prices.json';
+    var PRICES_JSON_URL = 'https://raw.githubusercontent.com/russianrob/rwp-prices/main/rwp-prices.json';
     var CACHE_KEY = 'rwp_price_cache';
     var CACHE_TTL = 3600000; // 1 hour in ms
     // PDA detection: apiKey is set when PDA replaces ###PDA-APIKEY###, or flutter bridge exists
@@ -177,6 +177,36 @@
     function getArmourBonusMedian(bonusName, rarity) {
         if (!bonusName || !armourBonusPrices[bonusName]) return null;
         if (armourBonusPrices[bonusName][rarity]) return armourBonusPrices[bonusName][rarity][1];
+        return null;
+    }
+
+    // ─── Full price array accessors ─────────────────────────
+
+    function getPriceArray(weaponName, rarity) {
+        var wData = weaponPrices[weaponName];
+        if (wData && wData[rarity]) return wData[rarity];
+        var cls = WEAPON_CLASS[weaponName];
+        if (cls && classPrices[cls] && classPrices[cls][rarity]) return classPrices[cls][rarity];
+        return null;
+    }
+
+    function getArmourPriceArray(armourName, rarity) {
+        var aData = armourPrices[armourName];
+        if (aData && aData[rarity]) return aData[rarity];
+        var aSet = ARMOUR_SET[armourName];
+        if (aSet && armourSetPrices[aSet] && armourSetPrices[aSet][rarity]) return armourSetPrices[aSet][rarity];
+        return null;
+    }
+
+    function getBonusPriceArray(bonusName, rarity) {
+        if (!bonusName || !bonusPrices[bonusName]) return null;
+        if (bonusPrices[bonusName][rarity]) return bonusPrices[bonusName][rarity];
+        return null;
+    }
+
+    function getArmourBonusPriceArray(bonusName, rarity) {
+        if (!bonusName || !armourBonusPrices[bonusName]) return null;
+        if (armourBonusPrices[bonusName][rarity]) return armourBonusPrices[bonusName][rarity];
         return null;
     }
 
@@ -864,11 +894,18 @@
 
     // ─── Badge creation ──────────────────────────────────────
 
-    function createBadge(itemName, rarity, median, bonuses, bonusFn, estimatedPrice) {
+    function createBadge(itemName, rarity, median, bonuses, bonusFn, estimatedPrice, priceArray, bonusPriceArrays) {
         var color = RARITY_COLORS[rarity] || '#e8c44a';
         var badge = document.createElement('span');
         badge.className = 'rwp-price-tag';
         badge.setAttribute('data-rwp-priced', '1');
+
+        // Store data for tooltip
+        badge.setAttribute('data-rwp-item', itemName);
+        badge.setAttribute('data-rwp-rarity', rarity);
+        if (priceArray) badge.setAttribute('data-rwp-prices', JSON.stringify(priceArray));
+        if (bonusPriceArrays) badge.setAttribute('data-rwp-bonus-prices', JSON.stringify(bonusPriceArrays));
+        if (bonuses.length > 0) badge.setAttribute('data-rwp-bonuses', JSON.stringify(bonuses));
 
         var displayPrice = estimatedPrice || median;
         var label = (bonuses.length > 0 && estimatedPrice && estimatedPrice !== median) ? 'RWP Est' : 'RWP';
@@ -878,8 +915,100 @@
             '<span class="rwp-price-tag-value" style="color:' + color + ';">' + fmtMoney(displayPrice) + '</span>' +
             '</span>';
         badge.innerHTML = html;
+
+        badge.addEventListener('click', function(e) {
+            e.stopPropagation();
+            showPriceTooltip(badge);
+        });
+
         return badge;
     }
+
+    // ─── Tooltip ──────────────────────────────────────────────
+
+    var activeTooltip = null;
+
+    function closeActiveTooltip() {
+        if (activeTooltip) {
+            activeTooltip.remove();
+            activeTooltip = null;
+        }
+    }
+
+    function showPriceTooltip(badge) {
+        // If clicking the same badge, toggle off
+        if (activeTooltip && activeTooltip._rwpBadge === badge) {
+            closeActiveTooltip();
+            return;
+        }
+        closeActiveTooltip();
+
+        var itemName = badge.getAttribute('data-rwp-item') || 'Unknown';
+        var rarity = badge.getAttribute('data-rwp-rarity') || 'Yellow';
+        var color = RARITY_COLORS[rarity] || '#e8c44a';
+        var prices = null;
+        var bonusPricesData = null;
+        var bonuses = null;
+
+        try { prices = JSON.parse(badge.getAttribute('data-rwp-prices')); } catch (e) {}
+        try { bonusPricesData = JSON.parse(badge.getAttribute('data-rwp-bonus-prices')); } catch (e) {}
+        try { bonuses = JSON.parse(badge.getAttribute('data-rwp-bonuses')); } catch (e) {}
+
+        var tooltip = document.createElement('div');
+        tooltip.className = 'rwp-price-tooltip';
+        tooltip._rwpBadge = badge;
+
+        var html = '<div class="rwp-tooltip-header" style="color:' + color + ';">' + itemName + ' <span style="opacity:0.6;">(' + rarity + ')</span></div>';
+
+        if (prices && prices.length === 4) {
+            html += '<div class="rwp-tooltip-section">';
+            html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Min:</span><span class="rwp-tooltip-value">' + fmtMoney(prices[0]) + '</span></div>';
+            html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Median:</span><span class="rwp-tooltip-value">' + fmtMoney(prices[1]) + '</span></div>';
+            html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Max:</span><span class="rwp-tooltip-value">' + fmtMoney(prices[2]) + '</span></div>';
+            html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Auctions:</span><span class="rwp-tooltip-value">' + prices[3] + '</span></div>';
+            html += '</div>';
+        }
+
+        if (bonuses && bonusPricesData) {
+            for (var i = 0; i < bonuses.length; i++) {
+                var bName = bonuses[i];
+                var bArr = bonusPricesData[bName];
+                if (!bArr || bArr.length !== 4) continue;
+                html += '<div class="rwp-tooltip-divider"></div>';
+                html += '<div class="rwp-tooltip-bonus-header">' + bName + ' Bonus</div>';
+                html += '<div class="rwp-tooltip-section">';
+                html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Min:</span><span class="rwp-tooltip-value">' + fmtMoney(bArr[0]) + '</span></div>';
+                html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Median:</span><span class="rwp-tooltip-value">' + fmtMoney(bArr[1]) + '</span></div>';
+                html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Max:</span><span class="rwp-tooltip-value">' + fmtMoney(bArr[2]) + '</span></div>';
+                html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Auctions:</span><span class="rwp-tooltip-value">' + bArr[3] + '</span></div>';
+                html += '</div>';
+            }
+        }
+
+        tooltip.innerHTML = html;
+        document.body.appendChild(tooltip);
+
+        // Position tooltip near badge
+        var rect = badge.getBoundingClientRect();
+        var tooltipRect = tooltip.getBoundingClientRect();
+        var top = rect.bottom + window.scrollY + 6;
+        var left = rect.left + window.scrollX + (rect.width / 2) - (tooltipRect.width / 2);
+
+        // Keep within viewport horizontally
+        if (left < 4) left = 4;
+        if (left + tooltipRect.width > window.innerWidth - 4) left = window.innerWidth - tooltipRect.width - 4;
+
+        tooltip.style.top = top + 'px';
+        tooltip.style.left = left + 'px';
+
+        activeTooltip = tooltip;
+    }
+
+    document.addEventListener('click', function(e) {
+        if (activeTooltip && !activeTooltip.contains(e.target) && !e.target.closest('.rwp-price-tag')) {
+            closeActiveTooltip();
+        }
+    });
 
     // ─── CSS injection ───────────────────────────────────────
 
@@ -895,7 +1024,8 @@
             '  vertical-align: middle;' +
             '  font-size: 11px;' +
             '  line-height: 1.2;' +
-            '  pointer-events: none;' +
+            '  pointer-events: auto;' +
+            '  cursor: pointer;' +
             '}' +
             '.rwp-price-tag-inner {' +
             '  display: inline-flex;' +
@@ -917,6 +1047,56 @@
             '}' +
             '.rwp-price-tag-value {' +
             '  font-weight: 600;' +
+            '}' +
+
+            '.rwp-price-tooltip {' +
+            '  position: absolute;' +
+            '  z-index: 1000000;' +
+            '  background: rgba(11, 15, 25, 0.96);' +
+            '  border: 1px solid rgba(232, 196, 74, 0.3);' +
+            '  border-radius: 6px;' +
+            '  padding: 10px 14px;' +
+            '  font-size: 12px;' +
+            '  color: #ccc;' +
+            '  min-width: 180px;' +
+            '  box-shadow: 0 4px 16px rgba(0,0,0,0.5);' +
+            '  font-family: Arial, sans-serif;' +
+            '}' +
+            '.rwp-tooltip-header {' +
+            '  font-weight: 700;' +
+            '  font-size: 13px;' +
+            '  margin-bottom: 8px;' +
+            '}' +
+            '.rwp-tooltip-section {' +
+            '  display: flex;' +
+            '  flex-direction: column;' +
+            '  gap: 3px;' +
+            '}' +
+            '.rwp-tooltip-row {' +
+            '  display: flex;' +
+            '  justify-content: space-between;' +
+            '  gap: 12px;' +
+            '}' +
+            '.rwp-tooltip-label {' +
+            '  color: #e8c44a;' +
+            '  opacity: 0.7;' +
+            '  font-size: 11px;' +
+            '}' +
+            '.rwp-tooltip-value {' +
+            '  color: #eee;' +
+            '  font-weight: 600;' +
+            '  font-size: 11px;' +
+            '}' +
+            '.rwp-tooltip-divider {' +
+            '  height: 1px;' +
+            '  background: rgba(232, 196, 74, 0.15);' +
+            '  margin: 8px 0;' +
+            '}' +
+            '.rwp-tooltip-bonus-header {' +
+            '  color: #e8c44a;' +
+            '  font-weight: 600;' +
+            '  font-size: 11px;' +
+            '  margin-bottom: 4px;' +
             '}' +
 
             '#rwp-inline-toggle {' +
@@ -1095,7 +1275,16 @@
                 }
             }
 
-            badge = createBadge(weaponKey || armourKey, rarity, median, bonuses, bonusFn, estimatedPrice);
+            // Gather full price arrays for tooltip
+            var itemPriceArray = weaponKey ? getPriceArray(weaponKey, rarity) : getArmourPriceArray(armourKey, rarity);
+            var bonusPriceArrays = {};
+            var bonusArrayFn = weaponKey ? getBonusPriceArray : getArmourBonusPriceArray;
+            for (var bi = 0; bi < bonuses.length; bi++) {
+                var bArr = bonusArrayFn(bonuses[bi], rarity);
+                if (bArr) bonusPriceArrays[bonuses[bi]] = bArr;
+            }
+
+            badge = createBadge(weaponKey || armourKey, rarity, median, bonuses, bonusFn, estimatedPrice, itemPriceArray, Object.keys(bonusPriceArrays).length > 0 ? bonusPriceArrays : null);
 
             // Find insertion point — after name element
             var nameEl = el.querySelector('[class*="description"] .bold') ||
@@ -1115,6 +1304,7 @@
     }
 
     function removeAllBadges() {
+        closeActiveTooltip();
         var badges = document.querySelectorAll('.rwp-price-tag');
         for (var i = 0; i < badges.length; i++) {
             badges[i].parentNode.removeChild(badges[i]);
