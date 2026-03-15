@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Torn Faction Offline Highlighter
 // @namespace    torn.faction.offline.highlight
-// @version      1.6.1
+// @version      1.7.0
 // @description  Highlights faction members red who have been offline for over 24 hours on the faction member list. Shows last OC participation on the not-participating panel. Configurable threshold. PDA compatible.
-// @changelog    v1.6.1 - Fixed gear icon and sort toggle showing on OC/crimes pages; controls now only appear on the member list tab
+// @changelog    v1.7.0 - Fixed gear icon and sort toggle appearing on non-faction pages (e.g. Home); controls now verify faction page before rendering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
 // @run-at       document-end
@@ -17,6 +17,11 @@
 
 (function () {
     'use strict';
+
+    // ─── Faction page guard ──────────────────────────────────
+    // PDA can sometimes run scripts outside their @match scope,
+    // so bail early if we're not actually on a faction page.
+    if (!location.pathname.includes('factions.php')) return;
 
     // ─── Configuration ───────────────────────────────────────
     const STORAGE_KEY_API   = 'faction_offline_api_key_v1';
@@ -466,7 +471,7 @@
         gear.style.cssText =
             'position:fixed;bottom:80px;right:14px;z-index:100000;cursor:pointer;' +
             'font-size:22px;background:#333;color:#ccc;width:34px;height:34px;' +
-            'border-radius:50%;display:flex;align-items:center;justify-content:center;' +
+            'border-radius:50%;display:none;align-items:center;justify-content:center;' +
             'box-shadow:0 2px 6px rgba(0,0,0,.4);user-select:none;';
 
         gear.addEventListener('click', () => openSettingsPanel());
@@ -562,7 +567,7 @@
         btn.style.cssText =
             'position:fixed;bottom:80px;right:56px;z-index:100000;cursor:pointer;' +
             'font-size:12px;background:#333;color:#ccc;height:34px;' +
-            'border-radius:17px;display:flex;align-items:center;justify-content:center;' +
+            'border-radius:17px;display:none;align-items:center;justify-content:center;' +
             'box-shadow:0 2px 6px rgba(0,0,0,.4);user-select:none;padding:0 12px;' +
             'font-family:Arial,sans-serif;font-weight:700;white-space:nowrap;';
 
