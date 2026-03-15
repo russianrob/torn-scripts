@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn RW Weapon Inline Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      2.4
+// @version      2.5
 // @description  Injects inline price badges on RW weapons and armour in inventory, item market, auction house, and bazaar using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
@@ -1094,24 +1094,17 @@
                 var comboArr = (comboPricesData && comboPricesData[bName] && comboPricesData[bName].length === 4) ? comboPricesData[bName] : null;
                 var genericArr = (bonusPricesData && bonusPricesData[bName] && bonusPricesData[bName].length === 4) ? bonusPricesData[bName] : null;
 
-                if (comboArr) {
+                // Show combo data if available, otherwise fall back to generic
+                var displayArr = comboArr || genericArr;
+                var displayLabel = comboArr ? (bName + ' on ' + itemName) : (bName + ' Bonus');
+                if (displayArr) {
                     html += '<div class="rwp-tooltip-divider"></div>';
-                    html += '<div class="rwp-tooltip-bonus-header" style="color:' + bColorHex + ';">' + bName + ' on ' + itemName + (bColorLabel ? ' <span style="opacity:0.6;">(' + bColorLabel + ')</span>' : '') + '</div>';
+                    html += '<div class="rwp-tooltip-bonus-header" style="color:' + bColorHex + ';">' + displayLabel + (bColorLabel ? ' <span style="opacity:0.6;">(' + bColorLabel + ')</span>' : '') + '</div>';
                     html += '<div class="rwp-tooltip-section">';
-                    html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Min:</span><span class="rwp-tooltip-value">' + fmtMoney(comboArr[0]) + '</span></div>';
-                    html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Median:</span><span class="rwp-tooltip-value">' + fmtMoney(comboArr[1]) + '</span></div>';
-                    html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Max:</span><span class="rwp-tooltip-value">' + fmtMoney(comboArr[2]) + '</span></div>';
-                    html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Auctions:</span><span class="rwp-tooltip-value">' + comboArr[3] + '</span></div>';
-                    html += '</div>';
-                }
-                if (genericArr) {
-                    html += '<div class="rwp-tooltip-divider"></div>';
-                    html += '<div class="rwp-tooltip-bonus-header" style="color:' + bColorHex + ';">' + bName + ' Bonus' + (comboArr ? ' (All Weapons)' : '') + (bColorLabel ? ' <span style="opacity:0.6;">(' + bColorLabel + ')</span>' : '') + '</div>';
-                    html += '<div class="rwp-tooltip-section">';
-                    html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Min:</span><span class="rwp-tooltip-value">' + fmtMoney(genericArr[0]) + '</span></div>';
-                    html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Median:</span><span class="rwp-tooltip-value">' + fmtMoney(genericArr[1]) + '</span></div>';
-                    html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Max:</span><span class="rwp-tooltip-value">' + fmtMoney(genericArr[2]) + '</span></div>';
-                    html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Auctions:</span><span class="rwp-tooltip-value">' + genericArr[3] + '</span></div>';
+                    html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Min:</span><span class="rwp-tooltip-value">' + fmtMoney(displayArr[0]) + '</span></div>';
+                    html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Median:</span><span class="rwp-tooltip-value">' + fmtMoney(displayArr[1]) + '</span></div>';
+                    html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Max:</span><span class="rwp-tooltip-value">' + fmtMoney(displayArr[2]) + '</span></div>';
+                    html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Auctions:</span><span class="rwp-tooltip-value">' + displayArr[3] + '</span></div>';
                     html += '</div>';
                 }
             }
