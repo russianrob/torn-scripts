@@ -2,8 +2,8 @@ name: Update RWP Prices
 
 on:
   schedule:
-    # Runs every 6 hours at minutes :15 (00:15, 06:15, 12:15, 18:15 UTC)
-    - cron: '15 0,6,12,18 * * *'
+    # Runs every hour at :15 past
+    - cron: '15 * * * *'
   workflow_dispatch: # Allow manual trigger from GitHub UI
 
 jobs:
