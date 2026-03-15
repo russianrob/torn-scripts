@@ -27,7 +27,7 @@
     var WEAPON_CDN_URL = 'https://cdn.marches.cafe/items/weapon-auctions4.csv.gz';
     var ARMOUR_CDN_URL = 'https://cdn.marches.cafe/items/armour-auctions4.csv.gz';
     var CACHE_KEY = 'rwp_price_cache';
-    var CACHE_TTL = 86400000; // 24 hours in ms
+    var CACHE_TTL = 3600000; // 1 hour in ms
 
     // ─── Default Embedded Price Data (offline fallback) ──────
 
