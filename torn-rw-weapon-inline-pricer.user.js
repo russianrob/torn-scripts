@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn RW Weapon Inline Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      2.0
+// @version      2.1
 // @description  Injects inline price badges on RW weapons and armour in inventory, item market, auction house, and bazaar using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
@@ -163,6 +163,19 @@
         if (ranges.orange && level >= ranges.orange[0]) return 'Orange';
         if (ranges.yellow && level >= ranges.yellow[0]) return 'Yellow';
         return null;
+    }
+
+    // ─── Reverse bonus name → ID map ───
+    var BONUS_NAME_TO_ID = {};
+    for (var bid in BONUS_ID_MAP) {
+        BONUS_NAME_TO_ID[BONUS_ID_MAP[bid]] = bid;
+    }
+
+    function getBonusColorByName(bonusName, level) {
+        if (!level) return null;
+        var id = BONUS_NAME_TO_ID[bonusName];
+        if (!id) return null;
+        return getBonusColor(id, level);
     }
 
     // ─── Fetching flag ───
@@ -878,16 +891,29 @@
 
     function extractBonuses(el) {
         var bonuses = [];
+        var seenNames = [];
+
+        function addBonus(name, level) {
+            if (name && seenNames.indexOf(name) === -1) {
+                seenNames.push(name);
+                bonuses.push({ name: name, level: level || null });
+            }
+        }
+
+        function parseLevelFromText(text) {
+            var m = text.match(/(\d+)\s*%/);
+            return m ? parseInt(m[1], 10) : null;
+        }
 
         // React: aria-label containing "Bonus"
         var ariaEls = el.querySelectorAll('[aria-label*="Bonus"]');
         for (var i = 0; i < ariaEls.length; i++) {
             var label = ariaEls[i].getAttribute('aria-label') || '';
-            // e.g. "Bonus: Warlord" or "Bonus - Warlord"
             var match = label.match(/Bonus[:\s\-]+(\w[\w\s-]*)/i);
             if (match) {
                 var bName = resolveBonusName(match[1]);
-                if (bName && bonuses.indexOf(bName) === -1) bonuses.push(bName);
+                var bLevel = parseLevelFromText(label) || parseLevelFromText(ariaEls[i].textContent || '');
+                addBonus(bName, bLevel);
             }
         }
 
@@ -898,7 +924,8 @@
             var propMatch = propLabel.match(/Bonus[:\s\-]+(\w[\w\s-]*)/i);
             if (propMatch) {
                 var pName = resolveBonusName(propMatch[1]);
-                if (pName && bonuses.indexOf(pName) === -1) bonuses.push(pName);
+                var pLevel = parseLevelFromText(propLabel) || parseLevelFromText(propEls[j].textContent || '');
+                addBonus(pName, pLevel);
             }
         }
 
@@ -906,17 +933,17 @@
         var legacySpans = el.querySelectorAll('.iconsbonuses span');
         for (var k = 0; k < legacySpans.length; k++) {
             var title = legacySpans[k].getAttribute('title') || '';
-            // Try HTML-wrapped name first: <b>BonusName</b>
             var htmlMatch = title.match(/<b>([\w\s-]+)<\/b>/i);
             if (htmlMatch) {
                 var hName = resolveBonusName(htmlMatch[1]);
-                if (hName && bonuses.indexOf(hName) === -1) bonuses.push(hName);
+                var hLevel = parseLevelFromText(title);
+                addBonus(hName, hLevel);
             } else {
-                // Plain text fallback
                 var lMatch = title.match(/^(\w[\w\s-]*)/);
                 if (lMatch) {
                     var lName = resolveBonusName(lMatch[1]);
-                    if (lName && bonuses.indexOf(lName) === -1) bonuses.push(lName);
+                    var lLevel = parseLevelFromText(title);
+                    addBonus(lName, lLevel);
                 }
             }
         }
@@ -928,7 +955,8 @@
             var dbMatch = dbText.match(/^\s*(\w[\w\s-]*)/);
             if (dbMatch) {
                 var dbName = resolveBonusName(dbMatch[1]);
-                if (dbName && bonuses.indexOf(dbName) === -1) bonuses.push(dbName);
+                var dbLevel = parseLevelFromText(dbText);
+                addBonus(dbName, dbLevel);
             }
         }
 
@@ -966,7 +994,7 @@
 
     // ─── Badge creation ──────────────────────────────────────
 
-    function createBadge(itemName, rarity, median, bonuses, bonusFn, estimatedPrice, priceArray, bonusPriceArrays) {
+    function createBadge(itemName, rarity, median, bonuses, bonusFn, estimatedPrice, priceArray, bonusPriceArrays, bonusColors) {
         var color = RARITY_COLORS[rarity] || '#e8c44a';
         var badge = document.createElement('span');
         badge.className = 'rwp-price-tag';
@@ -978,6 +1006,7 @@
         if (priceArray) badge.setAttribute('data-rwp-prices', JSON.stringify(priceArray));
         if (bonusPriceArrays) badge.setAttribute('data-rwp-bonus-prices', JSON.stringify(bonusPriceArrays));
         if (bonuses.length > 0) badge.setAttribute('data-rwp-bonuses', JSON.stringify(bonuses));
+        if (bonusColors) badge.setAttribute('data-rwp-bonus-colors', JSON.stringify(bonusColors));
 
         var displayPrice = estimatedPrice || median;
         var label = (bonuses.length > 0 && estimatedPrice && estimatedPrice !== median) ? 'RWP Est' : 'RWP';
@@ -1022,9 +1051,12 @@
         var bonusPricesData = null;
         var bonuses = null;
 
+        var bonusColors = null;
+
         try { prices = JSON.parse(badge.getAttribute('data-rwp-prices')); } catch (e) {}
         try { bonusPricesData = JSON.parse(badge.getAttribute('data-rwp-bonus-prices')); } catch (e) {}
         try { bonuses = JSON.parse(badge.getAttribute('data-rwp-bonuses')); } catch (e) {}
+        try { bonusColors = JSON.parse(badge.getAttribute('data-rwp-bonus-colors')); } catch (e) {}
 
         var tooltip = document.createElement('div');
         tooltip.className = 'rwp-price-tooltip';
@@ -1046,8 +1078,9 @@
                 var bName = bonuses[i];
                 var bArr = bonusPricesData[bName];
                 if (!bArr || bArr.length !== 4) continue;
+                var bColorLabel = (bonusColors && bonusColors[bName]) ? bonusColors[bName] : '';
                 html += '<div class="rwp-tooltip-divider"></div>';
-                html += '<div class="rwp-tooltip-bonus-header">' + bName + ' Bonus</div>';
+                html += '<div class="rwp-tooltip-bonus-header">' + bName + ' Bonus' + (bColorLabel ? ' <span style="opacity:0.6;">(' + bColorLabel + ')</span>' : '') + '</div>';
                 html += '<div class="rwp-tooltip-section">';
                 html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Min:</span><span class="rwp-tooltip-value">' + fmtMoney(bArr[0]) + '</span></div>';
                 html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Median:</span><span class="rwp-tooltip-value">' + fmtMoney(bArr[1]) + '</span></div>';
@@ -1277,13 +1310,21 @@
             var itemKey = weaponKey || armourKey;
             var comboFn = weaponKey ? getWeaponComboMedian : getArmourComboMedian;
 
+            // Determine bonus color tier for each bonus (falls back to weapon rarity)
+            var bonusColors = {};
+            for (var bc = 0; bc < bonuses.length; bc++) {
+                var bColor = getBonusColorByName(bonuses[bc].name, bonuses[bc].level);
+                bonusColors[bonuses[bc].name] = bColor || rarity;
+            }
+
             // Compute estimated price accounting for bonuses
             // Priority: 1) exact weapon+bonus combo median  2) additive estimate  3) base median
             var estimatedPrice = median;
 
             if (bonuses.length === 1) {
+                var bonusRarity0 = bonusColors[bonuses[0].name];
                 // Try exact combo lookup first
-                var comboMedian1 = comboFn(itemKey, bonuses[0], rarity);
+                var comboMedian1 = comboFn(itemKey, bonuses[0].name, bonusRarity0);
                 if (comboMedian1) {
                     estimatedPrice = comboMedian1;
                 } else {
@@ -1296,16 +1337,18 @@
                         var aSet = ARMOUR_SET[armourKey];
                         if (aSet && armourSetPrices[aSet] && armourSetPrices[aSet][rarity]) classMedian = armourSetPrices[aSet][rarity][1];
                     }
-                    var b1Median = bonusFn(bonuses[0], rarity);
+                    var b1Median = bonusFn(bonuses[0].name, bonusRarity0);
                     if (b1Median) {
                         var premium1 = Math.max(0, b1Median - classMedian);
                         estimatedPrice = median + premium1;
                     }
                 }
             } else if (bonuses.length === 2) {
+                var bonusRarity2a = bonusColors[bonuses[0].name];
+                var bonusRarity2b = bonusColors[bonuses[1].name];
                 // Try combo lookups for each bonus, average them if both exist
-                var combo2a = comboFn(itemKey, bonuses[0], rarity);
-                var combo2b = comboFn(itemKey, bonuses[1], rarity);
+                var combo2a = comboFn(itemKey, bonuses[0].name, bonusRarity2a);
+                var combo2b = comboFn(itemKey, bonuses[1].name, bonusRarity2b);
                 if (combo2a && combo2b) {
                     // Both combos known: use the higher combo median + premium from the other
                     var higher = Math.max(combo2a, combo2b);
@@ -1316,7 +1359,8 @@
                 } else if (combo2a || combo2b) {
                     // One combo known: use it + additive for the other
                     var knownCombo = combo2a || combo2b;
-                    var unknownBonus = combo2a ? bonuses[1] : bonuses[0];
+                    var unknownBonusObj = combo2a ? bonuses[1] : bonuses[0];
+                    var unknownBonusRarity = bonusColors[unknownBonusObj.name];
                     var classMedian2 = 0;
                     if (weaponKey) {
                         var cls2 = WEAPON_CLASS[weaponKey];
@@ -1325,7 +1369,7 @@
                         var aSet2 = ARMOUR_SET[armourKey];
                         if (aSet2 && armourSetPrices[aSet2] && armourSetPrices[aSet2][rarity]) classMedian2 = armourSetPrices[aSet2][rarity][1];
                     }
-                    var ubMedian = bonusFn(unknownBonus, rarity);
+                    var ubMedian = bonusFn(unknownBonusObj.name, unknownBonusRarity);
                     var ubPremium = ubMedian ? Math.max(0, ubMedian - classMedian2) : 0;
                     estimatedPrice = knownCombo + ubPremium;
                 } else {
@@ -1338,8 +1382,8 @@
                         var aSet3 = ARMOUR_SET[armourKey];
                         if (aSet3 && armourSetPrices[aSet3] && armourSetPrices[aSet3][rarity]) classMedian3 = armourSetPrices[aSet3][rarity][1];
                     }
-                    var db1Median = bonusFn(bonuses[0], rarity);
-                    var db2Median = bonusFn(bonuses[1], rarity);
+                    var db1Median = bonusFn(bonuses[0].name, bonusColors[bonuses[0].name]);
+                    var db2Median = bonusFn(bonuses[1].name, bonusColors[bonuses[1].name]);
                     var totalPremium = 0;
                     if (db1Median) totalPremium += Math.max(0, db1Median - classMedian3);
                     if (db2Median) totalPremium += Math.max(0, db2Median - classMedian3);
@@ -1352,11 +1396,16 @@
             var bonusPriceArrays = {};
             var bonusArrayFn = weaponKey ? getBonusPriceArray : getArmourBonusPriceArray;
             for (var bi = 0; bi < bonuses.length; bi++) {
-                var bArr = bonusArrayFn(bonuses[bi], rarity);
-                if (bArr) bonusPriceArrays[bonuses[bi]] = bArr;
+                var bRarity = bonusColors[bonuses[bi].name];
+                var bArr = bonusArrayFn(bonuses[bi].name, bRarity);
+                if (bArr) bonusPriceArrays[bonuses[bi].name] = bArr;
             }
 
-            badge = createBadge(weaponKey || armourKey, rarity, median, bonuses, bonusFn, estimatedPrice, itemPriceArray, Object.keys(bonusPriceArrays).length > 0 ? bonusPriceArrays : null);
+            // Extract bonus names and colors for badge storage
+            var bonusNames = [];
+            for (var bn = 0; bn < bonuses.length; bn++) bonusNames.push(bonuses[bn].name);
+
+            badge = createBadge(weaponKey || armourKey, rarity, median, bonusNames, bonusFn, estimatedPrice, itemPriceArray, Object.keys(bonusPriceArrays).length > 0 ? bonusPriceArrays : null, bonusColors);
 
             // Find insertion point — after name element
             var nameEl = el.querySelector('[class*="description"] .bold') ||
