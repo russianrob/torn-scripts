@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn RW Weapon Inline Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      1.4
+// @version      1.5
 // @description  Injects inline price badges on RW weapons, armour, and collectibles in inventory, item market, auction house, and bazaar using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
@@ -13,6 +13,7 @@
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
 // @connect      cdn.marches.cafe
+// @connect      raw.githubusercontent.com
 // @connect      api.torn.com
 // ==/UserScript==
 
@@ -168,6 +169,11 @@
 
     // ─── Batch Collectible Fetching ───────────────────────────
     function queueCollectibleFetch(itemId) {
+        // Prompt for API key if not yet available (only when CDN misses)
+        if (!getApiKey()) {
+            promptForApiKey();
+            if (!getApiKey()) return;
+        }
         if (collectibleFetchQueue.indexOf(itemId) === -1 && isCollectibleCacheStale(itemId)) {
             collectibleFetchQueue.push(itemId);
         }
@@ -285,6 +291,7 @@
     // ─── CDN URL & Cache Config ──────────────────────────────
     var WEAPON_CDN_URL = 'https://cdn.marches.cafe/items/weapon-auctions4.csv.gz';
     var ARMOUR_CDN_URL = 'https://cdn.marches.cafe/items/armour-auctions4.csv.gz';
+    var COLLECTIBLE_CDN_URL = 'https://raw.githubusercontent.com/russianrob/torn-auction-data/main/data/collectible-auctions.csv';
     var CACHE_KEY = 'rwp_price_cache';
     var CACHE_TTL = 3600000; // 1 hour in ms
 
@@ -311,6 +318,7 @@
     var armourPrices = DEFAULT_ARMOUR_PRICES;
     var armourBonusPrices = DEFAULT_ARMOUR_BONUS_PRICES;
     var armourSetPrices = DEFAULT_ARMOUR_SET_PRICES;
+    var collectiblePrices = {};
 
     // ─── Static structural mappings (never change) ───────────
 
@@ -332,6 +340,12 @@
 
     var KNOWN_ARMOUR = {};
     Object.keys(ARMOUR_SET).forEach(function(a) { KNOWN_ARMOUR[a.toLowerCase()] = a; });
+
+    var KNOWN_COLLECTIBLES = {};
+    function buildKnownCollectibles() {
+        KNOWN_COLLECTIBLES = {};
+        Object.keys(collectiblePrices).forEach(function(c) { KNOWN_COLLECTIBLES[c.toLowerCase()] = c; });
+    }
 
     // ─── Rarity colors ───
     var RARITY_COLORS = {
@@ -423,6 +437,20 @@
     function getArmourBonusMedian(bonusName, rarity) {
         if (!bonusName || !armourBonusPrices[bonusName]) return null;
         if (armourBonusPrices[bonusName][rarity]) return armourBonusPrices[bonusName][rarity][1];
+        return null;
+    }
+
+    function lookupCollectible(name) {
+        if (!name) return null;
+        if (collectiblePrices[name]) return name;
+        var lower = name.toLowerCase();
+        if (KNOWN_COLLECTIBLES[lower]) return KNOWN_COLLECTIBLES[lower];
+        return null;
+    }
+
+    function getCollectibleMedianPrice(name) {
+        var cData = collectiblePrices[name];
+        if (cData) return cData[1]; // p50
         return null;
     }
 
@@ -700,6 +728,59 @@
         };
     }
 
+    // ─── Collectible CSV parsing & price computation ──────────
+
+    function parseCollectibleCSVAndComputePrices(csvText) {
+        var lines = csvText.split('\n');
+        var groups = {}; // item_name -> [prices]
+
+        for (var i = 1; i < lines.length; i++) {
+            var line = lines[i].trim();
+            if (!line) continue;
+
+            var cols = line.split(',');
+            if (cols.length < 4) continue;
+
+            var itemName = cols[2];
+            var price = parseInt(cols[3], 10);
+
+            if (!itemName || isNaN(price) || price <= 0) continue;
+
+            if (!groups[itemName]) groups[itemName] = [];
+            groups[itemName].push(price);
+        }
+
+        var newCollectiblePrices = {};
+        Object.keys(groups).forEach(function(name) {
+            var arr = groups[name].sort(function(a, b) { return a - b; });
+            newCollectiblePrices[name] = [
+                Math.round(percentile(arr, 25)),
+                Math.round(percentile(arr, 50)),
+                Math.round(percentile(arr, 75)),
+                arr.length
+            ];
+        });
+
+        return { collectiblePrices: newCollectiblePrices };
+    }
+
+    // ─── Plain text CDN fetch wrapper ────────────────────────
+
+    function fetchText(url) {
+        return new Promise(function(resolve, reject) {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: url,
+                responseType: 'text',
+                onload: function(resp) {
+                    if (resp.status === 200) resolve(resp.responseText || resp.response);
+                    else reject(new Error('HTTP ' + resp.status));
+                },
+                onerror: function(err) { reject(err); }
+            });
+        });
+    }
+
     // ─── Load cached data or defaults ────────────────────────
 
     function loadCachedPrices() {
@@ -714,6 +795,10 @@
             if (cached.armourPrices) armourPrices = cached.armourPrices;
             if (cached.armourBonusPrices) armourBonusPrices = cached.armourBonusPrices;
             if (cached.armourSetPrices) armourSetPrices = cached.armourSetPrices;
+            if (cached.collectiblePrices) {
+                collectiblePrices = cached.collectiblePrices;
+                buildKnownCollectibles();
+            }
             return cached.timestamp;
         }
         return 0;
@@ -733,7 +818,8 @@
         try {
             var results = await Promise.all([
                 fetchGzip(WEAPON_CDN_URL).then(decompressGzip),
-                fetchGzip(ARMOUR_CDN_URL).then(decompressGzip)
+                fetchGzip(ARMOUR_CDN_URL).then(decompressGzip),
+                fetchText(COLLECTIBLE_CDN_URL)
             ]);
 
             var weaponData = parseCSVAndComputePrices(results[0]);
@@ -746,6 +832,10 @@
             armourBonusPrices = armourData.armourBonusPrices;
             armourSetPrices = armourData.armourSetPrices;
 
+            var collectibleData = parseCollectibleCSVAndComputePrices(results[2]);
+            collectiblePrices = collectibleData.collectiblePrices;
+            buildKnownCollectibles();
+
             var cacheData = JSON.stringify({
                 weaponPrices: weaponPrices,
                 bonusPrices: bonusPrices,
@@ -753,6 +843,7 @@
                 armourPrices: armourPrices,
                 armourBonusPrices: armourBonusPrices,
                 armourSetPrices: armourSetPrices,
+                collectiblePrices: collectiblePrices,
                 timestamp: Date.now()
             });
             safeSet(CACHE_KEY, cacheData);
@@ -1080,16 +1171,12 @@
             var armourKey = weaponKey ? null : lookupArmour(normalizedName);
 
             if (!weaponKey && !armourKey) {
-                // ─── Collectible fallback: try API-based pricing ────
-                var itemId = extractItemId(el);
-                if (itemId && !ITEM_ID_MAP[itemId] && !ARMOUR_ID_MAP[itemId]) {
-                    el.setAttribute('data-rwp-priced', '1');
-                    el.setAttribute('data-rwp-collectible-id', itemId);
-
-                    var computed = getCollectiblePrice(itemId);
-                    if (computed && computed.p50) {
-                        var cLabel = computed.count >= 10 ? 'RWP' : 'RWP Est';
-                        var cBadge = createCollectibleBadge(computed.p50, cLabel);
+                // ─── Collectible: try CDN data first, then API fallback ────
+                var collectibleKey = lookupCollectible(normalizedName);
+                if (collectibleKey) {
+                    var cMedian = getCollectibleMedianPrice(collectibleKey);
+                    if (cMedian) {
+                        var cBadge = createBadge(collectibleKey, null, cMedian, [], null, cMedian);
                         var cNameEl = el.querySelector('[class*="description"] .bold') ||
                                      el.querySelector('[class*="itemName"]') ||
                                      el.querySelector('.item-name') ||
@@ -1098,6 +1185,30 @@
                             cNameEl.parentNode.insertBefore(cBadge, cNameEl.nextSibling);
                         } else {
                             el.appendChild(cBadge);
+                        }
+                        el.setAttribute('data-rwp-priced', '1');
+                        continue;
+                    }
+                }
+
+                // API fallback for collectibles not in CDN
+                var itemId = extractItemId(el);
+                if (itemId && !ITEM_ID_MAP[itemId] && !ARMOUR_ID_MAP[itemId]) {
+                    el.setAttribute('data-rwp-priced', '1');
+                    el.setAttribute('data-rwp-collectible-id', itemId);
+
+                    var computed = getCollectiblePrice(itemId);
+                    if (computed && computed.p50) {
+                        var apiLabel = computed.count >= 10 ? 'RWP' : 'RWP Est';
+                        var apiBadge = createCollectibleBadge(computed.p50, apiLabel);
+                        var apiNameEl = el.querySelector('[class*="description"] .bold') ||
+                                     el.querySelector('[class*="itemName"]') ||
+                                     el.querySelector('.item-name') ||
+                                     el.querySelector('.name-wrap .name');
+                        if (apiNameEl) {
+                            apiNameEl.parentNode.insertBefore(apiBadge, apiNameEl.nextSibling);
+                        } else {
+                            el.appendChild(apiBadge);
                         }
                     } else {
                         // Queue API fetch for this item
@@ -1227,8 +1338,7 @@
         // Load collectible cache
         loadCollectibleCache();
 
-        // Prompt for API key if needed (one-time, non-blocking delay)
-        setTimeout(promptForApiKey, 2000);
+        // API key prompt is deferred — only triggered when a collectible is not in CDN data
 
         // Inject immediately with whatever data we have
         injectPriceTags();
