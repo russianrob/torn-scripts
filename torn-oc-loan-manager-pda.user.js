@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn OC Loan Manager (PDA)
 // @namespace    https://torn.com
-// @version      1.4.1-pda
+// @version      1.5.0-pda
 // @description  Highlights over-loaned items and helps loan missing OC tools + split calculator (PDA compatible, no armory tab needed)
 // @match        https://www.torn.com/factions.php?step=your*
 // @run-at       document-end
@@ -216,6 +216,37 @@
         preparedArmoryID = entry.armoryID;
         pendingArmoryItemID = itemID;
         return entry.armoryID;
+    };
+
+    // ------------------- Retrieve (return loaned item) -------------------
+    const retrieveItem = async ({ armoryID, itemID, userID, userName }) => {
+        const rfcv = getRfcvToken();
+        if (!rfcv) throw new Error('Missing RFCV token');
+
+        const body = new URLSearchParams({
+            ajax: 'true',
+            step: 'armouryActionItem',
+            role: 'return',
+            item: armoryID,
+            itemID: itemID,
+            type: 'Tool',
+            user: `${userName} [${userID}]`,
+            quantity: '1'
+        });
+
+        const res = await fetch(`https://www.torn.com/factions.php?rfcv=${rfcv}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body,
+            credentials: 'same-origin'
+        });
+
+        if (!res.ok) throw new Error('Retrieve request failed');
+        const text = await res.text();
+        if (!text.includes('success')) throw new Error('Retrieve failed');
     };
 
     // ------------------- Loaning (correct armoryID + itemID) -------------------
@@ -515,13 +546,27 @@
                 await loadMembers();
                 overAllocated.clear();
 
-                const [crimesRes, utilsRes] = await Promise.all([
+                const [crimesRes, utilsRes, armoryItems] = await Promise.all([
                     fetch(`https://api.torn.com/v2/faction/crimes?cat=available&key=${key}`),
-                    fetch(`https://api.torn.com/faction/?selections=utilities&key=${key}`)
+                    fetch(`https://api.torn.com/faction/?selections=utilities&key=${key}`),
+                    fetchArmoryUtilitiesJSON()
                 ]);
 
                 const crimesData = await crimesRes.json();
                 const utilsData = await utilsRes.json();
+
+                // Build a lookup: itemID -> [{ armoryID, userID }] for loaned items from internal endpoint
+                const loanedArmoryLookup = new Map();
+                for (const entry of armoryItems) {
+                    if (entry.user && entry.user !== false && entry.itemID) {
+                        const uid = typeof entry.user === 'object' ? entry.user.userID : entry.user;
+                        if (!loanedArmoryLookup.has(entry.itemID)) loanedArmoryLookup.set(entry.itemID, []);
+                        loanedArmoryLookup.get(entry.itemID).push({
+                            armoryID: entry.armoryID,
+                            userID: uid
+                        });
+                    }
+                }
 
                 const usedItems = new Map();
                 crimesData.crimes.forEach(c => c.slots?.forEach(s => {
@@ -543,11 +588,17 @@
                         if (!usedItems.get(pid)?.has(Number(u.ID))) {
                             if (!overAllocated.has(pid)) overAllocated.set(pid, new Set());
                             overAllocated.get(pid).add(Number(u.ID));
+
+                            // Find the matching armoryID from the internal endpoint
+                            const candidates = loanedArmoryLookup.get(Number(u.ID)) || [];
+                            const match = candidates.find(c => c.userID === pid);
+
                             overList.push({
                                 name: memberNameMap.get(pid) || `Unknown [${pid}]`,
                                 pid,
                                 item: u.name,
-                                iid: u.ID
+                                iid: u.ID,
+                                armoryID: match ? match.armoryID : null
                             });
                         }
                     });
@@ -558,22 +609,62 @@
                 if (overList.length === 0) {
                     content.innerHTML = '<div style="text-align:center;padding:50px;font-size:18px;">All loaned items in use!</div>';
                 } else {
-                    const rows = overList.map(e => `
-                        <tr style="background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--default-panel-divider-outer-side-color);">
-                            <td style="padding:6px 4px;color:var(--default-color);">${e.name} <span style="font-size:11px;color:var(--default-color);">[${e.pid}]</span></td>
-                            <td style="padding:6px 4px;color:var(--default-color);">${e.item} <span style="font-size:11px;color:var(--default-color);">(${e.iid})</span></td>
-                        </tr>
-                    `).join('');
-                    content.innerHTML = `
-                        <div style="margin-bottom:8px;font-weight:bold;">${overList.length} unused loaned item${overList.length > 1 ? 's' : ''}</div>
-                        <table style="width:100%;border-collapse:collapse;">
-                            <thead><tr style="border-bottom:2px solid var(--default-color);">
-                                <th style="text-align:left;padding:4px;">Player</th>
-                                <th style="text-align:left;padding:4px;">Item</th>
-                            </tr></thead>
-                            <tbody>${rows}</tbody>
-                        </table>
-                    `;
+                    let unusedIndex = 0;
+                    const renderUnusedCurrent = () => {
+                        const e = overList[unusedIndex];
+                        const itemName = e.item || getItemName(e.iid);
+                        const canRetrieve = !!e.armoryID;
+
+                        content.innerHTML = `
+                            <div style="line-height:1.7; margin-bottom:16px;">
+                                <strong style="font-size:17px;">Unused Loan</strong><br>
+                                Item: ${itemName ? `${itemName} (${e.iid})` : `(${e.iid})`}<br>
+                                User: <span style="color:var(--default-color);">${e.name}</span><br>
+                                <span style="font-size:11px;color:#aaa;">Loaned but not needed for any OC</span>
+                            </div>
+                            <button id="action-btn" class="${canRetrieve ? 'ready' : ''}">
+                                ${canRetrieve ? `Retrieve Item (${unusedIndex + 1}/${overList.length})` : `Skip (${unusedIndex + 1}/${overList.length})`}
+                            </button>
+                        `;
+
+                        const actionBtn = content.querySelector('#action-btn');
+                        actionBtn.onclick = async () => {
+                            if (!canRetrieve) {
+                                unusedIndex++;
+                                if (unusedIndex >= overList.length) {
+                                    content.innerHTML =
+                                        '<div style="text-align:center;padding:50px;font-size:18px;">All items processed!</div>';
+                                } else {
+                                    renderUnusedCurrent();
+                                }
+                                return;
+                            }
+
+                            actionBtn.disabled = true;
+                            actionBtn.textContent = 'Retrieving...';
+
+                            try {
+                                await retrieveItem({
+                                    armoryID: e.armoryID,
+                                    itemID: e.iid,
+                                    userID: e.pid,
+                                    userName: e.name
+                                });
+
+                                unusedIndex++;
+                                if (unusedIndex >= overList.length) {
+                                    content.innerHTML =
+                                        '<div style="text-align:center;padding:50px;font-size:18px;">All items retrieved!</div>';
+                                } else {
+                                    renderUnusedCurrent();
+                                }
+                            } catch (err) {
+                                actionBtn.textContent = `Retrieve Item (${unusedIndex + 1}/${overList.length})`;
+                                actionBtn.disabled = false;
+                            }
+                        };
+                    };
+                    renderUnusedCurrent();
                 }
 
                 if (isOnArmoryUtilities()) highlightOverAllocated();
