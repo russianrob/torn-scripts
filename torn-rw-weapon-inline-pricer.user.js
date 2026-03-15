@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn RW Weapon Inline Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      1.2
+// @version      1.3
 // @description  Injects inline price badges on RW weapons and armour in inventory, item market, auction house, and bazaar using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
@@ -627,15 +627,18 @@
 
     // ─── Badge creation ──────────────────────────────────────
 
-    function createBadge(itemName, rarity, median, bonuses, bonusFn) {
+    function createBadge(itemName, rarity, median, bonuses, bonusFn, estimatedPrice) {
         var color = RARITY_COLORS[rarity] || '#e8c44a';
         var badge = document.createElement('span');
         badge.className = 'rwp-price-tag';
         badge.setAttribute('data-rwp-priced', '1');
 
+        var displayPrice = estimatedPrice || median;
+        var label = (bonuses.length > 0 && estimatedPrice && estimatedPrice !== median) ? 'RWP Est' : 'RWP';
+
         var html = '<span class="rwp-price-tag-inner">' +
-            '<span class="rwp-price-tag-label">RWP</span>' +
-            '<span class="rwp-price-tag-value" style="color:' + color + ';">' + fmtMoney(median) + '</span>';
+            '<span class="rwp-price-tag-label">' + label + '</span>' +
+            '<span class="rwp-price-tag-value" style="color:' + color + ';">' + fmtMoney(displayPrice) + '</span>';
 
         if (bonuses.length > 0) {
             var bonusParts = [];
@@ -802,7 +805,24 @@
             if (!median) continue;
 
             var bonuses = extractBonuses(el);
-            badge = createBadge(weaponKey || armourKey, rarity, median, bonuses, bonusFn);
+
+            // Compute estimated price accounting for bonuses
+            var estimatedPrice = median;
+            if (bonuses.length === 1) {
+                var b1Median = bonusFn(bonuses[0], rarity);
+                if (b1Median) {
+                    estimatedPrice = Math.max(median, b1Median);
+                }
+            } else if (bonuses.length === 2) {
+                var db1Median = bonusFn(bonuses[0], rarity);
+                var db2Median = bonusFn(bonuses[1], rarity);
+                var maxMedian = median;
+                if (db1Median && db1Median > maxMedian) maxMedian = db1Median;
+                if (db2Median && db2Median > maxMedian) maxMedian = db2Median;
+                estimatedPrice = Math.round(maxMedian * 1.15);
+            }
+
+            badge = createBadge(weaponKey || armourKey, rarity, median, bonuses, bonusFn, estimatedPrice);
 
             // Find insertion point — after name element
             var nameEl = el.querySelector('[class*="description"] .bold') ||
