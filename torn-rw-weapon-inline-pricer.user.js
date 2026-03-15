@@ -657,22 +657,8 @@
 
         var html = '<span class="rwp-price-tag-inner">' +
             '<span class="rwp-price-tag-label">' + label + '</span>' +
-            '<span class="rwp-price-tag-value" style="color:' + color + ';">' + fmtMoney(displayPrice) + '</span>';
-
-        if (bonuses.length > 0) {
-            var bonusParts = [];
-            for (var i = 0; i < bonuses.length; i++) {
-                var bMedian = bonusFn(bonuses[i], rarity);
-                if (bMedian) {
-                    bonusParts.push(bonuses[i] + ': ' + fmtMoney(bMedian));
-                }
-            }
-            if (bonusParts.length > 0) {
-                html += '<span class="rwp-price-tag-bonus">' + bonusParts.join(' | ') + '</span>';
-            }
-        }
-
-        html += '</span>';
+            '<span class="rwp-price-tag-value" style="color:' + color + ';">' + fmtMoney(displayPrice) + '</span>' +
+            '</span>';
         badge.innerHTML = html;
         return badge;
     }
@@ -714,12 +700,7 @@
             '.rwp-price-tag-value {' +
             '  font-weight: 600;' +
             '}' +
-            '.rwp-price-tag-bonus {' +
-            '  color: #8899aa;' +
-            '  font-size: 10px;' +
-            '  margin-left: 2px;' +
-            '  opacity: 0.8;' +
-            '}' +
+
             '#rwp-inline-toggle {' +
             '  position: fixed;' +
             '  bottom: 80px;' +
