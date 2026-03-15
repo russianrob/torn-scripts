@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn OC Loan Manager (PDA)
 // @namespace    https://torn.com
-// @version      1.5.0-pda
+// @version      1.5.1-pda
 // @description  Highlights over-loaned items and helps loan missing OC tools + split calculator (PDA compatible, no armory tab needed)
 // @match        https://www.torn.com/factions.php?step=your*
 // @run-at       document-end
@@ -226,7 +226,7 @@
         const body = new URLSearchParams({
             ajax: 'true',
             step: 'armouryActionItem',
-            role: 'return',
+            role: 'retrieve',
             item: armoryID,
             itemID: itemID,
             type: 'Tool',
