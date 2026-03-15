@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn RW Weapon Inline Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      1.7
+// @version      1.8
 // @description  Injects inline price badges on RW weapons, armour, and collectibles in inventory, item market, auction house, and bazaar using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
@@ -213,6 +213,7 @@
 
             var nameEl = el.querySelector('[class*="description"] .bold') ||
                          el.querySelector('[class*="itemName"]') ||
+                         el.querySelector('[class*="name___"]') ||
                          el.querySelector('span.title > p') ||
                          el.querySelector('.title p') ||
                          el.querySelector('.item-name') ||
@@ -285,6 +286,32 @@
         var armouryEl = el.querySelector('[armoury]');
         if (armouryEl && armouryEl.getAttribute('item')) {
             return armouryEl.getAttribute('item');
+        }
+
+        // Method 7: Item market button with aria-controls (wai-itemInfo-{id})
+        var ariaBtn = el.querySelector('button[aria-controls^="wai-itemInfo-"]');
+        if (ariaBtn) {
+            var ariaVal = ariaBtn.getAttribute('aria-controls') || '';
+            var ariaParts = ariaVal.split('-');
+            var ariaId = ariaParts[ariaParts.length - 1];
+            if (/^\d+$/.test(ariaId)) return ariaId;
+        }
+
+        // Method 8: Item market fallback — any aria-controls containing "itemInfo"
+        var ariaFallback = el.querySelector('[aria-controls*="itemInfo"]');
+        if (ariaFallback) {
+            var afVal = ariaFallback.getAttribute('aria-controls') || '';
+            var afParts = afVal.split('-');
+            var afId = afParts[afParts.length - 1];
+            if (/^\d+$/.test(afId)) return afId;
+        }
+
+        // Method 9: Item market img src — /images/items/{id}/
+        var mktImg = el.querySelector('img[src*="/images/items/"]');
+        if (mktImg) {
+            var mktSrc = mktImg.getAttribute('src') || '';
+            var mktMatch = mktSrc.match(/\/images\/items\/(\d+)/);
+            if (mktMatch) return mktMatch[1];
         }
 
         return null;
@@ -918,7 +945,16 @@
             if (txt.indexOf('yellow') !== -1) return 'Yellow';
         }
 
-        // Method 2: glow-* class on container or children
+        // Method 2: Item market imageWrapper glow-*-border classes
+        var imgWrapper = el.querySelector('[class*="imageWrapper___"]');
+        if (imgWrapper) {
+            var iwClass = imgWrapper.className || '';
+            if (/glow-red-border/i.test(iwClass)) return 'Red';
+            if (/glow-orange-border/i.test(iwClass)) return 'Orange';
+            if (/glow-yellow-border/i.test(iwClass)) return 'Yellow';
+        }
+
+        // Method 3: glow-* class on container or children
         var html = el.className || '';
         var inner = el.innerHTML || '';
         var combined = html + ' ' + inner;
@@ -926,7 +962,7 @@
         if (/glow-orange/i.test(combined)) return 'Orange';
         if (/glow-yellow/i.test(combined)) return 'Yellow';
 
-        // Method 3: extraordinary / extremely-rare class
+        // Method 4: extraordinary / extremely-rare class
         if (/extremely[_-]?rare/i.test(combined)) return 'Red';
         if (/extraordinary/i.test(combined)) return 'Orange';
 
@@ -1010,6 +1046,14 @@
             }
         }
 
+        // Item market: [class*="bonuses___"] i[aria-label]
+        var mktBonusEls = el.querySelectorAll('[class*="bonuses___"] i[aria-label]');
+        for (var mb = 0; mb < mktBonusEls.length; mb++) {
+            var mbLabel = mktBonusEls[mb].getAttribute('aria-label') || '';
+            var mbName = resolveBonusName(mbLabel);
+            if (mbName && bonuses.indexOf(mbName) === -1) bonuses.push(mbName);
+        }
+
         // Auction house: display-bonus plugin p elements (e.g. "Motivation 15%")
         var dbBonuses = el.querySelectorAll('p.display-bonus__bonus, [class*="display-bonus__bonus"]');
         for (var d = 0; d < dbBonuses.length; d++) {
@@ -1034,6 +1078,10 @@
         // React: [class*="itemName"]
         var itemName = el.querySelector('[class*="itemName"]');
         if (itemName) return normalizeWeaponName(itemName.textContent);
+
+        // Item market: [class*="name___"]
+        var mktName = el.querySelector('[class*="name___"]');
+        if (mktName) return normalizeWeaponName(mktName.textContent);
 
         // Auction house: span.title > p (weapons, armour, collectibles tabs)
         var titleP = el.querySelector('span.title > p');
@@ -1170,6 +1218,12 @@
             containers.push(reactItems[i]);
         }
 
+        // Item market tiles (React with hashed classes)
+        var marketTiles = document.querySelectorAll('[class*="itemTile___"]');
+        for (var mt = 0; mt < marketTiles.length; mt++) {
+            if (containers.indexOf(marketTiles[mt]) === -1) containers.push(marketTiles[mt]);
+        }
+
         // Legacy: auction house list items
         var legacyItems = document.querySelectorAll('ul.items-list > li');
         for (var j = 0; j < legacyItems.length; j++) {
@@ -1236,6 +1290,7 @@
                     var cBadge = createCollectibleBadge(cMedian, cLabel);
                     var cNameEl = el.querySelector('[class*="description"] .bold') ||
                                  el.querySelector('[class*="itemName"]') ||
+                                 el.querySelector('[class*="name___"]') ||
                                  el.querySelector('span.title > p') ||
                                  el.querySelector('.title p') ||
                                  el.querySelector('.item-name') ||
@@ -1260,6 +1315,7 @@
                         var apiBadge = createCollectibleBadge(computed.p50, apiLabel);
                         var apiNameEl = el.querySelector('[class*="description"] .bold') ||
                                      el.querySelector('[class*="itemName"]') ||
+                                     el.querySelector('[class*="name___"]') ||
                                      el.querySelector('span.title > p') ||
                                      el.querySelector('.title p') ||
                                      el.querySelector('.item-name') ||
@@ -1313,6 +1369,7 @@
             // Find insertion point — after name element
             var nameEl = el.querySelector('[class*="description"] .bold') ||
                          el.querySelector('[class*="itemName"]') ||
+                         el.querySelector('[class*="name___"]') ||
                          el.querySelector('span.title > p') ||
                          el.querySelector('.title p') ||
                          el.querySelector('.item-name') ||
