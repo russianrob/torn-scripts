@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Torn RW Weapon Inline Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      1.1
-// @description  Injects inline price badges on RW weapons in inventory, item market, auction house, and bazaar using daily-refreshed auction data
+// @version      1.2
+// @description  Injects inline price badges on RW weapons and armour in inventory, item market, auction house, and bazaar using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
 // @match        https://www.torn.com/bazaar*
@@ -24,7 +24,8 @@
     if (PDAKey.charAt(0) !== '#') { apiKey = PDAKey; }
 
     // ─── CDN URL & Cache Config ──────────────────────────────
-    var CDN_URL = 'https://cdn.marches.cafe/items/weapon-auctions4.csv.gz';
+    var WEAPON_CDN_URL = 'https://cdn.marches.cafe/items/weapon-auctions4.csv.gz';
+    var ARMOUR_CDN_URL = 'https://cdn.marches.cafe/items/armour-auctions4.csv.gz';
     var CACHE_KEY = 'rwp_price_cache';
     var CACHE_TTL = 86400000; // 24 hours in ms
 
@@ -36,10 +37,21 @@
 
     var DEFAULT_CLASS_PRICES = {"Pistol / SMG":{"Orange":[80000001,117500001,230781010,1258],"Yellow":[25000000,27000001,42000001,5950],"Red":[385000090,575000001,1237000001,146]},"Shotgun / Rifle":{"Yellow":[58500001,63000001,122188419,6189],"Orange":[180000001,255000001,448000001,1069],"Red":[771727501,999000001,2000000001,101]},"Melee":{"Yellow":[35500001,42000001,100000001,6027],"Orange":[111600001,173549798,409009010,959],"Red":[500000001,855408084,1527437790,108]},"Heavy":{"Yellow":[82054778,89000980,125000001,847],"Orange":[260400001,350000001,588000001,98],"Red":[1111111112,1456009270,1760000001,14]}};
 
+    // ─── Default Embedded Armour Price Data (offline fallback) ──
+
+    var DEFAULT_ARMOUR_PRICES = {"Riot Pants": {"Yellow": [75008802, 93717172, 122222223, 2837]}, "Assault Gloves": {"Yellow": [109000001, 129000001, 175000000, 3079]}, "Dune Helmet": {"Yellow": [70700001, 81780001, 102000001, 2492]}, "Riot Gloves": {"Yellow": [74412778, 90000001, 113498767, 2595]}, "Assault Pants": {"Yellow": [180000001, 215000001, 291388688, 3275]}, "Sentinel Apron": {"Orange": [4000000001, 4360000001, 4910000001, 205]}, "Assault Body": {"Yellow": [224800061, 275000001, 381808057, 3507]}, "Delta Boots": {"Orange": [400174273, 500000001, 700147109, 431]}, "Vanguard Body": {"Orange": [3019395964, 3300000001, 3751250001, 252]}, "Vanguard Respirator": {"Orange": [4226320803, 4610555556, 5112005780, 178]}, "Vanguard Gloves": {"Orange": [1611027778, 1731527500, 2000000001, 222]}, "Marauder Pants": {"Orange": [726161613, 926198753, 1115216208, 297]}, "Assault Boots": {"Yellow": [120118070, 145000001, 197993158, 3088]}, "Sentinel Boots": {"Orange": [2016190641, 2250000001, 2525000001, 197]}, "Dune Vest": {"Yellow": [72000001, 87283839, 111737272, 2757]}, "Dune Gloves": {"Yellow": [71000001, 83000001, 101549209, 2158]}, "Dune Boots": {"Yellow": [71000000, 83000000, 100019123, 2365]}, "Riot Boots": {"Yellow": [75000001, 90003309, 111000001, 2728]}, "Riot Body": {"Yellow": [80000001, 104482812, 155661606, 3003]}, "Sentinel Pants": {"Orange": [2500000001, 2770628104, 3100000001, 255]}, "Riot Helmet": {"Yellow": [98000001, 122495620, 160000001, 3038]}, "Delta Body": {"Orange": [623000001, 833333334, 1166777889, 425]}, "Vanguard Pants": {"Orange": [2012908251, 2333166667, 2681165614, 250]}, "Vanguard Boots": {"Orange": [1630521056, 1755122001, 1897500001, 242]}, "Assault Helmet": {"Yellow": [90000652, 105000001, 143161735, 3319]}, "Dune Pants": {"Yellow": [71111112, 84000001, 102000001, 2507]}, "Delta Gas Mask": {"Orange": [1455773798, 1824041897, 2500038498, 392]}, "Marauder Face Mask": {"Orange": [1300991306, 1452111113, 1655303704, 279]}, "Marauder Boots": {"Orange": [703000104, 800000001, 1000000001, 269]}, "Delta Pants": {"Orange": [430000001, 508723474, 651386759, 462]}, "Delta Gloves": {"Orange": [348998333, 436013787, 600550301, 455]}, "EOD Helmet": {"Red": [7011111112, 7950000001, 8750000001, 69]}, "EOD Gloves": {"Red": [4022886960, 4555555668, 5196386465, 67]}, "Marauder Body": {"Orange": [1333517031, 1501000001, 1857274663, 284]}, "Marauder Gloves": {"Orange": [455555556, 534875254, 666500000, 366]}, "EOD Apron": {"Red": [9011111112, 10010000001, 12322890145, 61]}, "Sentinel Helmet": {"Orange": [2459705688, 2749950001, 3065920139, 256]}, "EOD Pants": {"Red": [6312595746, 7009501229, 7613198123, 78]}, "EOD Boots": {"Red": [4233773259, 4629834818, 5013250001, 80]}, "Sentinel Gloves": {"Orange": [1822222223, 2000000001, 2152777778, 275]}, "Hazmat Suit": {"Yellow": [6511830001, 7900830606, 8100125180, 35]}, "M'aol Hooves": {"Yellow": [2501835586, 2501835586, 2501835586, 1]}, "M'aol Visage": {"Yellow": [7931234196, 7931234196, 7931234196, 1]}};
+
+    var DEFAULT_ARMOUR_BONUS_PRICES = {"Impregnable": {"Yellow": [78985947, 99150001, 143051066, 14201]}, "Impenetrable": {"Yellow": [120000000, 180000000, 255000001, 16268]}, "Insurmountable": {"Yellow": [71012778, 84000001, 105000001, 12279]}, "Immutable": {"Orange": [2128869886, 2606777778, 3337500000, 1188]}, "Invulnerable": {"Orange": [449000001, 623000001, 1326501656, 2165]}, "Irrepressible": {"Orange": [1800000001, 2435670187, 3455981721, 1144]}, "Imperviable": {"Orange": [670950017, 1010483303, 1417074895, 1495]}, "Impassable": {"Red": [4800000001, 6500000287, 8537651251, 355]}, "Radiation Protection": {"Yellow": [6511830001, 7900830606, 8100125180, 35]}, "Kinetokinesis": {"Yellow": [3859185238, 5216534891, 6573884543, 2]}};
+
+    var DEFAULT_ARMOUR_SET_PRICES = {"Riot": {"Yellow": [78985947, 99150001, 143051066, 14201]}, "Assault": {"Yellow": [120000000, 180000000, 255000001, 16268]}, "Dune": {"Yellow": [71012778, 84000001, 105000001, 12279]}, "Sentinel": {"Orange": [2128869886, 2606777778, 3337500000, 1188]}, "Delta": {"Orange": [449000001, 623000001, 1326501656, 2165]}, "Vanguard": {"Orange": [1800000001, 2435670187, 3455981721, 1144]}, "Marauder": {"Orange": [670950017, 1010483303, 1417074895, 1495]}, "EOD": {"Red": [4800000001, 6500000287, 8537651251, 355]}, "Other": {"Yellow": [6511830001, 7900830606, 8100125180, 35]}, "M'aol": {"Yellow": [3859185238, 5216534891, 6573884543, 2]}};
+
     // ─── Live price variables (populated from cache/fetch/defaults) ───
     var weaponPrices = DEFAULT_WEAPON_PRICES;
     var bonusPrices = DEFAULT_BONUS_PRICES;
     var classPrices = DEFAULT_CLASS_PRICES;
+    var armourPrices = DEFAULT_ARMOUR_PRICES;
+    var armourBonusPrices = DEFAULT_ARMOUR_BONUS_PRICES;
+    var armourSetPrices = DEFAULT_ARMOUR_SET_PRICES;
 
     // ─── Static structural mappings (never change) ───────────
 
@@ -49,9 +61,18 @@
 
     var ITEM_ID_MAP = {"1":"Hammer","2":"Baseball Bat","3":"Crowbar","4":"Knuckle Dusters","5":"Pen Knife","6":"Kitchen Knife","7":"Dagger","8":"Axe","9":"Scimitar","11":"Samurai Sword","12":"Glock 17","13":"Raven MP25","14":"Ruger 57","15":"Beretta M9","16":"USP","17":"Beretta 92FS","18":"Fiveseven","19":"Magnum","20":"Desert Eagle","22":"Sawed-Off Shotgun","23":"Benelli M1 Tactical","24":"MP5 Navy","25":"P90","26":"AK-47","27":"M4A1 Colt Carbine","28":"Benelli M4 Super","29":"M16 A2 Rifle","30":"Steyr AUG","31":"M249 SAW","63":"Minigun","99":"Springfield 1911","100":"Egg Propelled Launcher","108":"9mm Uzi","109":"RPG Launcher","110":"Leather Bullwhip","111":"Ninja Claws","146":"Yasukuni Sword","173":"Butterfly Knife","174":"XM8 Rifle","177":"Cobra Derringer","189":"S&W Revolver","217":"Claymore Sword","219":"Enfield SA-80","223":"Jackhammer","224":"Swiss Army Knife","225":"Mag 7","227":"Spear","228":"Vektor CR-21","231":"Heckler & Koch SL8","233":"BT MP9","234":"Chain Whip","235":"Wooden Nunchaku","236":"Kama","237":"Kodachi","238":"Sai","240":"Type 98 Anti Tank","243":"Taurus","245":"Bo Staff","247":"Katana","248":"Qsz-92","249":"SKS Carbine","252":"Ithaca 37","253":"Lorcin 380","254":"S&W M29","289":"Dual Axes","290":"Dual Hammers","391":"Macana","395":"Metal Nunchaku","397":"Flail","398":"SIG 552","399":"ArmaLite M-15A4","400":"Guandao","402":"Ice Pick","438":"Cricket Bat","439":"Frying Pan","483":"MP5k","484":"AK74U","485":"Skorpion","486":"TMP","487":"Thompson","488":"MP 40","489":"Luger","490":"Blunderbuss","612":"Tavor TAR-21","613":"Harpoon","614":"Diamond Bladed Knife","615":"Naval Cutlass","830":"Nock Gun","831":"Beretta Pico","832":"Riding Crop","837":"Rheinmetall MG 3","838":"Homemade Pocket Shotgun","846":"Scalpel","850":"Sledgehammer","1053":"Bread Knife","1055":"Poison Umbrella","1152":"SMAW Launcher","1153":"China Lake","1154":"Milkor MGL","1155":"PKM","1156":"Negev NG-5","1157":"Stoner 96","1158":"Meat Hook","1159":"Cleaver","1231":"Golf Club","1255":"Bone Saw","1257":"Cattle Prod","1456":"Bolas"};
 
-    // ─── Reverse lookup: name -> known weapon ───
+    var ARMOUR_SET = {"M'aol Visage": "M'aol", "M'aol Hooves": "M'aol", "Sentinel Helmet": "Sentinel", "Sentinel Apron": "Sentinel", "Sentinel Pants": "Sentinel", "Sentinel Boots": "Sentinel", "Sentinel Gloves": "Sentinel", "Vanguard Respirator": "Vanguard", "Vanguard Body": "Vanguard", "Vanguard Pants": "Vanguard", "Vanguard Boots": "Vanguard", "Vanguard Gloves": "Vanguard", "Flak Jacket": "Other", "Hazmat Suit": "Other", "Kevlar Gloves": "Other", "WWII Helmet": "Other", "Motorcycle Helmet": "Other", "Construction Helmet": "Other", "Welding Helmet": "Other", "Riot Helmet": "Riot", "Riot Body": "Riot", "Riot Pants": "Riot", "Riot Boots": "Riot", "Riot Gloves": "Riot", "Dune Helmet": "Dune", "Dune Vest": "Dune", "Dune Pants": "Dune", "Dune Boots": "Dune", "Dune Gloves": "Dune", "Assault Helmet": "Assault", "Assault Body": "Assault", "Assault Pants": "Assault", "Assault Boots": "Assault", "Assault Gloves": "Assault", "Delta Gas Mask": "Delta", "Delta Body": "Delta", "Delta Pants": "Delta", "Delta Boots": "Delta", "Delta Gloves": "Delta", "Marauder Face Mask": "Marauder", "Marauder Body": "Marauder", "Marauder Pants": "Marauder", "Marauder Boots": "Marauder", "Marauder Gloves": "Marauder", "EOD Helmet": "EOD", "EOD Apron": "EOD", "EOD Pants": "EOD", "EOD Boots": "EOD", "EOD Gloves": "EOD"};
+
+    var ARMOUR_ID_MAP = {"1164": "M'aol Visage", "1167": "M'aol Hooves", "1307": "Sentinel Helmet", "1308": "Sentinel Apron", "1309": "Sentinel Pants", "1310": "Sentinel Boots", "1311": "Sentinel Gloves", "1355": "Vanguard Respirator", "1356": "Vanguard Body", "1357": "Vanguard Pants", "1358": "Vanguard Boots", "1359": "Vanguard Gloves", "178": "Flak Jacket", "348": "Hazmat Suit", "640": "Kevlar Gloves", "641": "WWII Helmet", "642": "Motorcycle Helmet", "643": "Construction Helmet", "644": "Welding Helmet", "655": "Riot Helmet", "656": "Riot Body", "657": "Riot Pants", "658": "Riot Boots", "659": "Riot Gloves", "660": "Dune Helmet", "661": "Dune Vest", "662": "Dune Pants", "663": "Dune Boots", "664": "Dune Gloves", "665": "Assault Helmet", "666": "Assault Body", "667": "Assault Pants", "668": "Assault Boots", "669": "Assault Gloves", "670": "Delta Gas Mask", "671": "Delta Body", "672": "Delta Pants", "673": "Delta Boots", "674": "Delta Gloves", "675": "Marauder Face Mask", "676": "Marauder Body", "677": "Marauder Pants", "678": "Marauder Boots", "679": "Marauder Gloves", "680": "EOD Helmet", "681": "EOD Apron", "682": "EOD Pants", "683": "EOD Boots", "684": "EOD Gloves"};
+
+    var ARMOUR_BONUS_MAP = {"112": "Kinetokinesis", "115": "Immutable", "121": "Irrepressible", "15": "Impregnable", "17": "Impenetrable", "22": "Imperviable", "26": "Impassable", "90": "Radiation Protection", "91": "Invulnerable", "92": "Insurmountable"};
+
+    // ─── Reverse lookup: name -> known weapon/armour ───
     var KNOWN_WEAPONS = {};
     Object.keys(WEAPON_CLASS).forEach(function(w) { KNOWN_WEAPONS[w.toLowerCase()] = w; });
+
+    var KNOWN_ARMOUR = {};
+    Object.keys(ARMOUR_SET).forEach(function(a) { KNOWN_ARMOUR[a.toLowerCase()] = a; });
 
     // ─── Rarity colors ───
     var RARITY_COLORS = {
@@ -121,6 +142,28 @@
         if (!bonusName || !bonusPrices[bonusName]) return null;
         var bData = bonusPrices[bonusName];
         if (bData[rarity]) return bData[rarity][1];
+        return null;
+    }
+
+    function lookupArmour(name) {
+        if (!name) return null;
+        if (armourPrices[name]) return name;
+        var lower = name.toLowerCase();
+        if (KNOWN_ARMOUR[lower]) return KNOWN_ARMOUR[lower];
+        return null;
+    }
+
+    function getArmourMedianPrice(armourName, rarity) {
+        var aData = armourPrices[armourName];
+        if (aData && aData[rarity]) return aData[rarity][1];
+        var aSet = ARMOUR_SET[armourName];
+        if (aSet && armourSetPrices[aSet] && armourSetPrices[aSet][rarity]) return armourSetPrices[aSet][rarity][1];
+        return null;
+    }
+
+    function getArmourBonusMedian(bonusName, rarity) {
+        if (!bonusName || !armourBonusPrices[bonusName]) return null;
+        if (armourBonusPrices[bonusName][rarity]) return armourBonusPrices[bonusName][rarity][1];
         return null;
     }
 
@@ -288,6 +331,116 @@
         };
     }
 
+    // ─── Armour CSV parsing & price computation ────────────────
+
+    function parseArmourCSVAndComputePrices(csvText) {
+        var lines = csvText.split('\n');
+        var armourGroups = {};   // armour+rarity -> [prices]
+        var bonusGroups = {};    // bonus+rarity -> [prices]
+        var setGroups = {};      // set+rarity -> [prices]
+
+        for (var i = 1; i < lines.length; i++) {
+            var line = lines[i].trim();
+            if (!line) continue;
+
+            var cols = line.split(',');
+            if (cols.length < 15) continue;
+
+            var price = parseInt(cols[1], 10);
+            var itemId = cols[6];
+            var rarity = cols[9];
+
+            if (rarity === '1' || !RARITY_MAP[rarity]) continue;
+
+            var rarityName = RARITY_MAP[rarity];
+            var armourName = ARMOUR_ID_MAP[itemId];
+            if (!armourName) continue;
+            if (isNaN(price) || price <= 0) continue;
+
+            // Armour + rarity group
+            var aKey = armourName + '|' + rarityName;
+            if (!armourGroups[aKey]) armourGroups[aKey] = [];
+            armourGroups[aKey].push(price);
+
+            // Bonus groups
+            var bonusId1 = cols[14];
+            if (bonusId1 && ARMOUR_BONUS_MAP[bonusId1]) {
+                var bName1 = ARMOUR_BONUS_MAP[bonusId1];
+                var bKey1 = bName1 + '|' + rarityName;
+                if (!bonusGroups[bKey1]) bonusGroups[bKey1] = [];
+                bonusGroups[bKey1].push(price);
+            }
+            if (cols.length > 16) {
+                var bonusId2 = cols[16];
+                if (bonusId2 && ARMOUR_BONUS_MAP[bonusId2]) {
+                    var bName2 = ARMOUR_BONUS_MAP[bonusId2];
+                    var bKey2 = bName2 + '|' + rarityName;
+                    if (!bonusGroups[bKey2]) bonusGroups[bKey2] = [];
+                    bonusGroups[bKey2].push(price);
+                }
+            }
+
+            // Set group
+            var setName = ARMOUR_SET[armourName];
+            if (setName) {
+                var sKey = setName + '|' + rarityName;
+                if (!setGroups[sKey]) setGroups[sKey] = [];
+                setGroups[sKey].push(price);
+            }
+        }
+
+        var newArmourPrices = {};
+        Object.keys(armourGroups).forEach(function(key) {
+            var parts = key.split('|');
+            var name = parts[0];
+            var rar = parts[1];
+            var arr = armourGroups[key].sort(function(a, b) { return a - b; });
+            if (!newArmourPrices[name]) newArmourPrices[name] = {};
+            newArmourPrices[name][rar] = [
+                Math.round(percentile(arr, 25)),
+                Math.round(percentile(arr, 50)),
+                Math.round(percentile(arr, 75)),
+                arr.length
+            ];
+        });
+
+        var newBonusPrices = {};
+        Object.keys(bonusGroups).forEach(function(key) {
+            var parts = key.split('|');
+            var name = parts[0];
+            var rar = parts[1];
+            var arr = bonusGroups[key].sort(function(a, b) { return a - b; });
+            if (!newBonusPrices[name]) newBonusPrices[name] = {};
+            newBonusPrices[name][rar] = [
+                Math.round(percentile(arr, 25)),
+                Math.round(percentile(arr, 50)),
+                Math.round(percentile(arr, 75)),
+                arr.length
+            ];
+        });
+
+        var newSetPrices = {};
+        Object.keys(setGroups).forEach(function(key) {
+            var parts = key.split('|');
+            var name = parts[0];
+            var rar = parts[1];
+            var arr = setGroups[key].sort(function(a, b) { return a - b; });
+            if (!newSetPrices[name]) newSetPrices[name] = {};
+            newSetPrices[name][rar] = [
+                Math.round(percentile(arr, 25)),
+                Math.round(percentile(arr, 50)),
+                Math.round(percentile(arr, 75)),
+                arr.length
+            ];
+        });
+
+        return {
+            armourPrices: newArmourPrices,
+            armourBonusPrices: newBonusPrices,
+            armourSetPrices: newSetPrices
+        };
+    }
+
     // ─── Load cached data or defaults ────────────────────────
 
     function loadCachedPrices() {
@@ -299,6 +452,9 @@
             weaponPrices = cached.weaponPrices;
             bonusPrices = cached.bonusPrices;
             classPrices = cached.classPrices;
+            if (cached.armourPrices) armourPrices = cached.armourPrices;
+            if (cached.armourBonusPrices) armourBonusPrices = cached.armourBonusPrices;
+            if (cached.armourSetPrices) armourSetPrices = cached.armourSetPrices;
             return cached.timestamp;
         }
         return 0;
@@ -316,18 +472,28 @@
         setToggleLoading(true);
 
         try {
-            var arrayBuffer = await fetchGzip(CDN_URL);
-            var csvText = await decompressGzip(arrayBuffer);
-            var prices = parseCSVAndComputePrices(csvText);
+            var results = await Promise.all([
+                fetchGzip(WEAPON_CDN_URL).then(decompressGzip),
+                fetchGzip(ARMOUR_CDN_URL).then(decompressGzip)
+            ]);
 
-            weaponPrices = prices.weaponPrices;
-            bonusPrices = prices.bonusPrices;
-            classPrices = prices.classPrices;
+            var weaponData = parseCSVAndComputePrices(results[0]);
+            weaponPrices = weaponData.weaponPrices;
+            bonusPrices = weaponData.bonusPrices;
+            classPrices = weaponData.classPrices;
+
+            var armourData = parseArmourCSVAndComputePrices(results[1]);
+            armourPrices = armourData.armourPrices;
+            armourBonusPrices = armourData.armourBonusPrices;
+            armourSetPrices = armourData.armourSetPrices;
 
             var cacheData = JSON.stringify({
                 weaponPrices: weaponPrices,
                 bonusPrices: bonusPrices,
                 classPrices: classPrices,
+                armourPrices: armourPrices,
+                armourBonusPrices: armourBonusPrices,
+                armourSetPrices: armourSetPrices,
                 timestamp: Date.now()
             });
             safeSet(CACHE_KEY, cacheData);
@@ -401,7 +567,7 @@
             var match = label.match(/Bonus[:\s\-]+(\w[\w\s-]*)/i);
             if (match) {
                 var bName = match[1].trim();
-                if (bonusPrices[bName]) bonuses.push(bName);
+                if (bonusPrices[bName] || armourBonusPrices[bName]) bonuses.push(bName);
             }
         }
 
@@ -412,7 +578,7 @@
             var propMatch = propLabel.match(/Bonus[:\s\-]+(\w[\w\s-]*)/i);
             if (propMatch) {
                 var pName = propMatch[1].trim();
-                if (bonusPrices[pName] && bonuses.indexOf(pName) === -1) bonuses.push(pName);
+                if ((bonusPrices[pName] || armourBonusPrices[pName]) && bonuses.indexOf(pName) === -1) bonuses.push(pName);
             }
         }
 
@@ -423,7 +589,7 @@
             var lMatch = title.match(/^(\w[\w\s-]*)/);
             if (lMatch) {
                 var lName = lMatch[1].trim();
-                if (bonusPrices[lName] && bonuses.indexOf(lName) === -1) bonuses.push(lName);
+                if ((bonusPrices[lName] || armourBonusPrices[lName]) && bonuses.indexOf(lName) === -1) bonuses.push(lName);
             }
         }
 
@@ -461,7 +627,7 @@
 
     // ─── Badge creation ──────────────────────────────────────
 
-    function createBadge(weaponName, rarity, median, bonuses) {
+    function createBadge(itemName, rarity, median, bonuses, bonusFn) {
         var color = RARITY_COLORS[rarity] || '#e8c44a';
         var badge = document.createElement('span');
         badge.className = 'rwp-price-tag';
@@ -474,7 +640,7 @@
         if (bonuses.length > 0) {
             var bonusParts = [];
             for (var i = 0; i < bonuses.length; i++) {
-                var bMedian = getBonusMedian(bonuses[i], rarity);
+                var bMedian = bonusFn(bonuses[i], rarity);
                 if (bMedian) {
                     bonusParts.push(bonuses[i] + ': ' + fmtMoney(bMedian));
                 }
@@ -617,17 +783,26 @@
             if (el.getAttribute('data-rwp-priced') === '1') continue;
 
             var rawName = extractWeaponName(el);
-            var weaponKey = lookupWeapon(normalizeWeaponName(rawName));
-            if (!weaponKey) continue;
+            var normalizedName = normalizeWeaponName(rawName);
+            var weaponKey = lookupWeapon(normalizedName);
+            var armourKey = weaponKey ? null : lookupArmour(normalizedName);
+            if (!weaponKey && !armourKey) continue;
 
             var rarity = detectRarity(el);
             if (!rarity) continue;
 
-            var median = getMedianPrice(weaponKey, rarity);
+            var median, bonusFn, badge;
+            if (weaponKey) {
+                median = getMedianPrice(weaponKey, rarity);
+                bonusFn = getBonusMedian;
+            } else {
+                median = getArmourMedianPrice(armourKey, rarity);
+                bonusFn = getArmourBonusMedian;
+            }
             if (!median) continue;
 
             var bonuses = extractBonuses(el);
-            var badge = createBadge(weaponKey, rarity, median, bonuses);
+            badge = createBadge(weaponKey || armourKey, rarity, median, bonuses, bonusFn);
 
             // Find insertion point — after name element
             var nameEl = el.querySelector('[class*="description"] .bold') ||
@@ -664,7 +839,7 @@
 
         var btn = document.createElement('div');
         btn.id = 'rwp-inline-toggle';
-        btn.title = 'Toggle RW Weapon Inline Prices (double-click to refresh data)';
+        btn.title = 'Toggle RW Weapon & Armour Inline Prices (double-click to refresh data)';
 
         var enabled = safeGet('rwp_inline_prices', true);
         btn.textContent = '$';
