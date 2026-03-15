@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Torn RW Weapon Inline Pricer
+// @name         Torn RW Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      2.5
-// @description  Injects inline price badges on RW weapons and armour in inventory, item market, auction house, and bazaar using daily-refreshed auction data
+// @version      2.6
+// @description  Inline price badges for RW weapons and armour using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
 // @match        https://www.torn.com/bazaar*
