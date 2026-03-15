@@ -554,6 +554,36 @@
         return null;
     }
 
+    // ─── Bonus name normalization ─────────────────────────────
+    // DOM may show "Double Tap" but data key is "Double-Tap", or "HomeRun" vs "Home Run"
+    var BONUS_ALIAS = {};
+    (function buildBonusAlias() {
+        var allBonusNames = Object.keys(bonusPrices).concat(Object.keys(armourBonusPrices));
+        for (var i = 0; i < allBonusNames.length; i++) {
+            var n = allBonusNames[i];
+            BONUS_ALIAS[n.toLowerCase()] = n;
+            // "Double-Tap" -> alias "double tap"
+            BONUS_ALIAS[n.replace(/-/g, ' ').toLowerCase()] = n;
+            // "HomeRun" -> alias "home run"
+            BONUS_ALIAS[n.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()] = n;
+        }
+    })();
+
+    function resolveBonusName(raw) {
+        if (!raw) return null;
+        var t = raw.trim();
+        if (bonusPrices[t] || armourBonusPrices[t]) return t;
+        var lower = t.toLowerCase();
+        if (BONUS_ALIAS[lower]) return BONUS_ALIAS[lower];
+        // Try hyphenating spaces: "Double Tap" -> "Double-Tap"
+        var hyph = t.replace(/\s+/g, '-');
+        if (bonusPrices[hyph] || armourBonusPrices[hyph]) return hyph;
+        // Try removing spaces: "Home Run" -> "HomeRun"
+        var joined = t.replace(/\s+/g, '');
+        if (bonusPrices[joined] || armourBonusPrices[joined]) return joined;
+        return null;
+    }
+
     // ─── Bonus extraction ────────────────────────────────────
 
     function extractBonuses(el) {
@@ -566,8 +596,8 @@
             // e.g. "Bonus: Warlord" or "Bonus - Warlord"
             var match = label.match(/Bonus[:\s\-]+(\w[\w\s-]*)/i);
             if (match) {
-                var bName = match[1].trim();
-                if (bonusPrices[bName] || armourBonusPrices[bName]) bonuses.push(bName);
+                var bName = resolveBonusName(match[1]);
+                if (bName && bonuses.indexOf(bName) === -1) bonuses.push(bName);
             }
         }
 
@@ -577,8 +607,8 @@
             var propLabel = propEls[j].getAttribute('aria-label') || '';
             var propMatch = propLabel.match(/Bonus[:\s\-]+(\w[\w\s-]*)/i);
             if (propMatch) {
-                var pName = propMatch[1].trim();
-                if ((bonusPrices[pName] || armourBonusPrices[pName]) && bonuses.indexOf(pName) === -1) bonuses.push(pName);
+                var pName = resolveBonusName(propMatch[1]);
+                if (pName && bonuses.indexOf(pName) === -1) bonuses.push(pName);
             }
         }
 
@@ -589,14 +619,14 @@
             // Try HTML-wrapped name first: <b>BonusName</b>
             var htmlMatch = title.match(/<b>([\w\s-]+)<\/b>/i);
             if (htmlMatch) {
-                var hName = htmlMatch[1].trim();
-                if ((bonusPrices[hName] || armourBonusPrices[hName]) && bonuses.indexOf(hName) === -1) bonuses.push(hName);
+                var hName = resolveBonusName(htmlMatch[1]);
+                if (hName && bonuses.indexOf(hName) === -1) bonuses.push(hName);
             } else {
                 // Plain text fallback
                 var lMatch = title.match(/^(\w[\w\s-]*)/);
                 if (lMatch) {
-                    var lName = lMatch[1].trim();
-                    if ((bonusPrices[lName] || armourBonusPrices[lName]) && bonuses.indexOf(lName) === -1) bonuses.push(lName);
+                    var lName = resolveBonusName(lMatch[1]);
+                    if (lName && bonuses.indexOf(lName) === -1) bonuses.push(lName);
                 }
             }
         }
@@ -607,8 +637,8 @@
             var dbText = dbBonuses[d].textContent || '';
             var dbMatch = dbText.match(/^\s*(\w[\w\s-]*)/);
             if (dbMatch) {
-                var dbName = dbMatch[1].trim();
-                if ((bonusPrices[dbName] || armourBonusPrices[dbName]) && bonuses.indexOf(dbName) === -1) bonuses.push(dbName);
+                var dbName = resolveBonusName(dbMatch[1]);
+                if (dbName && bonuses.indexOf(dbName) === -1) bonuses.push(dbName);
             }
         }
 
