@@ -1,8 +1,9 @@
 // ==UserScript==
 // @name         Torn Faction Offline Highlighter
 // @namespace    torn.faction.offline.highlight
-// @version      1.9.0
+// @version      1.9.1
 // @description  Highlights faction members red who have been offline for over 24 hours on the faction member list. Shows OC inactivity badges in chat globally. Configurable threshold. PDA compatible.
+// @changelog    v1.9.1 - Fixed highlighting bleeding onto armory/controls pages; highlighter now only applies on the member list tab
 // @changelog    v1.9.0 - Fixed new members (< 72h in faction) incorrectly getting [OC: Never] badges; members in their join cooldown are now excluded from OC participation checks
 // @changelog    v1.8.0 - Fixed gear icon and sort toggle appearing on non-faction pages (e.g. Home); controls now start hidden and only show on member list tab
 // @changelog    v1.7.0 - Added OC inactivity badges in chat globally (shows for members not in any active OC)
@@ -462,13 +463,18 @@
     function onMemberListTab() {
         // Check URL hash for member-related tabs
         const hash = window.location.hash || '';
-        // Member list tab: #/tab=info or no hash on factions.php?step=your
-        // Also check if member rows are visible on the page
         const url = window.location.href;
-        const hasMemberRows = document.querySelectorAll('a[href*="profiles.php?XID="]').length > 5;
-        const isInfoTab = hash.includes('tab=info') || hash === '' || hash === '#';
         const isYourFaction = url.includes('step=your');
-        return isYourFaction && (isInfoTab || hasMemberRows);
+        if (!isYourFaction) return false;
+        // Exclude known non-member tabs (armory, controls, crimes, etc.)
+        if (hash.includes('tab=armoury') || hash.includes('tab=armory') ||
+            hash.includes('tab=controls') || hash.includes('tab=crimes') ||
+            hash.includes('tab=wars') || hash.includes('tab=chain')) {
+            return false;
+        }
+        // Member list tab: #/tab=info or no hash
+        const isInfoTab = hash.includes('tab=info') || hash === '' || hash === '#' || hash === '#/';
+        return isInfoTab;
     }
 
     function showControls() {
@@ -516,6 +522,9 @@
             if (ocPanel && ocPanel.contains(a)) return;
             // Skip links inside chat containers
             if (a.closest('[class*="chat"]') || a.closest('[class*="Chat"]')) return;
+            // Skip links inside armory/armoury containers
+            if (a.closest('[class*="armory"]') || a.closest('[class*="armoury"]') ||
+                a.closest('[class*="inventory"]') || a.closest('[class*="item"]')) return;
             const match = a.href.match(/XID=(\d+)/i);
             if (match) {
                 const id = match[1];
