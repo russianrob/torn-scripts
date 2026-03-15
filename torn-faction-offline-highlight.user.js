@@ -3,16 +3,9 @@
 // @namespace    torn.faction.offline.highlight
 // @version      1.9.1
 // @description  Highlights faction members red who have been offline for over 24 hours on the faction member list. Shows OC inactivity badges in chat globally. Configurable threshold. PDA compatible.
-// @changelog    v1.9.1 - Fixed highlighting bleeding onto armory/controls pages; highlighter now only applies on the member list tab
-// @changelog    v1.9.0 - Fixed new members (< 72h in faction) incorrectly getting [OC: Never] badges; members in their join cooldown are now excluded from OC participation checks
-// @changelog    v1.8.0 - Fixed gear icon and sort toggle appearing on non-faction pages (e.g. Home); controls now start hidden and only show on member list tab
-// @changelog    v1.7.0 - Added OC inactivity badges in chat globally (shows for members not in any active OC)
-// @changelog    v1.6.0 - Added OC inactivity tracker on the 'not participating in any scenarios' panel
 // @author       RussianRob
 // @match        https://www.torn.com/*
 // @run-at       document-end
-// @changelog    v1.5.2 - API key input now masked with asterisks for security
-// @changelog    v1.5.1 - Fixed Default sort not restoring original member order; Settings panel (API key + threshold) now accessible via gear icon instead of prompt; Added PDA auto-key detection
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
