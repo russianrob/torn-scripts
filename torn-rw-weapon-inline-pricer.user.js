@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn RW Weapon Inline Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      2.3
+// @version      2.4
 // @description  Injects inline price badges on RW weapons and armour in inventory, item market, auction house, and bazaar using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
@@ -302,6 +302,18 @@
     function getArmourComboMedian(armourName, bonusName, rarity) {
         var key = armourName + '|' + bonusName;
         if (armourComboPrices[key] && armourComboPrices[key][rarity]) return armourComboPrices[key][rarity][1];
+        return null;
+    }
+
+    function getWeaponComboPriceArray(weaponName, bonusName, rarity) {
+        var key = weaponName + '|' + bonusName;
+        if (weaponComboPrices[key] && weaponComboPrices[key][rarity]) return weaponComboPrices[key][rarity];
+        return null;
+    }
+
+    function getArmourComboPriceArray(armourName, bonusName, rarity) {
+        var key = armourName + '|' + bonusName;
+        if (armourComboPrices[key] && armourComboPrices[key][rarity]) return armourComboPrices[key][rarity];
         return null;
     }
 
@@ -990,7 +1002,7 @@
 
     // ─── Badge creation ──────────────────────────────────────
 
-    function createBadge(itemName, rarity, median, bonuses, bonusFn, estimatedPrice, priceArray, bonusPriceArrays, bonusColors) {
+    function createBadge(itemName, rarity, median, bonuses, bonusFn, estimatedPrice, priceArray, bonusPriceArrays, bonusColors, comboPriceArrays) {
         var color = RARITY_COLORS[rarity] || '#e8c44a';
         var badge = document.createElement('span');
         badge.className = 'rwp-price-tag';
@@ -1003,6 +1015,7 @@
         if (bonusPriceArrays) badge.setAttribute('data-rwp-bonus-prices', JSON.stringify(bonusPriceArrays));
         if (bonuses.length > 0) badge.setAttribute('data-rwp-bonuses', JSON.stringify(bonuses));
         if (bonusColors) badge.setAttribute('data-rwp-bonus-colors', JSON.stringify(bonusColors));
+        if (comboPriceArrays) badge.setAttribute('data-rwp-combo-prices', JSON.stringify(comboPriceArrays));
 
         var displayPrice = estimatedPrice || median;
         var label = (bonuses.length > 0 && estimatedPrice && estimatedPrice !== median) ? 'RWP Est' : 'RWP';
@@ -1048,11 +1061,13 @@
         var bonuses = null;
 
         var bonusColors = null;
+        var comboPricesData = null;
 
         try { prices = JSON.parse(badge.getAttribute('data-rwp-prices')); } catch (e) {}
         try { bonusPricesData = JSON.parse(badge.getAttribute('data-rwp-bonus-prices')); } catch (e) {}
         try { bonuses = JSON.parse(badge.getAttribute('data-rwp-bonuses')); } catch (e) {}
         try { bonusColors = JSON.parse(badge.getAttribute('data-rwp-bonus-colors')); } catch (e) {}
+        try { comboPricesData = JSON.parse(badge.getAttribute('data-rwp-combo-prices')); } catch (e) {}
 
         var tooltip = document.createElement('div');
         tooltip.className = 'rwp-price-tooltip';
@@ -1069,21 +1084,36 @@
             html += '</div>';
         }
 
-        if (bonuses && bonusPricesData) {
+        if (bonuses && (bonusPricesData || comboPricesData)) {
             for (var i = 0; i < bonuses.length; i++) {
                 var bName = bonuses[i];
-                var bArr = bonusPricesData[bName];
-                if (!bArr || bArr.length !== 4) continue;
                 var bColorLabel = (bonusColors && bonusColors[bName]) ? bonusColors[bName] : '';
                 var bColorHex = (bColorLabel && RARITY_COLORS[bColorLabel]) ? RARITY_COLORS[bColorLabel] : '#ccc';
-                html += '<div class="rwp-tooltip-divider"></div>';
-                html += '<div class="rwp-tooltip-bonus-header" style="color:' + bColorHex + ';">' + bName + ' Bonus' + (bColorLabel ? ' <span style="opacity:0.6;">(' + bColorLabel + ')</span>' : '') + '</div>';
-                html += '<div class="rwp-tooltip-section">';
-                html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Min:</span><span class="rwp-tooltip-value">' + fmtMoney(bArr[0]) + '</span></div>';
-                html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Median:</span><span class="rwp-tooltip-value">' + fmtMoney(bArr[1]) + '</span></div>';
-                html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Max:</span><span class="rwp-tooltip-value">' + fmtMoney(bArr[2]) + '</span></div>';
-                html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Auctions:</span><span class="rwp-tooltip-value">' + bArr[3] + '</span></div>';
-                html += '</div>';
+
+                // Prefer combo (weapon+bonus) data over generic bonus data
+                var comboArr = (comboPricesData && comboPricesData[bName] && comboPricesData[bName].length === 4) ? comboPricesData[bName] : null;
+                var genericArr = (bonusPricesData && bonusPricesData[bName] && bonusPricesData[bName].length === 4) ? bonusPricesData[bName] : null;
+
+                if (comboArr) {
+                    html += '<div class="rwp-tooltip-divider"></div>';
+                    html += '<div class="rwp-tooltip-bonus-header" style="color:' + bColorHex + ';">' + bName + ' on ' + itemName + (bColorLabel ? ' <span style="opacity:0.6;">(' + bColorLabel + ')</span>' : '') + '</div>';
+                    html += '<div class="rwp-tooltip-section">';
+                    html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Min:</span><span class="rwp-tooltip-value">' + fmtMoney(comboArr[0]) + '</span></div>';
+                    html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Median:</span><span class="rwp-tooltip-value">' + fmtMoney(comboArr[1]) + '</span></div>';
+                    html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Max:</span><span class="rwp-tooltip-value">' + fmtMoney(comboArr[2]) + '</span></div>';
+                    html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Auctions:</span><span class="rwp-tooltip-value">' + comboArr[3] + '</span></div>';
+                    html += '</div>';
+                }
+                if (genericArr) {
+                    html += '<div class="rwp-tooltip-divider"></div>';
+                    html += '<div class="rwp-tooltip-bonus-header" style="color:' + bColorHex + ';">' + bName + ' Bonus' + (comboArr ? ' (All Weapons)' : '') + (bColorLabel ? ' <span style="opacity:0.6;">(' + bColorLabel + ')</span>' : '') + '</div>';
+                    html += '<div class="rwp-tooltip-section">';
+                    html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Min:</span><span class="rwp-tooltip-value">' + fmtMoney(genericArr[0]) + '</span></div>';
+                    html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Median:</span><span class="rwp-tooltip-value">' + fmtMoney(genericArr[1]) + '</span></div>';
+                    html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Max:</span><span class="rwp-tooltip-value">' + fmtMoney(genericArr[2]) + '</span></div>';
+                    html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Auctions:</span><span class="rwp-tooltip-value">' + genericArr[3] + '</span></div>';
+                    html += '</div>';
+                }
             }
         }
 
@@ -1391,18 +1421,23 @@
             // Gather full price arrays for tooltip
             var itemPriceArray = weaponKey ? getPriceArray(weaponKey, rarity) : getArmourPriceArray(armourKey, rarity);
             var bonusPriceArrays = {};
+            var comboPriceArrays = {};
             var bonusArrayFn = weaponKey ? getBonusPriceArray : getArmourBonusPriceArray;
+            var comboArrayFn = weaponKey ? getWeaponComboPriceArray : getArmourComboPriceArray;
             for (var bi = 0; bi < bonuses.length; bi++) {
                 var bRarity = bonusColors[bonuses[bi].name];
                 var bArr = bonusArrayFn(bonuses[bi].name, bRarity);
                 if (bArr) bonusPriceArrays[bonuses[bi].name] = bArr;
+                // Combo data is keyed by weapon rarity, not bonus color
+                var cArr = comboArrayFn(itemKey, bonuses[bi].name, rarity);
+                if (cArr) comboPriceArrays[bonuses[bi].name] = cArr;
             }
 
             // Extract bonus names and colors for badge storage
             var bonusNames = [];
             for (var bn = 0; bn < bonuses.length; bn++) bonusNames.push(bonuses[bn].name);
 
-            badge = createBadge(weaponKey || armourKey, rarity, median, bonusNames, bonusFn, estimatedPrice, itemPriceArray, Object.keys(bonusPriceArrays).length > 0 ? bonusPriceArrays : null, bonusColors);
+            badge = createBadge(weaponKey || armourKey, rarity, median, bonusNames, bonusFn, estimatedPrice, itemPriceArray, Object.keys(bonusPriceArrays).length > 0 ? bonusPriceArrays : null, bonusColors, Object.keys(comboPriceArrays).length > 0 ? comboPriceArrays : null);
 
             // Find insertion point — after name element
             var nameEl = el.querySelector('[class*="description"] .bold') ||
