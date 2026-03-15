@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         Torn Faction Offline Highlighter
 // @namespace    torn.faction.offline.highlight
-// @version      1.7.0
-// @description  Highlights faction members red who have been offline for over 24 hours on the faction member list. Shows last OC participation on the not-participating panel. Configurable threshold. PDA compatible.
-// @changelog    v1.7.0 - Fixed gear icon and sort toggle appearing on non-faction pages (e.g. Home); controls now verify faction page before rendering
+// @version      1.8.0
+// @description  Highlights faction members red who have been offline for over 24 hours on the faction member list. Shows OC inactivity badges in chat globally. Configurable threshold. PDA compatible.
+// @changelog    v1.8.0 - Fixed gear icon and sort toggle appearing on non-faction pages (e.g. Home); controls now start hidden and only show on member list tab
+// @changelog    v1.7.0 - Added OC inactivity badges in chat globally (shows for members not in any active OC)
+// @changelog    v1.6.0 - Added OC inactivity tracker on the 'not participating in any scenarios' panel
 // @author       RussianRob
-// @match        https://www.torn.com/factions.php*
+// @match        https://www.torn.com/*
 // @run-at       document-end
 // @changelog    v1.5.2 - API key input now masked with asterisks for security
 // @changelog    v1.5.1 - Fixed Default sort not restoring original member order; Settings panel (API key + threshold) now accessible via gear icon instead of prompt; Added PDA auto-key detection
@@ -17,11 +19,6 @@
 
 (function () {
     'use strict';
-
-    // ─── Faction page guard ──────────────────────────────────
-    // PDA can sometimes run scripts outside their @match scope,
-    // so bail early if we're not actually on a faction page.
-    if (!location.pathname.includes('factions.php')) return;
 
     // ─── Configuration ───────────────────────────────────────
     const STORAGE_KEY_API   = 'faction_offline_api_key_v1';
@@ -127,6 +124,10 @@
         return apiFetch(`${API_BASE}/v2/faction/crimes?cat=completed&sort=DESC&key=${apiKey}`);
     }
 
+    function fetchAvailableCrimes(apiKey) {
+        return apiFetch(`${API_BASE}/v2/faction/crimes?cat=available&key=${apiKey}`);
+    }
+
     // ─── Time helpers ────────────────────────────────────────
     function hoursAgo(timestamp) {
         return (Date.now() / 1000 - timestamp) / 3600;
@@ -142,6 +143,8 @@
 
     // ─── OC participation tracking ──────────────────────────
     let lastOCMap = {};  // member ID → { timestamp, crimeName }
+    let notParticipatingIDs = new Set();  // IDs of members not in any active OC
+    let allFactionMemberIDs = new Set();  // all faction member IDs
 
     async function buildLastOCMap() {
         const key = getApiKey();
@@ -162,7 +165,6 @@
                     const uid = slot.user && (slot.user.id || slot.user.user_id);
                     if (!uid) continue;
                     const id = String(uid);
-                    // Only keep the most recent
                     if (!map[id] || ts > map[id].timestamp) {
                         map[id] = { timestamp: ts, crimeName: name };
                     }
@@ -174,32 +176,142 @@
         }
     }
 
-    function findNotParticipatingPanel() {
-        // Walk all text nodes looking for the specific header,
-        // but exclude chat containers, sidebar, and other non-OC areas
-        const candidates = document.querySelectorAll('[class*="panel"], [class*="section"], [class*="crimes"], [class*="scenario"]');
-        for (const container of candidates) {
-            // Skip chat elements
-            if (container.closest('[class*="chat"]') || container.closest('[class*="Chat"]')) continue;
-            const text = container.textContent || '';
-            if (text.includes("aren't participating in any scenarios")) {
-                return container;
+    async function buildNotParticipatingIDs() {
+        const key = getApiKey();
+        if (!key) return;
+        try {
+            // Fetch faction members and active OCs in parallel
+            const [membersData, crimesData] = await Promise.all([
+                fetchMembers(key),
+                fetchAvailableCrimes(key)
+            ]);
+
+            if (membersData.error) {
+                console.error('[FOH] Members API error:', membersData.error);
+                return;
             }
-        }
-        // Fallback: search headers directly
-        const headers = document.querySelectorAll('h4, h5, [class*="header"], [class*="title"]');
-        for (const el of headers) {
-            if (el.closest('[class*="chat"]') || el.closest('[class*="Chat"]')) continue;
-            if (el.textContent.includes("aren't participating")) {
-                return el.closest('[class*="panel"]') || el.closest('[class*="section"]') || el.parentElement;
+
+            // Build set of all faction member IDs
+            allFactionMemberIDs = new Set();
+            let members;
+            if (Array.isArray(membersData.members)) {
+                members = membersData.members;
+            } else if (membersData.members && typeof membersData.members === 'object') {
+                members = Object.entries(membersData.members).map(([id, m]) => ({ id: parseInt(id), ...m }));
+            } else {
+                return;
             }
+            for (const m of members) {
+                if (m.id) allFactionMemberIDs.add(String(m.id));
+            }
+
+            // Build set of member IDs in active OCs
+            const inActiveOC = new Set();
+            if (!crimesData.error) {
+                const crimes = crimesData.crimes || [];
+                for (const crime of crimes) {
+                    if (!crime.slots) continue;
+                    for (const slot of crime.slots) {
+                        const uid = slot.user && (slot.user.id || slot.user.user_id);
+                        if (uid) inActiveOC.add(String(uid));
+                    }
+                }
+            }
+
+            // Not participating = faction members NOT in any active OC
+            notParticipatingIDs = new Set();
+            for (const id of allFactionMemberIDs) {
+                if (!inActiveOC.has(id)) {
+                    notParticipatingIDs.add(id);
+                }
+            }
+
+            console.log(`[FOH] ${notParticipatingIDs.size} members not in active OCs, ${inActiveOC.size} in active OCs`);
+        } catch (err) {
+            console.error('[FOH] Failed to build not-participating list:', err);
         }
-        return null;
+    }
+
+    // Returns { panel, links } where links are ONLY the non-participating member links
+    function findNotParticipatingMembers() {
+        // Use a TreeWalker to find the element that directly contains
+        // "aren't participating in any scenarios" text
+        const walker = document.createTreeWalker(
+            document.body,
+            NodeFilter.SHOW_ELEMENT,
+            {
+                acceptNode(node) {
+                    // Skip chat areas entirely
+                    if (node.closest && (node.closest('[class*="chat" i]') || node.closest('[id*="chat" i]'))) {
+                        return NodeFilter.FILTER_REJECT;
+                    }
+                    return NodeFilter.FILTER_ACCEPT;
+                }
+            }
+        );
+
+        let headerEl = null;
+        while (walker.nextNode()) {
+            const el = walker.currentNode;
+            // Check if this element's own text (not deep children) contains the phrase
+            for (const child of el.childNodes) {
+                if (child.nodeType === 3 && child.textContent.includes("aren't participating")) {
+                    headerEl = el;
+                    break;
+                }
+            }
+            if (headerEl) break;
+        }
+
+        if (!headerEl) return null;
+
+        // Now collect XID links that come AFTER this header in the DOM.
+        // Walk siblings and their descendants until we hit another section header
+        // or run out of siblings.
+        const npLinks = [];
+        let sibling = headerEl.nextElementSibling;
+
+        // If no next sibling, try going up one level
+        if (!sibling && headerEl.parentElement) {
+            sibling = headerEl.parentElement.nextElementSibling;
+        }
+
+        // Collect all members from sibling containers
+        while (sibling) {
+            // Stop if we hit another scenario/section header
+            const sibText = sibling.textContent || '';
+            if (sibText.includes('scenario') && !sibText.includes("aren't participating")) {
+                // Could be another section, check if it has its own header-like content
+                const hasHeader = sibling.querySelector('h4, h5, [class*="header"], [class*="title"]');
+                if (hasHeader) break;
+            }
+
+            const links = sibling.querySelectorAll('a[href*="XID="]');
+            links.forEach(l => npLinks.push(l));
+
+            sibling = sibling.nextElementSibling;
+        }
+
+        // If we found no links via siblings, the members might be children of the same parent
+        // In that case, scan the header's parent for XID links that appear after the header
+        if (npLinks.length === 0 && headerEl.parentElement) {
+            const parent = headerEl.parentElement;
+            const allLinks = parent.querySelectorAll('a[href*="XID="]');
+            allLinks.forEach(link => {
+                if (headerEl.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                    npLinks.push(link);
+                }
+            });
+            return npLinks.length > 0 ? { panel: parent, links: npLinks } : null;
+        }
+
+        return npLinks.length > 0 ? { panel: headerEl.parentElement || headerEl, links: npLinks } : null;
     }
 
     function annotateNotParticipating() {
-        const panel = findNotParticipatingPanel();
-        if (!panel) return;
+        const result = findNotParticipatingMembers();
+        if (!result) return;
+        const { panel, links } = result;
 
         // Remove any "Last Action" badges from the offline highlighter on this panel
         panel.querySelectorAll('.foh-badge').forEach(b => b.remove());
@@ -212,14 +324,14 @@
 
         if (Object.keys(lastOCMap).length === 0) return;
 
-        // Find member links in the panel
-        const links = panel.querySelectorAll('a[href*="XID="]');
+        // Annotate links on the panel with OC badges
+        // notParticipatingIDs is already built from the API by buildNotParticipatingIDs()
         links.forEach(link => {
             const match = link.href.match(/XID=(\d+)/i);
             if (!match) return;
             const id = match[1];
 
-            // Find the member's card/container within the panel
+            // Find the member's card/container
             const card = link.closest('[class*="member"]') || link.closest('[class*="user"]') ||
                          link.closest('li') || link.closest('div[class]') || link.parentElement;
             if (!card) return;
@@ -235,12 +347,10 @@
                 const hrsAgo = hoursAgo(ocInfo.timestamp);
                 const timeStr = formatDuration(hrsAgo);
                 badge.textContent = `Last OC: ${timeStr} ago`;
-                // Note: this is last COMPLETED OC, not active/planning
                 badge.title = `${ocInfo.crimeName} - ${new Date(ocInfo.timestamp * 1000).toLocaleDateString()}`;
-                // Color by how long ago
-                if (hrsAgo > 168) { // > 7 days
+                if (hrsAgo > 168) {
                     badge.style.color = '#ff4444';
-                } else if (hrsAgo > 72) { // > 3 days
+                } else if (hrsAgo > 72) {
                     badge.style.color = '#ffa500';
                 } else {
                     badge.style.color = '#4caf50';
@@ -259,21 +369,90 @@
         });
     }
 
+    // ─── Chat OC badges ──────────────────────────────────
+    function annotateChatMessages() {
+        if (Object.keys(lastOCMap).length === 0 || notParticipatingIDs.size === 0) return;
+
+        // Cache the OC panel reference outside the loop (only on faction page)
+        let ocPanelEl = null;
+        if (onFactionPage()) {
+            const npRef = findNotParticipatingMembers();
+            ocPanelEl = npRef ? npRef.panel : null;
+        }
+
+        // Only scan links inside chat containers for speed
+        const chatAreas = document.querySelectorAll('[class*="chat" i], [id*="chat" i]');
+        if (chatAreas.length === 0) return;
+
+        const allLinks = [];
+        chatAreas.forEach(area => {
+            area.querySelectorAll('a[href*="XID="]').forEach(l => allLinks.push(l));
+        });
+
+        allLinks.forEach(link => {
+            const match = link.href.match(/XID=(\d+)/i);
+            if (!match) return;
+            const id = match[1];
+
+            // Only annotate members who aren't participating in any OC
+            if (!notParticipatingIDs.has(id)) return;
+
+            // Make sure this isn't in the OC panel (only relevant on faction page)
+            if (ocPanelEl && ocPanelEl.contains(link)) return;
+
+            // Find the message container for this link
+            const msg = link.closest('[class*="message" i]') || link.closest('[class*="msg" i]') ||
+                        link.closest('li') || link.parentElement;
+            if (!msg) return;
+
+            // Don't add duplicate badges
+            if (msg.querySelector('.foh-chat-oc')) return;
+
+            const badge = document.createElement('span');
+            badge.className = 'foh-chat-oc';
+
+            const ocInfo = lastOCMap[id];
+            if (ocInfo) {
+                const hrsAgo = hoursAgo(ocInfo.timestamp);
+                const timeStr = formatDuration(hrsAgo);
+                badge.textContent = ` [OC: ${timeStr} ago]`;
+                badge.title = `${ocInfo.crimeName} - ${new Date(ocInfo.timestamp * 1000).toLocaleDateString()}`;
+                if (hrsAgo > 168) {
+                    badge.style.color = '#ff4444';
+                } else if (hrsAgo > 72) {
+                    badge.style.color = '#ffa500';
+                } else {
+                    badge.style.color = '#4caf50';
+                }
+            } else {
+                badge.textContent = ' [OC: Never]';
+                badge.title = 'No completed OC found in recent history';
+                badge.style.color = '#ff4444';
+            }
+
+            badge.style.cssText += ';font-size:9px;font-weight:700;' +
+                'letter-spacing:0.3px;';
+
+            // Insert right after the username link (inline)
+            if (link.nextSibling) {
+                link.parentElement.insertBefore(badge, link.nextSibling);
+            } else {
+                link.parentElement.appendChild(badge);
+            }
+        });
+    }
+
     // ─── Tab detection ───────────────────────────────────────
     function onMemberListTab() {
         // Check URL hash for member-related tabs
         const hash = window.location.hash || '';
+        // Member list tab: #/tab=info or no hash on factions.php?step=your
+        // Also check if member rows are visible on the page
         const url = window.location.href;
-        const isYourFaction = url.includes('step=your');
-        if (!isYourFaction) return false;
-
-        // Explicitly exclude OC / crimes tabs so gear+sort stay hidden there
-        if (hash.includes('tab=crimes') || hash.includes('tab=crime')) return false;
-        if (document.querySelector('[class*="crimes-app"]') || document.querySelector('[class*="scenario"]')) return false;
-
-        const isInfoTab = hash.includes('tab=info') || hash === '' || hash === '#';
         const hasMemberRows = document.querySelectorAll('a[href*="profiles.php?XID="]').length > 5;
-        return isInfoTab || hasMemberRows;
+        const isInfoTab = hash.includes('tab=info') || hash === '' || hash === '#';
+        const isYourFaction = url.includes('step=your');
+        return isYourFaction && (isInfoTab || hasMemberRows);
     }
 
     function showControls() {
@@ -311,9 +490,16 @@
         }
 
         // Also try to match by scanning <a> tags with href containing XID=
+        // Find the not-participating panel so we can exclude its links
+        const npResult = findNotParticipatingMembers();
+        const ocPanel = npResult ? npResult.panel : null;
         const allLinks = document.querySelectorAll('a[href*="profiles.php?XID="], a[href*="XID="]');
         const linkMap  = {};
         allLinks.forEach(a => {
+            // Skip links inside the OC not-participating panel
+            if (ocPanel && ocPanel.contains(a)) return;
+            // Skip links inside chat containers
+            if (a.closest('[class*="chat"]') || a.closest('[class*="Chat"]')) return;
             const match = a.href.match(/XID=(\d+)/i);
             if (match) {
                 const id = match[1];
@@ -643,46 +829,71 @@
 
     let ocDataFetched = false;
 
-    async function checkOCPanel() {
-        // Only run if the not-participating panel exists (quick DOM check, not full innerText scan)
-        const panel = findNotParticipatingPanel();
-        if (!panel) return;
+    async function fetchOCData() {
+        if (ocDataFetched) return;
+        const key = getApiKey();
+        if (!key) return;
+        // Fetch completed OC history and active OC participation in parallel
+        await Promise.all([
+            buildLastOCMap(),
+            buildNotParticipatingIDs()
+        ]);
+        ocDataFetched = true;
+    }
 
-        if (!ocDataFetched) {
-            await buildLastOCMap();
-            ocDataFetched = true;
+    async function checkOCPanel() {
+        // Annotate the not-participating panel (only works on the OC page)
+        const npResult = findNotParticipatingMembers();
+        if (npResult) {
+            await fetchOCData();
+            annotateNotParticipating();
         }
-        annotateNotParticipating();
+    }
+
+    async function checkChatMessages() {
+        await fetchOCData();
+        annotateChatMessages();
+    }
+
+    // ─── Check if on faction page ────────────────────────────
+    function onFactionPage() {
+        return window.location.href.includes('factions.php');
     }
 
     // ─── Observe DOM changes (Torn loads content dynamically) ─
     function init() {
+        // Inject controls (both start hidden via display:none)
         injectSettingsGear();
         injectSortToggle();
 
-        // Only show controls + run on member list tab
+        // Chat OC badges run globally on any torn.com page
+        checkChatMessages();
+
+        // Faction-specific features
         function checkTab() {
+            if (!onFactionPage()) return;
             if (onMemberListTab()) {
                 showControls();
                 refresh();
             } else {
                 hideControls();
             }
-            // Also check for OC panel on any faction page
+            // Check for OC panel on faction page
             checkOCPanel();
         }
 
-        checkTab();
-        setInterval(checkTab, REFRESH_MS);
+        if (onFactionPage()) {
+            checkTab();
+            setInterval(checkTab, REFRESH_MS);
 
-        // Re-check when navigating between tabs
-        window.addEventListener('hashchange', () => {
-            setTimeout(checkTab, 300);
-        });
+            window.addEventListener('hashchange', () => {
+                setTimeout(checkTab, 300);
+            });
+        }
 
-        // Re-highlight when Torn dynamically reloads member list
-        // Uses a debounce + flag so our own DOM edits don't trigger a loop
+        // Re-highlight when Torn dynamically reloads content
         let ocDebounceTimer = null;
+        let chatDebounceTimer = null;
         const observer = new MutationObserver((mutations) => {
             // Ignore mutations caused by our own elements
             const dominated = mutations.every(m =>
@@ -694,13 +905,14 @@
                     m.target.classList?.contains('foh-red') ||
                     m.target.classList?.contains('foh-orange') ||
                     m.target.classList?.contains('foh-ok') ||
-                    m.target.classList?.contains('foh-oc-badge')
+                    m.target.classList?.contains('foh-oc-badge') ||
+                    m.target.classList?.contains('foh-chat-oc')
                 )
             );
             if (dominated) return;
 
-            // Member list highlighting
-            if (!isHighlighting && memberCache && onMemberListTab()) {
+            // Member list highlighting (faction page only)
+            if (onFactionPage() && !isHighlighting && memberCache && onMemberListTab()) {
                 clearTimeout(debounceTimer);
                 debounceTimer = setTimeout(() => {
                     const thresholdH = getThresholdHours();
@@ -708,9 +920,15 @@
                 }, 500);
             }
 
-            // OC panel: debounce check when DOM changes
-            clearTimeout(ocDebounceTimer);
-            ocDebounceTimer = setTimeout(() => checkOCPanel(), 800);
+            // OC panel: debounce check when DOM changes (faction page only)
+            if (onFactionPage()) {
+                clearTimeout(ocDebounceTimer);
+                ocDebounceTimer = setTimeout(() => checkOCPanel(), 800);
+            }
+
+            // Chat badges: fast debounce on any page (150ms so scrolling feels instant)
+            clearTimeout(chatDebounceTimer);
+            chatDebounceTimer = setTimeout(() => annotateChatMessages(), 150);
         });
         observer.observe(document.body, { childList: true, subtree: true });
     }
