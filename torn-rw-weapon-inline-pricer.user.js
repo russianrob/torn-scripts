@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Torn RW Weapon Inline Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      1.3
-// @description  Injects inline price badges on RW weapons and armour in inventory, item market, auction house, and bazaar using daily-refreshed auction data
+// @version      1.4
+// @description  Injects inline price badges on RW weapons, armour, and collectibles in inventory, item market, auction house, and bazaar using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
 // @match        https://www.torn.com/bazaar*
@@ -13,6 +13,7 @@
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
 // @connect      cdn.marches.cafe
+// @connect      api.torn.com
 // ==/UserScript==
 
 (function() {
@@ -22,6 +23,264 @@
     var apiKey = '';
     var PDAKey = '###PDA-APIKEY###';
     if (PDAKey.charAt(0) !== '#') { apiKey = PDAKey; }
+
+    // ─── API Key Resolution for Collectible Pricing ─────────
+    function getApiKey() {
+        if (apiKey) return apiKey;
+        var stored = safeGet('rwp_api_key', '');
+        if (stored) return stored;
+        return '';
+    }
+
+    function promptForApiKey() {
+        if (getApiKey()) return;
+        if (safeGet('rwp_api_key_dismissed', false)) return;
+        var key = prompt(
+            'RW Pricer: Enter your Torn API key to enable collectible pricing.\n' +
+            'A minimal "Public" key is sufficient.\n' +
+            'You can get one at: https://www.torn.com/preferences.php#tab=api\n\n' +
+            'Press Cancel to skip (you can set it later via the $ button context menu).'
+        );
+        if (key && key.trim()) {
+            safeSet('rwp_api_key', key.trim());
+        } else {
+            safeSet('rwp_api_key_dismissed', true);
+        }
+    }
+
+    // ─── Collectible Cache Config ─────────────────────────────
+    var COLLECTIBLE_CACHE_KEY = 'rwp_collectible_cache';
+    var COLLECTIBLE_CACHE_TTL = 3600000; // 1 hour in ms
+    var collectibleCache = {};
+    var collectibleFetchQueue = [];
+    var isCollectibleFetching = false;
+
+    function loadCollectibleCache() {
+        var raw = safeGet(COLLECTIBLE_CACHE_KEY, null);
+        if (raw && typeof raw === 'string') {
+            try { raw = JSON.parse(raw); } catch (e) { raw = null; }
+        }
+        if (raw && typeof raw === 'object') {
+            collectibleCache = raw;
+        }
+    }
+
+    function saveCollectibleCache() {
+        safeSet(COLLECTIBLE_CACHE_KEY, JSON.stringify(collectibleCache));
+    }
+
+    function isCollectibleCacheStale(itemId) {
+        var entry = collectibleCache[itemId];
+        if (!entry || !entry.lastFetch) return true;
+        return (Date.now() - entry.lastFetch) > COLLECTIBLE_CACHE_TTL;
+    }
+
+    // ─── Collectible API Fetch ────────────────────────────────
+    function fetchCollectibleAuctions(itemId, callback) {
+        var key = getApiKey();
+        if (!key) { callback(null); return; }
+
+        GM_xmlhttpRequest({
+            method: 'GET',
+            url: 'https://api.torn.com/v2/market/' + itemId + '/auctionhouse?key=' + key + '&sort=DESC&limit=100',
+            responseType: 'json',
+            onload: function(resp) {
+                if (resp.status === 200) {
+                    var data = resp.response;
+                    if (typeof data === 'string') {
+                        try { data = JSON.parse(data); } catch (e) { callback(null); return; }
+                    }
+                    callback(data);
+                } else {
+                    console.error('[RWP] Collectible API error:', resp.status);
+                    callback(null);
+                }
+            },
+            onerror: function() { callback(null); }
+        });
+    }
+
+    function processCollectibleResponse(itemId, data) {
+        if (!data) return null;
+
+        var auctions = [];
+        var listings = data.auctionhouse || data.auctions || [];
+        if (!Array.isArray(listings)) {
+            // Try to find the array in the response
+            var keys = Object.keys(data);
+            for (var k = 0; k < keys.length; k++) {
+                if (Array.isArray(data[keys[k]])) {
+                    listings = data[keys[k]];
+                    break;
+                }
+            }
+        }
+
+        for (var i = 0; i < listings.length; i++) {
+            var item = listings[i];
+            var price = item.price || item.current_price || item.amount || 0;
+            var ts = item.timestamp || item.end || item.time || 0;
+            if (price > 0) {
+                auctions.push({ price: price, timestamp: ts });
+            }
+        }
+
+        if (auctions.length === 0) return null;
+
+        // Merge with existing history (deduplicate by price+timestamp)
+        var existing = (collectibleCache[itemId] && collectibleCache[itemId].auctions) || [];
+        var seen = {};
+        var merged = [];
+        var all = existing.concat(auctions);
+        for (var j = 0; j < all.length; j++) {
+            var dedupKey = all[j].price + '|' + all[j].timestamp;
+            if (!seen[dedupKey]) {
+                seen[dedupKey] = true;
+                merged.push(all[j]);
+            }
+        }
+
+        // Sort by price for percentile computation
+        var prices = merged.map(function(a) { return a.price; }).sort(function(a, b) { return a - b; });
+
+        var computed = {
+            p25: Math.round(percentile(prices, 25)),
+            p50: Math.round(percentile(prices, 50)),
+            p75: Math.round(percentile(prices, 75)),
+            count: prices.length
+        };
+
+        collectibleCache[itemId] = {
+            auctions: merged,
+            computed: computed,
+            lastFetch: Date.now()
+        };
+
+        saveCollectibleCache();
+        return computed;
+    }
+
+    function getCollectiblePrice(itemId) {
+        var entry = collectibleCache[itemId];
+        if (entry && entry.computed) return entry.computed;
+        return null;
+    }
+
+    // ─── Batch Collectible Fetching ───────────────────────────
+    function queueCollectibleFetch(itemId) {
+        if (collectibleFetchQueue.indexOf(itemId) === -1 && isCollectibleCacheStale(itemId)) {
+            collectibleFetchQueue.push(itemId);
+        }
+        processCollectibleQueue();
+    }
+
+    function processCollectibleQueue() {
+        if (isCollectibleFetching || collectibleFetchQueue.length === 0) return;
+        isCollectibleFetching = true;
+
+        var itemId = collectibleFetchQueue.shift();
+        fetchCollectibleAuctions(itemId, function(data) {
+            processCollectibleResponse(itemId, data);
+            isCollectibleFetching = false;
+
+            // Re-inject badges for newly fetched items
+            injectCollectibleBadgesForItem(itemId);
+
+            // Continue processing queue with a small delay for rate limiting
+            if (collectibleFetchQueue.length > 0) {
+                setTimeout(processCollectibleQueue, 650);
+            }
+        });
+    }
+
+    function injectCollectibleBadgesForItem(itemId) {
+        var els = document.querySelectorAll('[data-rwp-collectible-id="' + itemId + '"]');
+        for (var i = 0; i < els.length; i++) {
+            var el = els[i];
+            if (el.querySelector('.rwp-price-tag')) continue;
+
+            var computed = getCollectiblePrice(itemId);
+            if (!computed || !computed.p50) continue;
+
+            var label = computed.count >= 10 ? 'RWP' : 'RWP Est';
+            var badge = createCollectibleBadge(computed.p50, label);
+
+            var nameEl = el.querySelector('[class*="description"] .bold') ||
+                         el.querySelector('[class*="itemName"]') ||
+                         el.querySelector('.item-name') ||
+                         el.querySelector('.name-wrap .name');
+            if (nameEl) {
+                nameEl.parentNode.insertBefore(badge, nameEl.nextSibling);
+            } else {
+                el.appendChild(badge);
+            }
+        }
+    }
+
+    function createCollectibleBadge(median, label) {
+        var color = '#e8c44a';
+        var badge = document.createElement('span');
+        badge.className = 'rwp-price-tag';
+        badge.setAttribute('data-rwp-priced', '1');
+
+        var html = '<span class="rwp-price-tag-inner">' +
+            '<span class="rwp-price-tag-label">' + label + '</span>' +
+            '<span class="rwp-price-tag-value" style="color:' + color + ';">' + fmtMoney(median) + '</span>' +
+            '</span>';
+        badge.innerHTML = html;
+        return badge;
+    }
+
+    // ─── Extract Item ID from DOM ─────────────────────────────
+    function extractItemId(el) {
+        // Method 1: item-hover span with item attribute
+        var itemHover = el.querySelector('span.item-hover[item]');
+        if (itemHover) {
+            var id = itemHover.getAttribute('item');
+            if (id) return id;
+        }
+
+        // Method 2: data-item attribute on various elements
+        var dataItem = el.querySelector('[data-item]');
+        if (dataItem) {
+            var did = dataItem.getAttribute('data-item');
+            if (did) return did;
+        }
+
+        // Method 3: data-itemid attribute
+        var dataItemId = el.querySelector('[data-itemid]');
+        if (dataItemId) {
+            var diid = dataItemId.getAttribute('data-itemid');
+            if (diid) return diid;
+        }
+
+        // Method 4: image src containing item ID pattern
+        var img = el.querySelector('img[src*="/items/"]');
+        if (img) {
+            var src = img.getAttribute('src') || '';
+            var match = src.match(/\/items\/(\d+)\//);
+            if (match) return match[1];
+        }
+
+        // Method 5: React data attribute patterns
+        var reactEl = el.querySelector('[class*="item___"], [class*="itemWrap"]');
+        if (reactEl) {
+            var attrs = reactEl.attributes;
+            for (var i = 0; i < attrs.length; i++) {
+                if (/^data-/.test(attrs[i].name) && /^\d+$/.test(attrs[i].value)) {
+                    return attrs[i].value;
+                }
+            }
+        }
+
+        // Method 6: armoury attribute on item-hover for cross-reference
+        var armouryEl = el.querySelector('[armoury]');
+        if (armouryEl && armouryEl.getAttribute('item')) {
+            return armouryEl.getAttribute('item');
+        }
+
+        return null;
+    }
 
     // ─── CDN URL & Cache Config ──────────────────────────────
     var WEAPON_CDN_URL = 'https://cdn.marches.cafe/items/weapon-auctions4.csv.gz';
@@ -819,7 +1078,34 @@
             var normalizedName = normalizeWeaponName(rawName);
             var weaponKey = lookupWeapon(normalizedName);
             var armourKey = weaponKey ? null : lookupArmour(normalizedName);
-            if (!weaponKey && !armourKey) continue;
+
+            if (!weaponKey && !armourKey) {
+                // ─── Collectible fallback: try API-based pricing ────
+                var itemId = extractItemId(el);
+                if (itemId && !ITEM_ID_MAP[itemId] && !ARMOUR_ID_MAP[itemId]) {
+                    el.setAttribute('data-rwp-priced', '1');
+                    el.setAttribute('data-rwp-collectible-id', itemId);
+
+                    var computed = getCollectiblePrice(itemId);
+                    if (computed && computed.p50) {
+                        var cLabel = computed.count >= 10 ? 'RWP' : 'RWP Est';
+                        var cBadge = createCollectibleBadge(computed.p50, cLabel);
+                        var cNameEl = el.querySelector('[class*="description"] .bold') ||
+                                     el.querySelector('[class*="itemName"]') ||
+                                     el.querySelector('.item-name') ||
+                                     el.querySelector('.name-wrap .name');
+                        if (cNameEl) {
+                            cNameEl.parentNode.insertBefore(cBadge, cNameEl.nextSibling);
+                        } else {
+                            el.appendChild(cBadge);
+                        }
+                    } else {
+                        // Queue API fetch for this item
+                        queueCollectibleFetch(itemId);
+                    }
+                }
+                continue;
+            }
 
             var rarity = detectRarity(el);
             if (!rarity) continue;
@@ -879,6 +1165,7 @@
         var marked = document.querySelectorAll('[data-rwp-priced="1"]');
         for (var j = 0; j < marked.length; j++) {
             marked[j].removeAttribute('data-rwp-priced');
+            marked[j].removeAttribute('data-rwp-collectible-id');
         }
     }
 
@@ -889,7 +1176,7 @@
 
         var btn = document.createElement('div');
         btn.id = 'rwp-inline-toggle';
-        btn.title = 'Toggle RW Weapon & Armour Inline Prices (double-click to refresh data)';
+        btn.title = 'Toggle RW Weapon, Armour & Collectible Inline Prices (double-click to refresh data)';
 
         var enabled = safeGet('rwp_inline_prices', true);
         btn.textContent = '$';
@@ -936,6 +1223,12 @@
 
         // Load cached prices (or keep defaults)
         var cacheTimestamp = loadCachedPrices();
+
+        // Load collectible cache
+        loadCollectibleCache();
+
+        // Prompt for API key if needed (one-time, non-blocking delay)
+        setTimeout(promptForApiKey, 2000);
 
         // Inject immediately with whatever data we have
         injectPriceTags();
