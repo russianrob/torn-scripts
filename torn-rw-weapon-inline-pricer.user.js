@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn RW Weapon Inline Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      1.5
+// @version      1.6
 // @description  Injects inline price badges on RW weapons, armour, and collectibles in inventory, item market, auction house, and bazaar using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
@@ -213,6 +213,8 @@
 
             var nameEl = el.querySelector('[class*="description"] .bold') ||
                          el.querySelector('[class*="itemName"]') ||
+                         el.querySelector('span.title > p') ||
+                         el.querySelector('.title p') ||
                          el.querySelector('.item-name') ||
                          el.querySelector('.name-wrap .name');
             if (nameEl) {
@@ -1006,6 +1008,14 @@
         var itemName = el.querySelector('[class*="itemName"]');
         if (itemName) return normalizeWeaponName(itemName.textContent);
 
+        // Auction house: span.title > p (weapons, armour, collectibles tabs)
+        var titleP = el.querySelector('span.title > p');
+        if (titleP) return normalizeWeaponName(titleP.textContent);
+
+        // Auction house fallback: .title p
+        var titleP2 = el.querySelector('.title p');
+        if (titleP2) return normalizeWeaponName(titleP2.textContent);
+
         // Legacy: .item-name
         var legacyName = el.querySelector('.item-name');
         if (legacyName) return normalizeWeaponName(legacyName.textContent);
@@ -1179,6 +1189,8 @@
                         var cBadge = createBadge(collectibleKey, null, cMedian, [], null, cMedian);
                         var cNameEl = el.querySelector('[class*="description"] .bold') ||
                                      el.querySelector('[class*="itemName"]') ||
+                                     el.querySelector('span.title > p') ||
+                                     el.querySelector('.title p') ||
                                      el.querySelector('.item-name') ||
                                      el.querySelector('.name-wrap .name');
                         if (cNameEl) {
@@ -1203,6 +1215,8 @@
                         var apiBadge = createCollectibleBadge(computed.p50, apiLabel);
                         var apiNameEl = el.querySelector('[class*="description"] .bold') ||
                                      el.querySelector('[class*="itemName"]') ||
+                                     el.querySelector('span.title > p') ||
+                                     el.querySelector('.title p') ||
                                      el.querySelector('.item-name') ||
                                      el.querySelector('.name-wrap .name');
                         if (apiNameEl) {
@@ -1254,6 +1268,8 @@
             // Find insertion point — after name element
             var nameEl = el.querySelector('[class*="description"] .bold') ||
                          el.querySelector('[class*="itemName"]') ||
+                         el.querySelector('span.title > p') ||
+                         el.querySelector('.title p') ||
                          el.querySelector('.item-name') ||
                          el.querySelector('.name-wrap .name');
 
