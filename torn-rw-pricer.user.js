@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn RW Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      2.9.3
+// @version      2.9.4
 // @description  Inline price badges for RW weapons and armour using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
@@ -1004,6 +1004,48 @@
                 var dbName = resolveBonusName(dbMatch[1]);
                 var dbLevel = parseLevelFromText(dbText);
                 addBonus(dbName, dbLevel);
+            }
+        }
+
+        // Item detail / inventory: bonus icon elements with class like "bonus-attachment-focus"
+        var bonusIcons = el.querySelectorAll('i[class*="bonus-attachment-"]');
+        for (var bi2 = 0; bi2 < bonusIcons.length; bi2++) {
+            var biClass = bonusIcons[bi2].className || '';
+            var biMatch = biClass.match(/bonus-attachment-(\w[\w-]*)/i);
+            if (biMatch) {
+                var biName = resolveBonusName(biMatch[1].replace(/-/g, ' '));
+                var biLabel = bonusIcons[bi2].getAttribute('aria-label') || '';
+                var biLevel = parseLevelFromText(biLabel) || parseLevelFromText(bonusIcons[bi2].getAttribute('title') || '');
+                addBonus(biName, biLevel);
+            }
+        }
+
+        // Item detail page: text like "Bonus: [icon] 31% Focus" or "Bonus: Focus 31%"
+        // Scan all elements for "Bonus" text — handles inventory detail panels
+        if (bonuses.length === 0) {
+            var allEls = el.querySelectorAll('*');
+            for (var t = 0; t < allEls.length; t++) {
+                var elText = allEls[t].textContent || '';
+                // Match "Bonus" followed by optional icons/spaces, then XX% and BonusName
+                var detMatch = elText.match(/Bonus[^\w]*(\d+)\s*%\s*(\w[\w\s-]*)/i);
+                if (detMatch) {
+                    var detName = resolveBonusName((detMatch[2] || '').trim());
+                    var detLevel = parseInt(detMatch[1], 10);
+                    if (detName) {
+                        addBonus(detName, detLevel);
+                        break;
+                    }
+                }
+                // Also try: "Bonus" ... "BonusName XX%"
+                var detMatch2 = elText.match(/Bonus[^\w]*(\w[\w\s-]*)\s+(\d+)\s*%/i);
+                if (detMatch2) {
+                    var detName2 = resolveBonusName((detMatch2[1] || '').trim());
+                    var detLevel2 = parseInt(detMatch2[2], 10);
+                    if (detName2) {
+                        addBonus(detName2, detLevel2);
+                        break;
+                    }
+                }
             }
         }
 
