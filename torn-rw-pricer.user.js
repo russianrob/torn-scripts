@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn RW Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      2.9.2
+// @version      2.9.3
 // @description  Inline price badges for RW weapons and armour using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
@@ -1137,8 +1137,8 @@
                 var bColorHex = (bColorLabel && RARITY_COLORS[bColorLabel]) ? RARITY_COLORS[bColorLabel] : '#ccc';
 
                 // Prefer combo (weapon+bonus) data over generic bonus data
-                var comboArr = (comboPricesData && comboPricesData[bName] && comboPricesData[bName].length === 4) ? comboPricesData[bName] : null;
-                var genericArr = (bonusPricesData && bonusPricesData[bName] && bonusPricesData[bName].length === 4) ? bonusPricesData[bName] : null;
+                var comboArr = (comboPricesData && comboPricesData[bName] && comboPricesData[bName].length >= 4) ? comboPricesData[bName] : null;
+                var genericArr = (bonusPricesData && bonusPricesData[bName] && bonusPricesData[bName].length >= 4) ? bonusPricesData[bName] : null;
 
                 // Show combo data if available, otherwise fall back to generic
                 var displayArr = comboArr || genericArr;
