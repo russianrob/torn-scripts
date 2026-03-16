@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn RW Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      2.9.4
+// @version      2.9.5
 // @description  Inline price badges for RW weapons and armour using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
@@ -1185,9 +1185,12 @@
                 // Show combo data if available, otherwise fall back to generic
                 var displayArr = comboArr || genericArr;
                 var displayLabel = comboArr ? (bName + ' on ' + itemName) : (bName + ' Bonus');
+                // Combo data is keyed by weapon rarity; generic bonus uses bonus color
+                var sectionRarityLabel = comboArr ? rarity : bColorLabel;
+                var sectionColorHex = comboArr ? (RARITY_COLORS[rarity] || bColorHex) : bColorHex;
                 if (displayArr) {
                     html += '<div class="rwp-tooltip-divider"></div>';
-                    html += '<div class="rwp-tooltip-bonus-header" style="color:' + bColorHex + ';">' + displayLabel + (bColorLabel ? ' <span style="opacity:0.6;">(' + bColorLabel + ')</span>' : '') + '</div>';
+                    html += '<div class="rwp-tooltip-bonus-header" style="color:' + sectionColorHex + ';">' + displayLabel + (sectionRarityLabel ? ' <span style="opacity:0.6;">(' + sectionRarityLabel + ')</span>' : '') + '</div>';
                     html += '<div class="rwp-tooltip-section">';
                     html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Min:</span><span class="rwp-tooltip-value">' + fmtMoney(displayArr[0]) + '</span></div>';
                     html += '<div class="rwp-tooltip-row"><span class="rwp-tooltip-label">Median:</span><span class="rwp-tooltip-value">' + fmtMoney(displayArr[1]) + '</span></div>';
@@ -1440,8 +1443,8 @@
 
             if (bonuses.length === 1) {
                 var bonusRarity0 = bonusColors[bonuses[0].name];
-                // Try exact combo lookup first
-                var comboMedian1 = comboFn(itemKey, bonuses[0].name, bonusRarity0);
+                // Try exact combo lookup first (combo data is keyed by weapon rarity)
+                var comboMedian1 = comboFn(itemKey, bonuses[0].name, rarity);
                 if (comboMedian1) {
                     estimatedPrice = comboMedian1;
                 } else {
@@ -1463,9 +1466,9 @@
             } else if (bonuses.length === 2) {
                 var bonusRarity2a = bonusColors[bonuses[0].name];
                 var bonusRarity2b = bonusColors[bonuses[1].name];
-                // Try combo lookups for each bonus, average them if both exist
-                var combo2a = comboFn(itemKey, bonuses[0].name, bonusRarity2a);
-                var combo2b = comboFn(itemKey, bonuses[1].name, bonusRarity2b);
+                // Try combo lookups for each bonus (combo data keyed by weapon rarity)
+                var combo2a = comboFn(itemKey, bonuses[0].name, rarity);
+                var combo2b = comboFn(itemKey, bonuses[1].name, rarity);
                 if (combo2a && combo2b) {
                     // Both combos known: use the higher combo median + premium from the other
                     var higher = Math.max(combo2a, combo2b);
