@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn RW Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      2.9.5
+// @version      2.9.6
 // @description  Inline price badges for RW weapons and armour using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
@@ -117,14 +117,14 @@
         '63':  { yellow: [25,45],   orange: [46,72],   red: [76,123] },
         '62':  { yellow: [2,3],     orange: [4,6],     red: [9,10] },
         '86':  { yellow: [3,4],     orange: [5,9],     red: [10,15] },
-        '74':  { yellow: [10,15],   orange: [16,24],   red: [32,32] },
+        '74':  { yellow: [10,15],   orange: [16,24],   red: [25,32] },
         '105': { yellow: [15,23],   orange: [25,35],   red: [40,54] },
         '87':  { yellow: [52,85],   orange: [90,140],  red: [180,206] },
         '56':  { yellow: [15,18],   orange: [19,24],   red: [26,34] },
         '75':  { yellow: [15,17],   orange: [18,22],   red: [23,28] },
         '1':   { yellow: [7,9],     orange: [10,13],   red: [14,21] },
         '82':  { yellow: [10,11],   orange: [12,12],   red: [13,17] },
-        '79':  { yellow: [15,19],   orange: [20,24],   red: [32,32] },
+        '79':  { yellow: [15,19],   orange: [20,24],   red: [25,32] },
         '80':  { yellow: [5,6],     orange: [7,9],     red: [10,14] },
         '64':  { yellow: [10,15],   orange: [16,23],   red: [26,34] },
         '53':  { yellow: [20,31],   orange: [38,49],   red: [60,66] },
