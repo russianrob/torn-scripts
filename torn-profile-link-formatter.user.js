@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Profile Link Formatter
 // @namespace    GNSC4 [268863]
-// @version      3.6.1
+// @version      3.6.2
 // @description  Copy formatted Torn profile/faction links. Uses BSP prediction TBS when available, falls back to FF Scouter V2 estimated stats. Strips BSP TBS prefixes from copied names, dedupes lines by ID, and uses war JSON faction IDs so your faction (Dead Fragment 42055) is always separated from the enemy in ranked wars. Faction copy includes member level and Xanax taken (via API or Xanax Viewer cache).
 // @author       GNSC4
 // @match        https://www.torn.com/profiles.php?XID=*
@@ -19,6 +19,8 @@
 // =============================================================================
 // CHANGELOG
 // =============================================================================
+// v3.6.2  - PDA fix: faction copy progress now uses a floating toast outside React tree
+//           so status updates don't disappear on PDA re-renders
 // v3.6.1  - Update URLs to tornwar.com hosting
 // v3.6.0  - BSP prediction TBS with FF Scouter V2 fallback
 //           - Strip BSP TBS prefixes from copied names
@@ -60,6 +62,8 @@
             .gnsc-btn:hover { background-color: #444; }
             .gnsc-list-btn { margin-left: 5px; cursor: pointer; font-size: 14px; display: inline-block; vertical-align: middle; width: 18px; text-align: center; }
             .gnsc-faction-copy-btn { margin-left: 8px; cursor: pointer; font-size: 14px; vertical-align: middle; }
+            .gnsc-copy-toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1a1a2e; color: #0f0; border: 1px solid #0f0; border-radius: 8px; padding: 8px 18px; z-index: 99999; font-family: monospace; font-size: 14px; pointer-events: none; box-shadow: 0 2px 12px rgba(0,255,0,0.15); transition: opacity 0.3s; }
+            .gnsc-copy-toast.fade-out { opacity: 0; }
             .gnsc-settings-panel { display: none; position: absolute; background-color: #2c2c2c; border: 1px solid #555; border-radius: 5px; padding: 10px; z-index: 1000; top: 100%; left: 0; min-width: 220px; }
             .gnsc-settings-panel div { margin-bottom: 5px; display: flex; align-items: center; }
             .gnsc-settings-panel label { color: #DDD; flex-grow: 1; }
@@ -722,11 +726,35 @@
         setTimeout(() => { button.textContent = '📄'; }, 1500);
     }
 
+    function showCopyToast(text) {
+        let toast = document.getElementById('gnsc-copy-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'gnsc-copy-toast';
+            toast.className = 'gnsc-copy-toast';
+            document.body.appendChild(toast);
+        }
+        toast.classList.remove('fade-out');
+        toast.textContent = text;
+        toast.style.display = 'block';
+        return toast;
+    }
+
+    function hideCopyToast(delay) {
+        const toast = document.getElementById('gnsc-copy-toast');
+        if (!toast) return;
+        setTimeout(() => {
+            toast.classList.add('fade-out');
+            setTimeout(() => { toast.style.display = 'none'; toast.classList.remove('fade-out'); }, 300);
+        }, delay || 0);
+    }
+
     async function handleFactionCopyClick(e, button, isLeftFactionButton) {
         e.preventDefault();
         e.stopPropagation();
 
         button.textContent = '...';
+        showCopyToast('Starting...');
 
         try {
             const warRoot =
@@ -814,6 +842,7 @@
             const totalMembers = validRows.length;
             let processed = 0;
             button.textContent = `0/${totalMembers}`;
+            showCopyToast(`Copying: 0/${totalMembers}`);
 
             for (const { row, link, id } of validRows) {
                 try {
@@ -856,6 +885,7 @@
                 }
                 processed++;
                 button.textContent = `${processed}/${totalMembers}`;
+                showCopyToast(`Copying: ${processed}/${totalMembers}`);
                 // Yield to UI so the counter visually updates
                 await new Promise(r => setTimeout(r, 0));
             }
@@ -864,6 +894,8 @@
                 if (debug) console.error('GNSC faction copy: no member rows parsed for side selector', sideSelector, 'targetFactionId', targetFactionId);
                 button.textContent = '❓';
                 button.title = 'No members parsed.';
+                showCopyToast('❓ No members found');
+                hideCopyToast(2500);
                 setTimeout(() => {
                     button.textContent = '📋';
                     button.title = 'Copy Faction Member List (BSP/FF cache)';
@@ -875,6 +907,8 @@
 
             button.textContent = `✅ ${totalMembers}`;
             button.title = 'Copied faction list with BSP/FF stats.';
+            showCopyToast(`✅ Copied ${totalMembers} members`);
+            hideCopyToast(3000);
             setTimeout(() => {
                 button.textContent = '📋';
                 button.title = 'Copy Faction Member List (BSP/FF cache)';
@@ -883,6 +917,8 @@
             if (debug) console.error('[Faction Copy BSP/FF] Error:', err);
             button.textContent = '❌';
             button.title = 'Error building faction list.';
+            showCopyToast('❌ Error copying faction list');
+            hideCopyToast(2500);
             setTimeout(() => {
                 button.textContent = '📋';
                 button.title = 'Copy Faction Member List (BSP/FF cache)';
