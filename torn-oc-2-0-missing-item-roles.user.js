@@ -1,17 +1,24 @@
 // ==UserScript==
 // @name         Torn OC 2.0 Missing Item Roles
 // @namespace    torn.oc2.items.floating
-// @version      2.6
+// @version      2.5.1
 // @description  Floating box listing only OC 2.0 Planning crimes with roles missing items
 // @match        https://www.torn.com/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @connect      api.torn.com
-
 // @downloadURL  https://tornwar.com/scripts/torn-oc-2-0-missing-item-roles.user.js
 // @updateURL    https://tornwar.com/scripts/torn-oc-2-0-missing-item-roles.meta.js
 // ==/UserScript==
+
+// =============================================================================
+// CHANGELOG
+// =============================================================================
+// v2.5.1  - Update URLs to tornwar.com hosting
+// v2.5.0  - Initial public release: floating box listing OC 2.0 Planning
+//           crimes with roles missing items
+// =============================================================================
 
 (function() {
     'use strict';

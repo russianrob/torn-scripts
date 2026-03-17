@@ -1,15 +1,25 @@
 // ==UserScript==
 // @name         Torn Ranked War Timer
-// @version      1.7
+// @version      1.6.1
 // @author       RussianRob
 // @description  Timer for Ranked Wars
 // @license      MIT
 // @match        https://www.torn.com/factions.php*
 
-
 // @downloadURL  https://tornwar.com/scripts/torn-ranked-war-timer.user.js
 // @updateURL    https://tornwar.com/scripts/torn-ranked-war-timer.meta.js
 // ==/UserScript==
+
+// =============================================================================
+// CHANGELOG
+// =============================================================================
+// v1.6.1  - Update URLs to tornwar.com hosting
+// v1.6.0  - Removed font size overrides for consistent PDA/desktop layout
+// v1.5.0  - Version bump
+// v1.4.0  - Timer repositioned as overlay badge in top-right corner
+//           (no longer affects page layout)
+// v1.3.0  - Initial public release
+// =============================================================================
 
 (function () {
     'use strict';

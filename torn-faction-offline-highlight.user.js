@@ -6,14 +6,28 @@
 // @author       RussianRob
 // @match        https://www.torn.com/*
 // @run-at       document-end
+// @downloadURL  https://tornwar.com/scripts/torn-faction-offline-highlight.user.js
+// @updateURL    https://tornwar.com/scripts/torn-faction-offline-highlight.meta.js
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @connect      api.torn.com
-
-// @downloadURL  https://tornwar.com/scripts/torn-faction-offline-highlight.user.js
-// @updateURL    https://tornwar.com/scripts/torn-faction-offline-highlight.meta.js
 // ==/UserScript==
+
+// =============================================================================
+// CHANGELOG
+// =============================================================================
+// v1.9.2  - Update URLs to tornwar.com hosting
+// v1.9.1  - Fix: highlighting bleeding onto armory/controls pages
+// v1.9.0  - Fix: new members (<72h) incorrectly getting [OC: Never] badges
+// v1.8.0  - General improvements and fixes
+// v1.7.0  - Fix: gear/sort controls showing on non-faction pages
+// v1.6.1  - Restrict gear icon and sort toggle to member list tab only
+// v1.6.0  - Added OC inactivity tracker on not-participating panel
+//           - Fix: chat leak
+// v1.5.2  - API key masked with asterisks
+// v1.5.1  - Initial public release
+// =============================================================================
 
 (function () {
     'use strict';

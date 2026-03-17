@@ -5,10 +5,19 @@
 // @description  Highlights over-loaned items and helps loan missing OC tools + split calculator (PDA compatible, no armory tab needed)
 // @match        https://www.torn.com/factions.php?step=your*
 // @run-at       document-end
-
 // @downloadURL  https://tornwar.com/scripts/torn-oc-loan-manager-pda.user.js
 // @updateURL    https://tornwar.com/scripts/torn-oc-loan-manager-pda.meta.js
 // ==/UserScript==
+
+// =============================================================================
+// CHANGELOG
+// =============================================================================
+// v1.5.2-pda - Update URLs to tornwar.com hosting
+// v1.5.1-pda - Fix: retrieve role parameter (use "retrieve" not "return")
+// v1.5.0-pda - Unused tab card UI with Retrieve Item button
+// v1.4.1-pda - Initial PDA-compatible release: highlights over-loaned items,
+//              helps loan missing OC tools, split calculator
+// =============================================================================
 
 (function () {
     'use strict';
