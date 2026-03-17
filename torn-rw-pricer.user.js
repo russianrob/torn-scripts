@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn RW Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      2.9.8
+// @version      2.9.9
 // @description  Inline price badges for RW weapons and armour using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
@@ -14,6 +14,9 @@
 // @grant        GM_xmlhttpRequest
 // @connect      cdn.marches.cafe
 // @connect      raw.githubusercontent.com
+
+// @downloadURL  https://tornwar.com/scripts/torn-rw-pricer.user.js
+// @updateURL    https://tornwar.com/scripts/torn-rw-pricer.meta.js
 // ==/UserScript==
 
 (function() {
