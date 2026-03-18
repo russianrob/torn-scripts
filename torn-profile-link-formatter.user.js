@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Profile Link Formatter
 // @namespace    GNSC4 [268863]
-// @version      3.6.2
+// @version      3.6.3
 // @description  Copy formatted Torn profile/faction links. Uses BSP prediction TBS when available, falls back to FF Scouter V2 estimated stats. Strips BSP TBS prefixes from copied names, dedupes lines by ID, and uses war JSON faction IDs so your faction (Dead Fragment 42055) is always separated from the enemy in ranked wars. Faction copy includes member level and Xanax taken (via API or Xanax Viewer cache).
 // @author       GNSC4
 // @match        https://www.torn.com/profiles.php?XID=*
@@ -19,6 +19,7 @@
 // =============================================================================
 // CHANGELOG
 // =============================================================================
+// v3.6.3  - Move copy toast higher (top: 45%) and increase size/contrast for PDA readability
 // v3.6.2  - PDA fix: faction copy progress now uses a floating toast outside React tree
 //           so status updates don't disappear on PDA re-renders
 // v3.6.1  - Update URLs to tornwar.com hosting
@@ -62,7 +63,7 @@
             .gnsc-btn:hover { background-color: #444; }
             .gnsc-list-btn { margin-left: 5px; cursor: pointer; font-size: 14px; display: inline-block; vertical-align: middle; width: 18px; text-align: center; }
             .gnsc-faction-copy-btn { margin-left: 8px; cursor: pointer; font-size: 14px; vertical-align: middle; }
-            .gnsc-copy-toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1a1a2e; color: #0f0; border: 1px solid #0f0; border-radius: 8px; padding: 8px 18px; z-index: 99999; font-family: monospace; font-size: 14px; pointer-events: none; box-shadow: 0 2px 12px rgba(0,255,0,0.15); transition: opacity 0.3s; }
+            .gnsc-copy-toast { position: fixed; top: 45%; left: 50%; transform: translate(-50%, -50%); background: rgba(10,10,30,0.92); color: #0f0; border: 2px solid #0f0; border-radius: 12px; padding: 14px 28px; z-index: 99999; font-family: monospace; font-size: 18px; font-weight: bold; pointer-events: none; box-shadow: 0 4px 20px rgba(0,255,0,0.3); transition: opacity 0.3s; }
             .gnsc-copy-toast.fade-out { opacity: 0; }
             .gnsc-settings-panel { display: none; position: absolute; background-color: #2c2c2c; border: 1px solid #555; border-radius: 5px; padding: 10px; z-index: 1000; top: 100%; left: 0; min-width: 220px; }
             .gnsc-settings-panel div { margin-bottom: 5px; display: flex; align-items: center; }
