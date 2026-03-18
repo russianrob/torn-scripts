@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Profile Link Formatter
 // @namespace    GNSC4 [268863]
-// @version      3.6.3
+// @version      3.6.4
 // @description  Copy formatted Torn profile/faction links. Uses BSP prediction TBS when available, falls back to FF Scouter V2 estimated stats. Strips BSP TBS prefixes from copied names, dedupes lines by ID, and uses war JSON faction IDs so your faction (Dead Fragment 42055) is always separated from the enemy in ranked wars. Faction copy includes member level and Xanax taken (via API or Xanax Viewer cache).
 // @author       GNSC4
 // @match        https://www.torn.com/profiles.php?XID=*
@@ -19,6 +19,7 @@
 // =============================================================================
 // CHANGELOG
 // =============================================================================
+// v3.6.4  - Remove level from faction copy output
 // v3.6.3  - Move copy toast higher (top: 45%) and increase size/contrast for PDA readability
 // v3.6.2  - PDA fix: faction copy progress now uses a floating toast outside React tree
 //           so status updates don't disappear on PDA re-renders
@@ -871,8 +872,7 @@
 
                     const extras = [];
 
-                    const level = getMemberLevel(id, row);
-                    if (level != null) extras.push(`Lvl ${level}`);
+                    // Level removed from faction copy output (v3.6.4)
 
                     const pStats = await getPersonalStats(id);
                     if (pStats.xantaken != null) extras.push(`Xan: ${pStats.xantaken.toLocaleString()}`);
