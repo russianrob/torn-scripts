@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn OC Loan Manager (PDA)
 // @namespace    https://torn.com
-// @version      1.7.0-pda
+// @version      1.7.1-pda
 // @description  Highlights over-loaned items and helps loan missing OC tools + split calculator (PDA compatible, no armory tab needed)
 // @match        https://www.torn.com/factions.php?step=your*
 // @run-at       document-end
@@ -12,6 +12,7 @@
 // =============================================================================
 // CHANGELOG
 // =============================================================================
+// v1.7.1-pda - Fix: draggable button click detection
 // v1.7.0-pda - Draggable OC button with position memory
 // v1.6.0-pda - Add API Settings panel, shrink floating button
 // v1.5.2-pda - Update URLs to tornwar.com hosting
@@ -412,7 +413,8 @@
         const onDragStart = (e) => {
             // Only left mouse button or touch
             if (e.type === 'mousedown' && e.button !== 0) return;
-            e.preventDefault();
+            // Only preventDefault for touch (prevents scroll); mouse needs click to fire
+            if (e.type === 'touchstart') e.preventDefault();
 
             const pos = getClientPos(e);
             dragStartX = pos.x;
@@ -425,7 +427,6 @@
             isDragging = true;
             wasDragged = false;
             button.style.cursor = 'grabbing';
-            button.style.transition = 'none';
 
             document.addEventListener('mousemove', onDragMove, { passive: false });
             document.addEventListener('mouseup', onDragEnd);
@@ -435,13 +436,13 @@
 
         const onDragMove = (e) => {
             if (!isDragging) return;
-            e.preventDefault();
             const pos = getClientPos(e);
             const dx = pos.x - dragStartX;
             const dy = pos.y - dragStartY;
 
             if (!wasDragged && Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
             wasDragged = true;
+            e.preventDefault();
 
             // Clamp to viewport
             const bw = button.offsetWidth;
@@ -454,7 +455,7 @@
             button.style.right = 'auto';
         };
 
-        const onDragEnd = () => {
+        const onDragEnd = (e) => {
             if (!isDragging) return;
             isDragging = false;
             button.style.cursor = 'grab';
@@ -468,6 +469,9 @@
                 // Persist position
                 const rect = button.getBoundingClientRect();
                 storage.set('OCLM_BTN_POS', JSON.stringify({ x: Math.round(rect.left), y: Math.round(rect.top) }));
+            } else if (e.type === 'touchend') {
+                // Touch didn't drag — treat as a tap (click won't fire after touchstart preventDefault)
+                isOpen ? closePanel() : openPanel();
             }
         };
 
@@ -664,8 +668,9 @@
             clearHighlights();
         };
 
-        button.addEventListener('click', (e) => {
-            // Only toggle if we didn't just finish a drag
+        button.addEventListener('click', () => {
+            // Mouse click fires naturally (not suppressed by preventDefault)
+            // Only toggle if it wasn't a drag
             if (wasDragged) { wasDragged = false; return; }
             isOpen ? closePanel() : openPanel();
         });
