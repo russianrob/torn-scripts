@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn OC Loan Manager (PDA)
 // @namespace    https://torn.com
-// @version      1.5.2-pda
+// @version      1.6.0-pda
 // @description  Highlights over-loaned items and helps loan missing OC tools + split calculator (PDA compatible, no armory tab needed)
 // @match        https://www.torn.com/factions.php?step=your*
 // @run-at       document-end
@@ -12,6 +12,7 @@
 // =============================================================================
 // CHANGELOG
 // =============================================================================
+// v1.6.0-pda - Add API Settings panel, shrink floating button
 // v1.5.2-pda - Update URLs to tornwar.com hosting
 // v1.5.1-pda - Fix: retrieve role parameter (use "retrieve" not "return")
 // v1.5.0-pda - Unused tab card UI with Retrieve Item button
@@ -354,24 +355,24 @@
 
         const button = document.createElement('button');
         button.id = 'oc-loan-btn';
-        button.textContent = 'OC Loans';
+        button.textContent = 'OC';
         button.style.cssText = `
             position: fixed;
-            top: 14px;
-            right: 14px;
+            top: 10px;
+            right: 10px;
             z-index: 99999;
-            padding: 12px 20px;
-            min-height: 40px;
+            padding: 5px 10px;
+            min-height: 26px;
             background: #2a3cff;
             color: #fff;
             border: none;
-            border-radius: 10px;
-            font-size: 14px;
+            border-radius: 6px;
+            font-size: 11px;
             font-weight: 700;
             letter-spacing: 0.3px;
             cursor: pointer;
             box-shadow:
-                0 6px 18px rgba(42, 60, 255, 0.35),
+                0 3px 10px rgba(42, 60, 255, 0.3),
                 inset 0 0 0 1px rgba(255,255,255,0.15);
             transition:
                 transform 0.15s ease,
@@ -385,7 +386,7 @@
         panel.id = 'oc-loan-panel';
         panel.style.cssText = `
             position:fixed;
-            top:60px;
+            top:42px;
             right:8px;
             width:320px;
             max-width:90vw;
@@ -500,7 +501,7 @@
 
         const apiStatus = inPDA
             ? 'API: PDA key'
-            : (getApiKey() ? 'API: Local key' : 'API: missing');
+            : (getApiKey() ? 'API: Local key' : '<span style="color:#f66;">API: missing — set key in ⚙</span>');
 
         panel.innerHTML = `
             <div class="oc-header">
@@ -512,6 +513,7 @@
                     <button id="tab-unused" class="oc-tab active">Unused</button>
                     <button id="tab-missing" class="oc-tab">Missing</button>
                     <button id="tab-split" class="oc-tab">Split</button>
+                    <button id="tab-settings" class="oc-tab">⚙</button>
                 </div>
                 <div id="oc-close">×</div>
             </div>
@@ -524,7 +526,9 @@
         const tabUnused = panel.querySelector('#tab-unused');
         const tabMissing = panel.querySelector('#tab-missing');
         const tabSplit = panel.querySelector('#tab-split');
+        const tabSettings = panel.querySelector('#tab-settings');
         let isOpen = false;
+        const allTabs = [tabUnused, tabMissing, tabSplit, tabSettings];
 
         const openPanel = () => {
             isOpen = true;
@@ -544,9 +548,92 @@
         button.onclick = () => isOpen ? closePanel() : openPanel();
         panel.querySelector('#oc-close').onclick = closePanel;
 
+        // Settings tab
+        tabSettings.onclick = () => {
+            allTabs.forEach(t => t.classList.remove('active'));
+            tabSettings.classList.add('active');
+
+            const currentKey = storage.get('OCLM_API_KEY', '');
+            const masked = currentKey ? currentKey.slice(0, 4) + '••••' + currentKey.slice(-4) : '';
+
+            content.innerHTML = `
+                <div style="line-height:1.7; margin-bottom:12px;">
+                    <strong style="font-size:15px;">API Settings</strong><br>
+                    <span style="font-size:11px; color:#aaa;">
+                        ${inPDA ? 'Running in PDA — API key is provided automatically. You can still override it below.' : 'Enter your Torn API key to use this script outside of PDA.'}
+                    </span>
+                </div>
+                <div style="margin-bottom:10px;">
+                    <label style="font-size:12px; color:#888; display:block; margin-bottom:4px;">Current Key</label>
+                    <div id="settings-current-key" style="font-family:monospace; font-size:13px; color:#ccc; padding:8px 10px; background:#1a1a1a; border-radius:6px; border:1px solid #333; min-height:20px;">
+                        ${masked || '<span style="color:#666;">No key saved</span>'}
+                    </div>
+                </div>
+                <div style="margin-bottom:14px;">
+                    <label style="font-size:12px; color:#888; display:block; margin-bottom:4px;">New API Key</label>
+                    <input id="settings-api-input" type="text" placeholder="Paste your Torn API key" autocomplete="off" spellcheck="false"
+                        style="width:-webkit-fill-available; padding:10px; border:1px solid #333; border-radius:6px; background:#1a1a1a; color:#e6e6e6; font-family:monospace; font-size:13px;" />
+                </div>
+                <div style="display:flex; gap:8px;">
+                    <button id="settings-save-btn" style="flex:1; padding:10px; border:none; border-radius:8px; font-weight:700; font-size:13px; background:#2a3cff; color:#fff; cursor:pointer;">Save Key</button>
+                    <button id="settings-clear-btn" style="flex:1; padding:10px; border:none; border-radius:8px; font-weight:700; font-size:13px; background:#2a2a2a; color:#aaa; cursor:pointer;">Clear Key</button>
+                </div>
+                <div id="settings-msg" style="text-align:center; margin-top:10px; font-size:12px; min-height:18px;"></div>
+                <div style="margin-top:18px; padding-top:12px; border-top:1px solid #333;">
+                    <div style="font-size:11px; color:#666; line-height:1.5;">
+                        Your key is stored in localStorage and never leaves your browser.
+                        Use a <strong>Limited Access</strong> key with only the permissions this script needs.
+                    </div>
+                </div>
+            `;
+
+            const input = content.querySelector('#settings-api-input');
+            const msg = content.querySelector('#settings-msg');
+            const currentKeyEl = content.querySelector('#settings-current-key');
+
+            const showMsg = (text, color = '#4caf50') => {
+                msg.style.color = color;
+                msg.textContent = text;
+                setTimeout(() => { msg.textContent = ''; }, 3000);
+            };
+
+            const updateCurrentDisplay = () => {
+                const k = storage.get('OCLM_API_KEY', '');
+                currentKeyEl.innerHTML = k
+                    ? `${k.slice(0, 4)}••••${k.slice(-4)}`
+                    : '<span style="color:#666;">No key saved</span>';
+            };
+
+            content.querySelector('#settings-save-btn').onclick = () => {
+                const val = input.value.trim();
+                if (!val) {
+                    showMsg('Please enter an API key', '#f66');
+                    return;
+                }
+                if (!/^[a-zA-Z0-9]{16}$/.test(val)) {
+                    showMsg('Invalid key format (expected 16 alphanumeric chars)', '#f66');
+                    return;
+                }
+                storage.set('OCLM_API_KEY', val);
+                input.value = '';
+                membersLoaded = false;
+                memberNameMap.clear();
+                updateCurrentDisplay();
+                showMsg('API key saved');
+            };
+
+            content.querySelector('#settings-clear-btn').onclick = () => {
+                storage.set('OCLM_API_KEY', '');
+                membersLoaded = false;
+                memberNameMap.clear();
+                updateCurrentDisplay();
+                showMsg('API key cleared', '#f66');
+            };
+        };
+
         // Unused tab
         tabUnused.onclick = async () => {
-            [tabUnused, tabMissing, tabSplit].forEach(t => t.classList.remove('active'));
+            allTabs.forEach(t => t.classList.remove('active'));
             tabUnused.classList.add('active');
             content.innerHTML = '<div style="text-align:center;padding:40px;">Loading unused loans...</div>';
 
@@ -695,7 +782,7 @@
         };
 
         tabMissing.onclick = async () => {
-            [tabUnused, tabMissing, tabSplit].forEach(t => t.classList.remove('active'));
+            allTabs.forEach(t => t.classList.remove('active'));
             tabMissing.classList.add('active');
             renderMissingTab();
         };
@@ -795,7 +882,7 @@
         };
 
         tabSplit.onclick = () => {
-            [tabUnused, tabMissing, tabSplit].forEach(t => t.classList.remove('active'));
+            allTabs.forEach(t => t.classList.remove('active'));
             tabSplit.classList.add('active');
 
             content.innerHTML = `
