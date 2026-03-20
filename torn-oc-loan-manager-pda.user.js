@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn OC Loan Manager (PDA)
 // @namespace    https://torn.com
-// @version      1.6.0-pda
+// @version      1.7.0-pda
 // @description  Highlights over-loaned items and helps loan missing OC tools + split calculator (PDA compatible, no armory tab needed)
 // @match        https://www.torn.com/factions.php?step=your*
 // @run-at       document-end
@@ -12,6 +12,7 @@
 // =============================================================================
 // CHANGELOG
 // =============================================================================
+// v1.7.0-pda - Draggable OC button with position memory
 // v1.6.0-pda - Add API Settings panel, shrink floating button
 // v1.5.2-pda - Update URLs to tornwar.com hosting
 // v1.5.1-pda - Fix: retrieve role parameter (use "retrieve" not "return")
@@ -356,10 +357,19 @@
         const button = document.createElement('button');
         button.id = 'oc-loan-btn';
         button.textContent = 'OC';
+        // Restore saved position or use default
+        const savedPos = (() => {
+            try {
+                const raw = storage.get('OCLM_BTN_POS', '');
+                if (!raw) return null;
+                const p = JSON.parse(raw);
+                if (typeof p.x === 'number' && typeof p.y === 'number') return p;
+            } catch { /* ignore */ }
+            return null;
+        })();
+
         button.style.cssText = `
             position: fixed;
-            top: 10px;
-            right: 10px;
             z-index: 99999;
             padding: 5px 10px;
             min-height: 26px;
@@ -370,24 +380,107 @@
             font-size: 11px;
             font-weight: 700;
             letter-spacing: 0.3px;
-            cursor: pointer;
+            cursor: grab;
             box-shadow:
                 0 3px 10px rgba(42, 60, 255, 0.3),
                 inset 0 0 0 1px rgba(255,255,255,0.15);
-            transition:
-                transform 0.15s ease,
-                box-shadow 0.15s ease,
-                filter 0.15s ease;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
         `;
-        button.onmouseover = () => { button.style.opacity = '0.85'; };
+
+        if (savedPos) {
+            button.style.left = Math.min(savedPos.x, window.innerWidth - 40) + 'px';
+            button.style.top = Math.min(savedPos.y, window.innerHeight - 26) + 'px';
+        } else {
+            button.style.top = '10px';
+            button.style.right = '10px';
+        }
+
+        // ---- Drag logic (mouse + touch, with click detection) ----
+        let isDragging = false;
+        let wasDragged = false;
+        let dragStartX = 0, dragStartY = 0;
+        let btnStartX = 0, btnStartY = 0;
+        const DRAG_THRESHOLD = 5; // px movement before it counts as a drag
+
+        const getClientPos = (e) => {
+            if (e.touches && e.touches.length) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            return { x: e.clientX, y: e.clientY };
+        };
+
+        const onDragStart = (e) => {
+            // Only left mouse button or touch
+            if (e.type === 'mousedown' && e.button !== 0) return;
+            e.preventDefault();
+
+            const pos = getClientPos(e);
+            dragStartX = pos.x;
+            dragStartY = pos.y;
+
+            const rect = button.getBoundingClientRect();
+            btnStartX = rect.left;
+            btnStartY = rect.top;
+
+            isDragging = true;
+            wasDragged = false;
+            button.style.cursor = 'grabbing';
+            button.style.transition = 'none';
+
+            document.addEventListener('mousemove', onDragMove, { passive: false });
+            document.addEventListener('mouseup', onDragEnd);
+            document.addEventListener('touchmove', onDragMove, { passive: false });
+            document.addEventListener('touchend', onDragEnd);
+        };
+
+        const onDragMove = (e) => {
+            if (!isDragging) return;
+            e.preventDefault();
+            const pos = getClientPos(e);
+            const dx = pos.x - dragStartX;
+            const dy = pos.y - dragStartY;
+
+            if (!wasDragged && Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+            wasDragged = true;
+
+            // Clamp to viewport
+            const bw = button.offsetWidth;
+            const bh = button.offsetHeight;
+            const newX = Math.max(0, Math.min(window.innerWidth - bw, btnStartX + dx));
+            const newY = Math.max(0, Math.min(window.innerHeight - bh, btnStartY + dy));
+
+            button.style.left = newX + 'px';
+            button.style.top = newY + 'px';
+            button.style.right = 'auto';
+        };
+
+        const onDragEnd = () => {
+            if (!isDragging) return;
+            isDragging = false;
+            button.style.cursor = 'grab';
+
+            document.removeEventListener('mousemove', onDragMove);
+            document.removeEventListener('mouseup', onDragEnd);
+            document.removeEventListener('touchmove', onDragMove);
+            document.removeEventListener('touchend', onDragEnd);
+
+            if (wasDragged) {
+                // Persist position
+                const rect = button.getBoundingClientRect();
+                storage.set('OCLM_BTN_POS', JSON.stringify({ x: Math.round(rect.left), y: Math.round(rect.top) }));
+            }
+        };
+
+        button.addEventListener('mousedown', onDragStart);
+        button.addEventListener('touchstart', onDragStart, { passive: false });
+
+        button.onmouseover = () => { if (!isDragging) button.style.opacity = '0.85'; };
         button.onmouseout = () => { button.style.opacity = '1'; };
 
         const panel = document.createElement('div');
         panel.id = 'oc-loan-panel';
         panel.style.cssText = `
             position:fixed;
-            top:42px;
-            right:8px;
             width:320px;
             max-width:90vw;
             max-height:80vh;
@@ -530,8 +623,34 @@
         let isOpen = false;
         const allTabs = [tabUnused, tabMissing, tabSplit, tabSettings];
 
+        const positionPanel = () => {
+            const btnRect = button.getBoundingClientRect();
+            const pw = 320;
+            const margin = 6;
+
+            // Prefer placing below the button, aligned to its left edge
+            let left = btnRect.left;
+            let top = btnRect.bottom + margin;
+
+            // If panel would overflow right, shift left
+            if (left + pw > window.innerWidth - 8) {
+                left = window.innerWidth - pw - 8;
+            }
+            // Keep at least 8px from left
+            if (left < 8) left = 8;
+
+            // If panel would overflow bottom, place above the button
+            if (top + 200 > window.innerHeight) {
+                top = Math.max(8, btnRect.top - margin - 200);
+            }
+
+            panel.style.left = left + 'px';
+            panel.style.top = top + 'px';
+        };
+
         const openPanel = () => {
             isOpen = true;
+            positionPanel();
             panel.style.opacity = '1';
             panel.style.visibility = 'visible';
             panel.style.transform = 'translateY(0)';
@@ -545,7 +664,11 @@
             clearHighlights();
         };
 
-        button.onclick = () => isOpen ? closePanel() : openPanel();
+        button.addEventListener('click', (e) => {
+            // Only toggle if we didn't just finish a drag
+            if (wasDragged) { wasDragged = false; return; }
+            isOpen ? closePanel() : openPanel();
+        });
         panel.querySelector('#oc-close').onclick = closePanel;
 
         // Settings tab
