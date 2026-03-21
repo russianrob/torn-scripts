@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn RW Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      3.0.0
+// @version      3.0.1
 // @description  Inline price badges for RW weapons and armour using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
@@ -24,6 +24,7 @@
 // =============================================================================
 // CHANGELOG
 // =============================================================================
+// v3.0.1  - Fix duplicate badges on item market tiles (remove parent li selector)
 // v3.0.0  - Add Item Market tile/card view support (PDA & desktop)
 //           New selectors: itemTile, itemList, title/name elements
 //           Detect rarity via glow-*-border on imageWrapper
@@ -1468,15 +1469,10 @@
         var containers = [];
 
         // Item Market: tile/card view (PDA & desktop browse page)
+        // Use the tile div directly — the parent li is NOT added to avoid duplicate badges
         var tileItems = document.querySelectorAll('div[class*="itemTile___"], div[class^="itemTile"]');
         for (var t = 0; t < tileItems.length; t++) {
             containers.push(tileItems[t]);
-        }
-
-        // Item Market: list items inside itemList container (desktop list view)
-        var listItems = document.querySelectorAll('[class*="itemList___"] > li');
-        for (var li = 0; li < listItems.length; li++) {
-            if (containers.indexOf(listItems[li]) === -1) containers.push(listItems[li]);
         }
 
         // React selectors (auction house, item market, bazaar)
