@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn RW Pricer
 // @namespace    torn.rw.weapon.inline.pricer
-// @version      2.9.9
+// @version      3.0.0
 // @description  Inline price badges for RW weapons and armour using daily-refreshed auction data
 // @author       RussianRob
 // @match        https://www.torn.com/item*
@@ -9,6 +9,11 @@
 // @match        https://www.torn.com/amarket*
 // @match        https://www.torn.com/page.php?sid=ItemMarket*
 // @match        https://www.torn.com/page.php?sid=auctionHouse*
+// @match        https://pda.torn.com/page.php?sid=ItemMarket*
+// @match        https://pda.torn.com/page.php?sid=auctionHouse*
+// @match        https://pda.torn.com/item*
+// @match        https://pda.torn.com/bazaar*
+// @match        https://pda.torn.com/amarket*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
@@ -19,6 +24,11 @@
 // =============================================================================
 // CHANGELOG
 // =============================================================================
+// v3.0.0  - Add Item Market tile/card view support (PDA & desktop)
+//           New selectors: itemTile, itemList, title/name elements
+//           Detect rarity via glow-*-border on imageWrapper
+//           Badge positioned inside tile title area
+//           Add PDA domain match patterns
 // v2.9.9  - Update URLs to tornwar.com hosting, serve prices from VPS
 // v2.9.8  - Full BONUS_COLOR_RANGES cross-check and correction using
 //           forum reference data
@@ -905,7 +915,16 @@
     // ─── Rarity detection ────────────────────────────────────
 
     function detectRarity(el) {
-        // Method 1: React rarity element
+        // Method 1: Item Market tile imageWrapper glow-*-border class
+        var imgWrap = el.querySelector('[class*="imageWrapper"]');
+        if (imgWrap) {
+            var wrapClass = imgWrap.className || '';
+            if (/glow-red/i.test(wrapClass)) return 'Red';
+            if (/glow-orange/i.test(wrapClass)) return 'Orange';
+            if (/glow-yellow/i.test(wrapClass)) return 'Yellow';
+        }
+
+        // Method 2: React rarity element
         var rarityEl = el.querySelector('[class*="rarity___"]');
         if (rarityEl) {
             var txt = (rarityEl.textContent || '').toLowerCase();
@@ -914,7 +933,7 @@
             if (txt.indexOf('yellow') !== -1) return 'Yellow';
         }
 
-        // Method 2: glow-* class on container or children
+        // Method 3: glow-* class on container or children
         var html = el.className || '';
         var inner = el.innerHTML || '';
         var combined = html + ' ' + inner;
@@ -922,7 +941,7 @@
         if (/glow-orange/i.test(combined)) return 'Orange';
         if (/glow-yellow/i.test(combined)) return 'Yellow';
 
-        // Method 3: extraordinary / extremely-rare class
+        // Method 4: extraordinary / extremely-rare class
         if (/extremely[_-]?rare/i.test(combined)) return 'Red';
         if (/extraordinary/i.test(combined)) return 'Orange';
 
@@ -1032,7 +1051,7 @@
             }
         }
 
-        // Item detail / inventory: bonus icon elements with class like "bonus-attachment-focus"
+        // Item detail / inventory / item market tiles: bonus icon elements with class like "bonus-attachment-focus"
         var bonusIcons = el.querySelectorAll('i[class*="bonus-attachment-"]');
         for (var bi2 = 0; bi2 < bonusIcons.length; bi2++) {
             var biClass = bonusIcons[bi2].className || '';
@@ -1041,7 +1060,33 @@
                 var biName = resolveBonusName(biMatch[1].replace(/-/g, ' '));
                 var biLabel = bonusIcons[bi2].getAttribute('aria-label') || '';
                 var biLevel = parseLevelFromText(biLabel) || parseLevelFromText(bonusIcons[bi2].getAttribute('title') || '');
+                // Also try data-bonus-attachment-description for level (item market tiles)
+                if (!biLevel) {
+                    var biDesc = bonusIcons[bi2].getAttribute('data-bonus-attachment-description') || '';
+                    biLevel = parseLevelFromText(biDesc);
+                }
+                // If name wasn't resolved from class, try data-bonus-attachment-title
+                if (!biName) {
+                    var biTitle = bonusIcons[bi2].getAttribute('data-bonus-attachment-title') || biLabel;
+                    biName = resolveBonusName(biTitle);
+                }
+                // Also try aria-label as direct bonus name (tile view uses aria-label="Conserve")
+                if (!biName && biLabel) {
+                    biName = resolveBonusName(biLabel);
+                }
                 addBonus(biName, biLevel);
+            }
+        }
+
+        // Item market tiles: bonus icons via data-bonus-attachment-title attribute
+        if (bonuses.length === 0) {
+            var dataBonusIcons = el.querySelectorAll('[data-bonus-attachment-title]');
+            for (var dbi = 0; dbi < dataBonusIcons.length; dbi++) {
+                var dbiTitle = dataBonusIcons[dbi].getAttribute('data-bonus-attachment-title') || '';
+                var dbiDesc = dataBonusIcons[dbi].getAttribute('data-bonus-attachment-description') || '';
+                var dbiName = resolveBonusName(dbiTitle);
+                var dbiLevel = parseLevelFromText(dbiDesc);
+                addBonus(dbiName, dbiLevel);
             }
         }
 
@@ -1080,6 +1125,14 @@
     // ─── Weapon name extraction ──────────────────────────────
 
     function extractWeaponName(el) {
+        // Item Market tile: [class*="name___"] inside [class*="title___"]
+        var tileName = el.querySelector('[class*="title___"] [class*="name___"]');
+        if (tileName) return normalizeWeaponName(tileName.textContent);
+
+        // Item Market tile fallback: [class*="name___"] directly
+        var tileNameDirect = el.querySelector('[class*="name___"]:not([class*="itemName"])');
+        if (tileNameDirect && tileNameDirect.textContent.trim()) return normalizeWeaponName(tileNameDirect.textContent);
+
         // React: [class*="description"] .bold
         var descBold = el.querySelector('[class*="description"] .bold');
         if (descBold) return normalizeWeaponName(descBold.textContent);
@@ -1299,6 +1352,25 @@
             '  font-weight: 600;' +
             '}' +
 
+            // Item Market tile-specific badge styles
+            'div[class*="itemTile"] .rwp-price-tag,' +
+            'div[class^="itemTile"] .rwp-price-tag {' +
+            '  display: block;' +
+            '  margin: 2px 0 0 0;' +
+            '  font-size: 10px;' +
+            '  text-align: center;' +
+            '}' +
+            'div[class*="itemTile"] .rwp-price-tag-inner,' +
+            'div[class^="itemTile"] .rwp-price-tag-inner {' +
+            '  display: inline-flex;' +
+            '  padding: 1px 5px;' +
+            '  font-size: 10px;' +
+            '}' +
+            'div[class*="itemTile"] .rwp-price-tag-label,' +
+            'div[class^="itemTile"] .rwp-price-tag-label {' +
+            '  font-size: 8px;' +
+            '}' +
+
             '.rwp-price-tooltip {' +
             '  position: absolute;' +
             '  z-index: 1000000;' +
@@ -1395,10 +1467,22 @@
     function findItemContainers() {
         var containers = [];
 
+        // Item Market: tile/card view (PDA & desktop browse page)
+        var tileItems = document.querySelectorAll('div[class*="itemTile___"], div[class^="itemTile"]');
+        for (var t = 0; t < tileItems.length; t++) {
+            containers.push(tileItems[t]);
+        }
+
+        // Item Market: list items inside itemList container (desktop list view)
+        var listItems = document.querySelectorAll('[class*="itemList___"] > li');
+        for (var li = 0; li < listItems.length; li++) {
+            if (containers.indexOf(listItems[li]) === -1) containers.push(listItems[li]);
+        }
+
         // React selectors (auction house, item market, bazaar)
         var reactItems = document.querySelectorAll('[class*="itemInfoWrapper"], [class*="itemInfo___"]');
         for (var i = 0; i < reactItems.length; i++) {
-            containers.push(reactItems[i]);
+            if (containers.indexOf(reactItems[i]) === -1) containers.push(reactItems[i]);
         }
 
         // Legacy: auction house list items
@@ -1564,16 +1648,29 @@
             badge = createBadge(weaponKey || armourKey, rarity, median, bonusNames, bonusFn, estimatedPrice, itemPriceArray, Object.keys(bonusPriceArrays).length > 0 ? bonusPriceArrays : null, bonusColors, Object.keys(comboPriceArrays).length > 0 ? comboPriceArrays : null, maxBonusNames);
 
             // Find insertion point — after name element
-            var nameEl = el.querySelector('[class*="description"] .bold') ||
-                         el.querySelector('[class*="itemName"]') ||
-                         el.querySelector('.item-name') ||
-                         el.querySelector('.name-wrap .name');
+            // Item Market tile: insert inside the title container, after price
+            var tileTitle = el.querySelector('[class*="title___"]');
+            var tilePriceEl = el.querySelector('[class*="priceAndTotal___"]');
 
-            if (nameEl) {
-                nameEl.parentNode.insertBefore(badge, nameEl.nextSibling);
+            if (tileTitle && tilePriceEl) {
+                // Tile view: insert badge after the price element
+                tilePriceEl.parentNode.insertBefore(badge, tilePriceEl.nextSibling);
+            } else if (tileTitle) {
+                // Tile view fallback: append to title container
+                tileTitle.appendChild(badge);
             } else {
-                // Fallback: append to container
-                el.appendChild(badge);
+                // Non-tile views: insert after name element
+                var nameEl = el.querySelector('[class*="description"] .bold') ||
+                             el.querySelector('[class*="itemName"]') ||
+                             el.querySelector('.item-name') ||
+                             el.querySelector('.name-wrap .name');
+
+                if (nameEl) {
+                    nameEl.parentNode.insertBefore(badge, nameEl.nextSibling);
+                } else {
+                    // Fallback: append to container
+                    el.appendChild(badge);
+                }
             }
 
             el.setAttribute('data-rwp-priced', '1');
