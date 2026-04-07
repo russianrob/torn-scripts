@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.0.0
+// @version      1.0.1
 // @description  Analyzes faction member availability and OC slot supply; recommends which crime levels to spawn
 // @author       You
 // @match        https://www.torn.com/factions.php*
