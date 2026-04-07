@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.0.7
+// @version      1.0.8
 // @description  Analyzes faction member availability and OC slot supply; recommends which crime levels to spawn
 // @author       You
 // @match        https://www.torn.com/factions.php*
@@ -372,13 +372,10 @@
             const cpr         = cprCache[uid] ?? null;
             const cprValue    = cpr?.cpr ?? null;
             const highestLvl  = cpr?.highestLevel ?? 0;
-            const joinable    = cpr?.joinable ?? 0;
-
-            // If CPR below minimum threshold → skip
-            if (cprValue !== null && cprValue < CONFIG.MINCPR) {
-                skipped.push({ ...m, skipReason: `CPR ${cprValue}% < ${CONFIG.MINCPR}%` });
-                continue;
-            }
+            // Under MINCPR or no history → force Lvl 1
+            const joinable    = (cprValue === null || cprValue < CONFIG.MINCPR)
+                                    ? 1
+                                    : (cpr?.joinable ?? 1);
 
             eligible.push({
                 id:           uid,
