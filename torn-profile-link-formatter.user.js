@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Profile Link Formatter
 // @namespace    GNSC4 [268863]
-// @version      3.6.5
+// @version      3.6.16
 // @description  Copy formatted Torn profile/faction links. Uses BSP prediction TBS when available, falls back to FF Scouter V2 estimated stats. Strips BSP TBS prefixes from copied names, dedupes lines by ID, and uses war JSON faction IDs so your faction (Dead Fragment 42055) is always separated from the enemy in ranked wars. Faction copy includes member level and Xanax taken (via API or Xanax Viewer cache).
 // @author       GNSC4
 // @match        https://www.torn.com/profiles.php?XID=*
@@ -19,11 +19,17 @@
 // =============================================================================
 // CHANGELOG
 // =============================================================================
-// v3.6.5  - Anchor copy progress to faction header instead of floating overlay
-// v3.6.4  - Remove level from faction copy output
-// v3.6.3  - Move copy toast higher (top: 45%) and increase size/contrast for PDA readability
-// v3.6.2  - PDA fix: faction copy progress now uses a floating toast outside React tree
-//           so status updates don't disappear on PDA re-renders
+// v3.6.16 - Fix enemy faction clipboard not showing: use forEach index for left/right detection,
+//           append button to nameDiv directly to avoid overflow:hidden clipping on truncated names
+// v3.6.15 - Modernize Settings UI: updated to dark "glassmorphism" style to match OC Manager
+// v3.6.14 - Remove all button.title assignments to prevent tooltips getting stuck on mobile browsers (Torn PDA)
+// v3.6.13 - Move progress bar to fixed position toast to make it immune to React DOM updates
+// v3.6.12 - Fix progress bar visibility (absolute positioning) and delay hiding so 100% state is visible
+// v3.6.11 - Add visual progress bar to faction copy and improve error handling for individual members
+// v3.6.10 - Make profile injection completely bulletproof against DOM updates by falling back to #skip-to-content and document.title
+// v3.6.9  - Update profile name DOM selector to support Torn's new HTML layout
+// v3.6.8  - Fix profile page injection by using correct name selector (restored from 3.6.1 to fix syntax errors)
+// v3.6.2 to 3.6.7 - Rolled back due to severe syntax errors introduced in earlier commit
 // v3.6.1  - Update URLs to tornwar.com hosting
 // v3.6.0  - BSP prediction TBS with FF Scouter V2 fallback
 //           - Strip BSP TBS prefixes from copied names
@@ -60,34 +66,50 @@
 
     if (typeof GM_addStyle !== 'undefined') {
         GM_addStyle(`
-            .gnsc-copy-container { display: inline-flex; align-items: center; vertical-align: middle; gap: 5px; margin-left: 10px; }
-            .gnsc-btn { background-color: #333; color: #DDD; border: 1px solid #555; border-radius: 5px; padding: 3px 8px; text-decoration: none; font-size: 12px; line-height: 1.5; font-weight: bold; cursor: pointer; white-space: nowrap; }
-            .gnsc-btn:hover { background-color: #444; }
-            .gnsc-list-btn { margin-left: 5px; cursor: pointer; font-size: 14px; display: inline-block; vertical-align: middle; width: 18px; text-align: center; }
-            .gnsc-faction-copy-btn { margin-left: 8px; cursor: pointer; font-size: 14px; vertical-align: middle; }
-            .gnsc-copy-toast { display: none; width: 100%; text-align: center; background: rgba(10,10,30,0.92); color: #0f0; border-top: 1px solid #0f0; border-bottom: 1px solid #0f0; padding: 6px 0; font-family: monospace; font-size: 15px; font-weight: bold; pointer-events: none; transition: opacity 0.3s; }
-            .gnsc-copy-toast.fade-out { opacity: 0; }
-            .gnsc-settings-panel { display: none; position: absolute; background-color: #2c2c2c; border: 1px solid #555; border-radius: 5px; padding: 10px; z-index: 1000; top: 100%; left: 0; min-width: 220px; }
-            .gnsc-settings-panel div { margin-bottom: 5px; display: flex; align-items: center; }
-            .gnsc-settings-panel label { color: #DDD; flex-grow: 1; }
-            .gnsc-settings-panel input[type="checkbox"] { margin-left: 5px; }
-            .gnsc-settings-panel label.disabled { color: #888; }
+            .gnsc-copy-container { display: inline-flex; align-items: center; vertical-align: middle; gap: 6px; margin-left: 12px; }
+            .gnsc-btn { background: rgba(255, 255, 255, 0.05); color: #ddd; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 4px 10px; text-decoration: none; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s ease; display: inline-flex; align-items: center; justify-content: center; height: 26px; }
+            .gnsc-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; border-color: rgba(255, 255, 255, 0.2); }
+            .gnsc-list-btn { margin-left: 5px; cursor: pointer; font-size: 14px; display: inline-block; vertical-align: middle; width: 18px; text-align: center; opacity: 0.8; transition: opacity 0.2s; }
+            .gnsc-list-btn:hover { opacity: 1; }
+            .gnsc-faction-copy-btn { margin-left: 8px; cursor: pointer; font-size: 14px; vertical-align: middle; opacity: 0.8; transition: opacity 0.2s; }
+            .gnsc-faction-copy-btn:hover { opacity: 1; }
+            .gnsc-settings-panel { display: none; position: absolute; background: rgba(24, 24, 24, 0.98); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 16px; z-index: 1000; top: calc(100% + 8px); left: 0; min-width: 260px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6); backdrop-filter: blur(10px); color: #efefef; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+            .gnsc-settings-panel * { box-sizing: border-box; }
+            .gnsc-settings-panel-header { font-size: 14px; font-weight: 700; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); color: #fff; }
+            .gnsc-settings-panel div.setting-row { margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+            .gnsc-settings-panel label { color: #ddd; cursor: pointer; flex: 1; user-select: none; }
+            .gnsc-settings-panel input[type="checkbox"] { margin-left: 10px; width: 16px; height: 16px; cursor: pointer; accent-color: #2a3cff; }
+            .gnsc-settings-panel label.disabled { color: #666; cursor: not-allowed; }
             .gnsc-settings-container { position: relative; }
             .buttons-list .gnsc-list-btn { padding: 4px; font-size: 16px; height: 34px; line-height: 26px; }
-            #gnsc-battlestats-format-wrapper { flex-direction: column; align-items: flex-start; margin-top: 8px; }
-            #gnsc-battlestats-format-wrapper label { margin-bottom: 4px; }
-            #gnsc-select-battlestats-format { background-color: #1e1e1e; border: 1px solid #555; color: #ddd; border-radius: 3px; padding: 2px 4px; width: 100%; }
-            #gnsc-apikey-wrapper { flex-direction: column; align-items: flex-start; margin-top: 8px; border-top: 1px solid #444; padding-top: 8px; }
-            #gnsc-apikey-wrapper label { margin-bottom: 4px; font-size: 11px; }
-            #gnsc-input-apikey { background-color: #1e1e1e; border: 1px solid #555; color: #ddd; border-radius: 3px; padding: 4px 6px; width: 100%; font-size: 11px; box-sizing: border-box; }
+            #gnsc-battlestats-format-wrapper { flex-direction: column; align-items: flex-start; margin-top: 12px; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
+            #gnsc-battlestats-format-wrapper label { margin-bottom: 6px; font-size: 12px; color: #bbb; }
+            #gnsc-select-battlestats-format { background-color: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #ddd; border-radius: 6px; padding: 6px; width: 100%; font-size: 13px; outline: none; transition: border-color 0.2s; cursor: pointer; }
+            #gnsc-select-battlestats-format:focus { border-color: rgba(42, 60, 255, 0.5); }
+            #gnsc-apikey-wrapper { flex-direction: column; align-items: flex-start; margin-top: 16px; }
+            #gnsc-apikey-wrapper label { margin-bottom: 6px; font-size: 12px; color: #bbb; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+            #gnsc-input-apikey { background-color: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #ddd; border-radius: 6px; padding: 8px 10px; width: 100%; font-size: 13px; box-sizing: border-box; outline: none; font-family: monospace; transition: border-color 0.2s; }
+            #gnsc-input-apikey:focus { border-color: #2a3cff; }
         `);
     }
 
     function initProfilePage() {
-        const nameElement = document.querySelector('#skip-to-content');
-        const infoTable = document.querySelector('.basic-information .info-table');
+        // Extremely broad selector for the user's name element on the profile page, handling Torn's recent React updates
+        const nameElement = document.querySelector(
+            '[class*="profile-wrapper"] [class*="name___"], ' +
+            '[class*="profile-wrapper"] h1[class*="name_"], ' +
+            '[class*="profile-wrapper"] h2[class*="name_"], ' +
+            '[class*="profile-wrapper"] h3[class*="name_"], ' +
+            '[class*="profile-wrapper"] h4[class*="name_"], ' +
+            '[class*="profile-wrapper"] div[class*="name_"], ' +
+            '[class*="profileWrapper"] [class*="name___"], ' +
+            'h1[class*="name___"], h2[class*="name___"], h3[class*="name___"], h4[class*="name___"], div[class*="name___"], ' +
+            '.profile-heading, ' +
+            '#skip-to-content' // Fallback to ensure UI injection
+        );
+        const infoTable = document.querySelector('div[class*="basicInformation"] ul[class*="infoTable"], .basic-information .info-table, [class*="infoTable"], [class*="basicInformation"], [class*="profile-right-wrapper"] ul, [class*="profileRightWrapper"]');
         const alreadyInjected = document.querySelector('.gnsc-copy-container');
-        if (nameElement && infoTable && infoTable.children.length > 5 && !alreadyInjected) {
+        if (nameElement && !alreadyInjected) {
             mainProfile(nameElement, infoTable);
             return true;
         }
@@ -95,7 +117,7 @@
     }
 
     function initFactionPage() {
-        const memberLists = document.querySelectorAll('.members-list, .enemy-list, .your-faction');
+        const memberLists = document.querySelectorAll('[class*="membersList"], [class*="enemyList"], [class*="yourFaction"], .members-list, .enemy-list, .your-faction');
         if (memberLists.length > 0) {
             memberLists.forEach(list => injectButtonsIntoList(list));
             return true;
@@ -104,24 +126,27 @@
     }
 
     function initRankedWarPage() {
-        const factionNames = document.querySelectorAll('.faction-names .name___PlMCO');
-        factionNames.forEach(nameDiv => {
+        const factionNames = document.querySelectorAll('div[class*="factionNames"] div[class*="name_"], .faction-names [class*="name_"]');
+        factionNames.forEach((nameDiv, index) => {
             if (!nameDiv.querySelector('.gnsc-faction-copy-btn')) {
                 const button = document.createElement('span');
                 button.className = 'gnsc-faction-copy-btn';
                 button.textContent = '📋';
-                button.title = 'Copy Faction Member List (BSP/FF cache)';
+                // Use index (0=left, 1=right) — classList.contains('left') fails
+                // with Torn's hashed class names so both buttons were treated as 'right'
+                const isLeft = index === 0;
                 button.addEventListener('click', (e) =>
-                    handleFactionCopyClick(e, button, nameDiv.classList.contains('left'))
+                    handleFactionCopyClick(e, button, isLeft)
                 );
-                const textNode = nameDiv.querySelector('.text___chra_') || nameDiv;
-                textNode.appendChild(button);
+                // Append to nameDiv directly, NOT inside the text node
+                // which has overflow:hidden and clips the button on truncated names
+                nameDiv.appendChild(button);
             }
         });
     }
 
     function initMiniProfile() {
-        const miniProfile = document.querySelector('.profile-mini-_wrapper___Arw8R:not(.gnsc-injected), .mini-profile-wrapper:not(.gnsc-injected)');
+        const miniProfile = document.querySelector('[class*="profile-mini-_wrapper"]:not(.gnsc-injected), .mini-profile-wrapper:not(.gnsc-injected)');
         if (miniProfile) {
             miniProfile.classList.add('gnsc-injected');
             let attempts = 0;
@@ -134,7 +159,6 @@
                     const button = document.createElement('span');
                     button.className = 'gnsc-list-btn';
                     button.textContent = '📄';
-                    button.title = 'Copy Formatted Link';
                     button.addEventListener('click', (e) => handleListCopyClick(e, button, miniProfile));
                     buttonContainer.insertAdjacentElement('beforeend', button);
                 } else if (attempts >= maxAttempts) {
@@ -146,14 +170,13 @@
     }
 
     function injectButtonsIntoList(listElement) {
-        const members = listElement.querySelectorAll('li.member, li.table-row, li.enemy, li.your');
+        const members = listElement.querySelectorAll('li[class*="member"], li[class*="tableRow"], li[class*="enemy"], li[class*="your"], li.member, li.table-row, li.enemy, li.your');
         members.forEach(member => {
             const nameLink = member.querySelector('a[href*="profiles.php"]');
             if (nameLink && !member.querySelector('.gnsc-list-btn')) {
                 const button = document.createElement('span');
                 button.className = 'gnsc-list-btn';
                 button.textContent = '📄';
-                button.title = 'Copy Formatted Link';
                 button.addEventListener('click', (e) => handleListCopyClick(e, button, member));
                 nameLink.insertAdjacentElement('afterend', button);
             }
@@ -165,18 +188,28 @@
         const userId = urlParams.get('XID');
         if (!userId) return;
 
-        const cleanedName = nameElement.textContent.replace("'s Profile", "").split(' [')[0].trim();
+        let cleanedName = nameElement.textContent.replace("'s Profile", "").split(' [')[0].trim();
+        
+        // If we hit the fallback, try to extract the real name from the document title
+        if (cleanedName === 'Skip to content' || nameElement.id === 'skip-to-content') {
+            const titleMatch = document.title.match(/(.+?)'s Profile/i);
+            if (titleMatch && titleMatch[1]) {
+                cleanedName = titleMatch[1].trim();
+            } else {
+                cleanedName = 'Unknown Player';
+            }
+        }
         let factionLinkEl = null;
         let companyLinkEl = null;
         let activityStatus = 'Offline';
 
-        const infoListItems = infoTable.querySelectorAll('li');
+        const infoListItems = infoTable ? infoTable.querySelectorAll('li, div[class*="infoRow_"], div[class*="info-row"], [class*="row_"]') : [];
         infoListItems.forEach(item => {
-            const titleEl = item.querySelector('.user-information-section .bold');
+            const titleEl = item.querySelector('[class*="userInformationSection"] [class*="bold"], [class*="title_"], .title, .user-information-section .bold');
             if (!titleEl) return;
             const title = titleEl.textContent.trim();
-            if (title === 'Faction') factionLinkEl = item.querySelector('.user-info-value a');
-            if (title === 'Job') companyLinkEl = item.querySelector('.user-info-value a');
+            if (title === 'Faction') factionLinkEl = item.querySelector('.user-info-value a, a');
+            if (title === 'Job') companyLinkEl = item.querySelector('.user-info-value a, a');
         });
 
         const statusIconEl = document.querySelector('li[id^="icon1-profile-"], li[id^="icon2-profile-"], li[id^="icon62-profile-"]');
@@ -246,18 +279,24 @@
         panel.className = 'gnsc-settings-panel';
         const settings = loadSettings();
 
+        const header = document.createElement('div');
+        header.className = 'gnsc-settings-panel-header';
+        header.textContent = 'Link Formatter Settings';
+        panel.appendChild(header);
+
         const options = [
-            { key: 'attack',       label: 'Attack',                      available: true },
+            { key: 'attack',       label: 'Attack Link',                 available: true },
             { key: 'activity',     label: 'Activity Status',             available: true },
-            { key: 'faction',      label: 'Faction',                     available: !!userInfo.factionUrl },
-            { key: 'company',      label: 'Company',                     available: !!userInfo.companyUrl },
-            { key: 'timeRemaining',label: 'Time Remaining',              available: userInfo.isInHospital },
+            { key: 'faction',      label: 'Faction Link',                available: !!userInfo.factionUrl },
+            { key: 'company',      label: 'Company Link',                available: !!userInfo.companyUrl },
+            { key: 'timeRemaining',label: 'Hospital Time',               available: userInfo.isInHospital },
             { key: 'releaseTime',  label: 'Release Time (TCT)',          available: userInfo.isInHospital },
-            { key: 'battlestats',  label: 'Battle Stats / Stats (BSP/FF)',  available: true }
+            { key: 'battlestats',  label: 'Battle Stats (BSP/FF)',       available: true }
         ];
 
         options.forEach(option => {
             const wrapper = document.createElement('div');
+            wrapper.className = 'setting-row';
             const checkbox = document.createElement('input');
             const label = document.createElement('label');
 
@@ -287,7 +326,7 @@
 
         const formatLabel = document.createElement('label');
         formatLabel.htmlFor = 'gnsc-select-battlestats-format';
-        formatLabel.textContent = 'Stat Display Format (when spy/FF is available)';
+        formatLabel.textContent = 'Stat Display Format';
 
         const formatSelect = document.createElement('select');
         formatSelect.id = 'gnsc-select-battlestats-format';
@@ -309,12 +348,12 @@
 
         const apiKeyLabel = document.createElement('label');
         apiKeyLabel.htmlFor = 'gnsc-input-apikey';
-        apiKeyLabel.textContent = 'API Key';
+        apiKeyLabel.textContent = 'API Key (For Faction/Xanax)';
 
         const apiKeyInput = document.createElement('input');
         apiKeyInput.type = 'text';
         apiKeyInput.id = 'gnsc-input-apikey';
-        apiKeyInput.placeholder = 'Enter API key...';
+        apiKeyInput.placeholder = 'Paste Torn API Key...';
         apiKeyInput.value = getApiKey() || '';
         apiKeyInput.addEventListener('change', () => {
             const val = apiKeyInput.value.trim();
@@ -666,7 +705,7 @@
         let statsStr = null;
 
         if (settings.activity) {
-            const statusEl = memberElement.querySelector('.userStatusWrap___ljSJG svg, li[class*="user-status-16-"]');
+            const statusEl = memberElement.querySelector('[class*="userStatusWrap"] svg, li[class*="user-status-16-"]');
             statusEmoji = '⚫ ';
             if (statusEl) {
                 const cls = statusEl.className.toString();
@@ -729,45 +768,15 @@
         setTimeout(() => { button.textContent = '📄'; }, 1500);
     }
 
-    function showCopyToast(text) {
-        let toast = document.getElementById('gnsc-copy-toast');
-        if (!toast) {
-            toast = document.createElement('div');
-            toast.id = 'gnsc-copy-toast';
-            toast.className = 'gnsc-copy-toast';
-            // Anchor into the faction header area
-            const anchor = document.querySelector('.faction-names, .faction-war-info, [class*="factionTitle"]');
-            if (anchor && anchor.parentNode) {
-                anchor.parentNode.insertBefore(toast, anchor.nextSibling);
-            } else {
-                document.body.appendChild(toast);
-            }
-        }
-        toast.classList.remove('fade-out');
-        toast.textContent = text;
-        toast.style.display = 'block';
-        return toast;
-    }
-
-    function hideCopyToast(delay) {
-        const toast = document.getElementById('gnsc-copy-toast');
-        if (!toast) return;
-        setTimeout(() => {
-            toast.classList.add('fade-out');
-            setTimeout(() => { toast.style.display = 'none'; toast.classList.remove('fade-out'); }, 300);
-        }, delay || 0);
-    }
-
     async function handleFactionCopyClick(e, button, isLeftFactionButton) {
         e.preventDefault();
         e.stopPropagation();
 
         button.textContent = '...';
-        showCopyToast('Starting...');
 
         try {
             const warRoot =
-                document.querySelector('.faction-war-info, .ranked-war, .war-report, #react-root, #root') ||
+                document.querySelector('[class*="factionWarInfo"], [class*="rankedWar"], [class*="warReport"], .faction-war-info, .ranked-war, .war-report, #react-root, #root') ||
                 document.body;
 
             const headerFactionLinks = warRoot.querySelectorAll(
@@ -851,19 +860,57 @@
             const totalMembers = validRows.length;
             let processed = 0;
             button.textContent = `0/${totalMembers}`;
-            showCopyToast(`Copying: 0/${totalMembers}`);
+
+            // --- Inject Progress Bar (Fixed/Toast Style for React-Immunity) ---
+            let progressBarContainer = document.getElementById('gnsc-fixed-progress-container');
+            if (!progressBarContainer) {
+                progressBarContainer = document.createElement('div');
+                progressBarContainer.id = 'gnsc-fixed-progress-container';
+                progressBarContainer.style.cssText = 'position: fixed; bottom: 30px; right: 30px; width: 250px; background-color: rgba(20,20,30,0.95); border: 1px solid #4CAF50; border-radius: 6px; z-index: 999999; padding: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.7); font-family: sans-serif;';
+                
+                const label = document.createElement('div');
+                label.id = 'gnsc-progress-label';
+                label.style.cssText = 'color: #eee; font-size: 12px; margin-bottom: 6px; font-weight: bold; text-align: center;';
+                label.textContent = 'Faction Copy Progress...';
+                
+                const barOuter = document.createElement('div');
+                barOuter.style.cssText = 'width: 100%; height: 12px; background-color: #333; border-radius: 6px; overflow: hidden; position: relative;';
+                
+                const progressBar = document.createElement('div');
+                progressBar.id = 'gnsc-fixed-progress-bar';
+                progressBar.style.cssText = 'height: 100%; width: 0%; background-color: #4CAF50; transition: width 0.1s linear;';
+                
+                barOuter.appendChild(progressBar);
+                progressBarContainer.appendChild(label);
+                progressBarContainer.appendChild(barOuter);
+                document.body.appendChild(progressBarContainer);
+            }
+            progressBarContainer.style.display = 'block';
+            const progressBar = document.getElementById('gnsc-fixed-progress-bar');
+            const progressLabel = document.getElementById('gnsc-progress-label');
+            progressBar.style.width = '0%';
+            progressLabel.textContent = `Copying: 0/${totalMembers}`;
+            // ----------------------------------------------------------------
 
             for (const { row, link, id } of validRows) {
+                let name = (link.textContent || '').trim();
+                name = stripBspPrefix(name);
+                
+                if (!name) {
+                    processed++;
+                    if (button.isConnected) button.textContent = `${processed}/${totalMembers}`;
+                    progressBar.style.width = `${(processed / totalMembers) * 100}%`;
+                    progressLabel.textContent = `Copying: ${processed}/${totalMembers}`;
+                    continue;
+                }
+
+                const profileLabel = name;
+                let statsString = "(Stats: N/A)";
+                const extras = [];
+
                 try {
-                    let name = (link.textContent || '').trim();
-                    name = stripBspPrefix(name);
-                    if (!name) { processed++; continue; }
-
-                    const profileLabel = name;
-                    let statsString = "(Stats: N/A)";
-
+                    // Try to fetch battle stats
                     if (settings.battlestats) {
-                        // Faction copy: skip spy data, only use BSP prediction or FF Scouter
                         const predOnly = getBspPredictionOrFf(id);
                         if (predOnly?.type === 'prediction' && predOnly.prediction) {
                             statsString = formatPredictionString(predOnly.prediction);
@@ -871,65 +918,72 @@
                             const ff = await getFfScouterEstimate(id);
                             if (ff && ff.total != null) {
                                 statsString = formatFfScouterString(ff, settings.battleStatsFormat);
-                            } else {
-                                statsString = "(Stats: N/A)";
                             }
                         }
                     }
+                } catch (statErr) {
+                    if (debug) console.error('GNSC faction copy: stat error for', id, statErr);
+                    statsString = "(Stats: Error)";
+                }
 
-                    const extras = [];
-
-                    // Level removed from faction copy output (v3.6.4)
+                try {
+                    // Try to fetch personal stats (Xanax/Boosters)
+                    const level = getMemberLevel(id, row);
+                    if (level != null) extras.push(`Lvl ${level}`);
 
                     const pStats = await getPersonalStats(id);
-                    if (pStats.xantaken != null) extras.push(`Xan: ${pStats.xantaken.toLocaleString()}`);
-                    if (pStats.boostersused != null) extras.push(`Boosters: ${pStats.boostersused.toLocaleString()}`);
-
-                    const extraStr = extras.length > 0 ? ` - ${extras.join(' - ')}` : '';
-
-                    lines.push(`${profileLabel} - ${statsString}${extraStr}`);
-                } catch (rowErr) {
-                    if (debug) console.error('GNSC faction copy: error on member row', row, rowErr);
+                    if (pStats && pStats.xantaken != null) extras.push(`Xan: ${pStats.xantaken.toLocaleString()}`);
+                    if (pStats && pStats.boostersused != null) extras.push(`Boosters: ${pStats.boostersused.toLocaleString()}`);
+                } catch (apiErr) {
+                    if (debug) console.error('GNSC faction copy: API/Personal stats error for', id, apiErr);
                 }
+
+                const extraStr = extras.length > 0 ? ` - ${extras.join(' - ')}` : '';
+                lines.push(`${profileLabel} - ${statsString}${extraStr}`);
+
                 processed++;
-                button.textContent = `${processed}/${totalMembers}`;
-                showCopyToast(`Copying: ${processed}/${totalMembers}`);
-                // Yield to UI so the counter visually updates
+                if (button.isConnected) button.textContent = `${processed}/${totalMembers}`;
+                progressBar.style.width = `${(processed / totalMembers) * 100}%`;
+                progressLabel.textContent = `Copying: ${processed}/${totalMembers}`;
+                
+                // Yield to UI so the counter and progress bar visually update
                 await new Promise(r => setTimeout(r, 0));
             }
+            
+            // Hide progress bar on completion after a delay so it stays visible at 100%
+            setTimeout(() => {
+                if (progressBarContainer) progressBarContainer.style.display = 'none';
+            }, 2500);
 
             if (!lines.length) {
                 if (debug) console.error('GNSC faction copy: no member rows parsed for side selector', sideSelector, 'targetFactionId', targetFactionId);
                 button.textContent = '❓';
-                button.title = 'No members parsed.';
-                showCopyToast('❓ No members found');
-                hideCopyToast(2500);
                 setTimeout(() => {
                     button.textContent = '📋';
-                    button.title = 'Copy Faction Member List (BSP/FF cache)';
                 }, 2500);
                 return;
             }
 
             copyToClipboard(lines.join('\n'));
 
-            button.textContent = `✅ ${totalMembers}`;
-            button.title = 'Copied faction list with BSP/FF stats.';
-            showCopyToast(`✅ Copied ${totalMembers} members`);
-            hideCopyToast(3000);
-            setTimeout(() => {
-                button.textContent = '📋';
-                button.title = 'Copy Faction Member List (BSP/FF cache)';
-            }, 5000);
+            progressLabel.textContent = `✅ Copied ${totalMembers} members!`;
+            if (button.isConnected) {
+                button.textContent = `✅ ${totalMembers}`;
+                setTimeout(() => {
+                    if (button.isConnected) {
+                        button.textContent = '📋';
+                    }
+                }, 5000);
+            }
         } catch (err) {
             if (debug) console.error('[Faction Copy BSP/FF] Error:', err);
-            button.textContent = '❌';
-            button.title = 'Error building faction list.';
-            showCopyToast('❌ Error copying faction list');
-            hideCopyToast(2500);
+            if (button && button.isConnected) button.textContent = '❌';
+            const fixedPb = document.getElementById('gnsc-fixed-progress-container');
+            if (fixedPb) fixedPb.style.display = 'none';
             setTimeout(() => {
-                button.textContent = '📋';
-                button.title = 'Copy Faction Member List (BSP/FF cache)';
+                if (button && button.isConnected) {
+                    button.textContent = '📋';
+                }
             }, 2500);
         }
     }
