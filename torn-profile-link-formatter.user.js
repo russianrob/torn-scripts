@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Profile Link Formatter
 // @namespace    GNSC4 [268863]
-// @version      3.6.16
+// @version      3.6.17
 // @description  Copy formatted Torn profile/faction links. Uses BSP prediction TBS when available, falls back to FF Scouter V2 estimated stats. Strips BSP TBS prefixes from copied names, dedupes lines by ID, and uses war JSON faction IDs so your faction (Dead Fragment 42055) is always separated from the enemy in ranked wars. Faction copy includes member level and Xanax taken (via API or Xanax Viewer cache).
 // @author       GNSC4
 // @match        https://www.torn.com/profiles.php?XID=*
@@ -19,6 +19,8 @@
 // =============================================================================
 // CHANGELOG
 // =============================================================================
+// v3.6.17 - Fix missing Xan/Boosters for bottom members: 150ms delay between API calls
+//           and retry up to 3x with backoff on Torn rate limit (error code 5)
 // v3.6.16 - Fix enemy faction clipboard not showing: use forEach index for left/right detection,
 //           append button to nameDiv directly to avoid overflow:hidden clipping on truncated names
 // v3.6.15 - Modernize Settings UI: updated to dark "glassmorphism" style to match OC Manager
@@ -396,11 +398,17 @@
         // Return cached result if we already fetched this user
         if (apiStatsCache[userId] !== undefined) return Promise.resolve(apiStatsCache[userId]);
 
-        return new Promise((resolve) => {
+        const fetchAttempt = (attempt) => new Promise((resolve) => {
             const url = `https://api.torn.com/user/${userId}?selections=personalstats&key=${apiKey}&stat=xantaken,boostersused&comment=GNSC_LinkFormatter`;
             try {
                 const handleResponse = (data) => {
                     if (data.error) {
+                        // Error code 5 = rate limited — retry with backoff (1s, 2s, 3s)
+                        if (data.error.code === 5 && attempt < 3) {
+                            if (debug) console.warn('GNSC rate limited for', userId, '— retrying in', attempt * 1000, 'ms');
+                            setTimeout(() => fetchAttempt(attempt + 1).then(resolve), attempt * 1000);
+                            return;
+                        }
                         if (debug) console.error('GNSC API error for', userId, data.error);
                         apiStatsCache[userId] = null;
                         resolve(null);
@@ -452,6 +460,7 @@
                 resolve(null);
             }
         });
+        return fetchAttempt(1);
     }
 
     async function getPersonalStats(userId) {
