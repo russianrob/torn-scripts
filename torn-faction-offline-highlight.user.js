@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Faction Offline Highlighter
 // @namespace    torn.faction.offline.highlight
-// @version      1.9.2
+// @version      1.9.3
 // @description  Highlights faction members red who have been offline for over 24 hours on the faction member list. Shows OC inactivity badges in chat globally. Configurable threshold. PDA compatible.
 // @author       RussianRob
 // @match        https://www.torn.com/*
@@ -17,6 +17,7 @@
 // =============================================================================
 // CHANGELOG
 // =============================================================================
+// v1.9.3  - Fix: OC badge showing twice in chat (avatar + name links)
 // v1.9.2  - Update URLs to tornwar.com hosting
 // v1.9.1  - Fix: highlighting bleeding onto armory/controls pages
 // v1.9.0  - Fix: new members (<72h) incorrectly getting [OC: Never] badges
@@ -423,6 +424,13 @@
 
             // Only annotate members who aren't participating in any OC
             if (!notParticipatingIDs.has(id)) return;
+
+            // Skip avatar/image links — only annotate the plain text name link
+            if (link.querySelector('img')) return;
+
+            // Skip already-processed links (guard against multiple links with same XID)
+            if (link.dataset.fohChatDone) return;
+            link.dataset.fohChatDone = '1';
 
             // Make sure this isn't in the OC panel (only relevant on faction page)
             if (ocPanelEl && ocPanelEl.contains(link)) return;
