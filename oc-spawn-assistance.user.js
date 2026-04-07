@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.0.4
+// @version      1.0.5
 // @description  Analyzes faction member availability and OC slot supply; recommends which crime levels to spawn
 // @author       You
 // @match        https://www.torn.com/factions.php*
@@ -49,7 +49,7 @@
         #oc-spawn-toggle {
             position: fixed;
             bottom: 80px;
-            right: 4px;
+            right: 16px;
             z-index: 9999;
             background: #2d6a4f;
             color: #fff;
@@ -66,9 +66,9 @@
         #oc-spawn-panel {
             position: fixed;
             bottom: 115px;
-            right: 4px;
+            right: 16px;
             z-index: 9998;
-            width: min(560px, calc(100vw - 8px));
+            width: min(560px, calc(100vw - 32px));
             max-height: 72vh;
             overflow-y: auto;
             background: #1a1a2e;
@@ -161,7 +161,10 @@
     panel.innerHTML = `
         <h2>
             OC Spawn Assistance
-            <button id="oc-spawn-refresh">↻ Refresh</button>
+            <span style="display:flex;gap:6px;align-items:center;">
+                <button id="oc-spawn-refresh">↻ Refresh</button>
+                <button id="oc-spawn-close" style="background:#555;color:#fff;border:none;border-radius:4px;padding:4px 9px;font-size:13px;cursor:pointer;line-height:1;">✕</button>
+            </span>
         </h2>
         <div id="oc-spawn-status">Click Refresh to load data.</div>
         <div id="oc-spawn-key-row" style="display:none;margin-bottom:8px;">
@@ -182,6 +185,10 @@
         panel.style.display = panelVisible ? 'block' : 'none';
     });
     document.getElementById('oc-spawn-refresh').addEventListener('click', runAnalysis);
+    document.getElementById('oc-spawn-close').addEventListener('click', () => {
+        panelVisible = false;
+        panel.style.display = 'none';
+    });
 
     // Show key input row if no key is configured yet
     function checkKeyRow() {
