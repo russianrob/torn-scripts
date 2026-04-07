@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.0.1
+// @version      1.0.2
 // @description  Analyzes faction member availability and OC slot supply; recommends which crime levels to spawn
 // @author       You
 // @match        https://www.torn.com/factions.php*
@@ -17,13 +17,30 @@
     //  CONFIG  —  edit these values to tune behavior
     // ═══════════════════════════════════════════════════════════════════════
     const CONFIG = {
-        API_KEY:           'YOUR_API_KEY_HERE',   // Torn API key (Limited access minimum)
+        API_KEY:           'YOUR_API_KEY_HERE',   // Fallback: hardcode key here; UI input takes priority
         ACTIVE_DAYS:       7,    // Only plan for members last active within this many days
         FORECAST_HOURS:    24,   // Include members whose current OC finishes within this window
         MINCPR:            60,   // Minimum CPR% for a member to be eligible for slot matching
         CPR_BOOST:         15,   // If CPR >= MINCPR + CPR_BOOST → JOINABLE = highest_level + 1
         CPR_LOOKBACK_DAYS: 90,   // How many days of completed crimes to pull for CPR calculation
     };
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  API KEY RESOLUTION
+    //  Priority: GM_getValue (saved in panel) → TornPDA injection → CONFIG
+    // ═══════════════════════════════════════════════════════════════════════
+    function getApiKey() {
+        const saved = GM_getValue('oc_spawn_api_key', '');
+        if (saved) return saved;
+        // TornPDA injects the app's API key as window.localAPIkey
+        if (typeof window.localAPIkey === 'string' && window.localAPIkey.length > 0)
+            return window.localAPIkey;
+        return CONFIG.API_KEY;
+    }
+
+    function saveApiKey(key) {
+        GM_setValue('oc_spawn_api_key', key.trim());
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     //  STYLES
@@ -143,10 +160,18 @@
     panel.id = 'oc-spawn-panel';
     panel.innerHTML = `
         <h2>
-            OC Spawning Assistant
+            OC Spawn Assistance
             <button id="oc-spawn-refresh">↻ Refresh</button>
         </h2>
         <div id="oc-spawn-status">Click Refresh to load data.</div>
+        <div id="oc-spawn-key-row" style="display:none;margin-bottom:8px;">
+            <input id="oc-spawn-key-input" type="password" placeholder="Paste Torn API key…"
+                style="width:calc(100% - 74px);padding:4px 6px;background:#0d1b2a;color:#e0e0e0;
+                       border:1px solid #2d6a4f;border-radius:4px;font-size:11px;font-family:monospace;"/>
+            <button id="oc-spawn-key-save"
+                style="margin-left:4px;padding:4px 8px;background:#2d6a4f;color:#fff;
+                       border:none;border-radius:4px;font-size:11px;cursor:pointer;">Save</button>
+        </div>
         <div id="oc-spawn-body"></div>
     `;
     document.body.appendChild(panel);
@@ -157,6 +182,22 @@
         panel.style.display = panelVisible ? 'block' : 'none';
     });
     document.getElementById('oc-spawn-refresh').addEventListener('click', runAnalysis);
+
+    // Show key input row if no key is configured yet
+    function checkKeyRow() {
+        const key = getApiKey();
+        const noKey = !key || key === 'YOUR_API_KEY_HERE';
+        document.getElementById('oc-spawn-key-row').style.display = noKey ? 'flex' : 'none';
+    }
+    checkKeyRow();
+
+    document.getElementById('oc-spawn-key-save').addEventListener('click', () => {
+        const val = document.getElementById('oc-spawn-key-input').value.trim();
+        if (val.length < 10) return;
+        saveApiKey(val);
+        document.getElementById('oc-spawn-key-row').style.display = 'none';
+        setStatus('API key saved. Click Refresh.');
+    });
 
     // ═══════════════════════════════════════════════════════════════════════
     //  UTILITY HELPERS
@@ -190,25 +231,24 @@
     // ═══════════════════════════════════════════════════════════════════════
     //  API CALLS
     // ═══════════════════════════════════════════════════════════════════════
-    async function fetchMembers() {
+    async function fetchMembers(key) {
         const data = await apiFetch(
-            `https://api.torn.com/v2/faction/members?key=${CONFIG.API_KEY}`
+            `https://api.torn.com/v2/faction/members?key=${key}`
         );
-        // v2 returns { members: { "id": {...}, ... } }  or  { members: [...] }
         return normMembers(data.members);
     }
 
-    async function fetchAvailableCrimes() {
+    async function fetchAvailableCrimes(key) {
         const data = await apiFetch(
-            `https://api.torn.com/v2/faction/crimes?cat=available&key=${CONFIG.API_KEY}`
+            `https://api.torn.com/v2/faction/crimes?cat=available&key=${key}`
         );
         return normCrimes(data.crimes || []);
     }
 
-    async function fetchCompletedCrimes() {
+    async function fetchCompletedCrimes(key) {
         const fromTs = now() - CONFIG.CPR_LOOKBACK_DAYS * 86400;
         const data = await apiFetch(
-            `https://api.torn.com/v2/faction/crimes?cat=completed&sort=DESC&from=${fromTs}&key=${CONFIG.API_KEY}`
+            `https://api.torn.com/v2/faction/crimes?cat=completed&sort=DESC&from=${fromTs}&key=${key}`
         );
         return normCrimes(data.crimes || []);
     }
@@ -554,9 +594,11 @@
     //  MAIN ANALYSIS RUNNER
     // ═══════════════════════════════════════════════════════════════════════
     async function runAnalysis() {
-        if (CONFIG.API_KEY === 'YOUR_API_KEY_HERE') {
+        const apiKey = getApiKey();
+        if (!apiKey || apiKey === 'YOUR_API_KEY_HERE') {
+            document.getElementById('oc-spawn-key-row').style.display = 'flex';
             document.getElementById('oc-spawn-body').innerHTML =
-                `<p class="oc-error">⚠ Please set your API_KEY in the CONFIG block at the top of the script.</p>`;
+                `<p class="oc-error">⚠ Enter your Torn API key above and click Save.</p>`;
             setStatus('API key not configured.');
             return;
         }
@@ -570,13 +612,13 @@
             // ── Parallel: members + available crimes ─────────────────────
             setStatus('Step 1: Fetching members and available crimes…');
             const [members, availableCrimes] = await Promise.all([
-                fetchMembers(),
-                fetchAvailableCrimes(),
+                fetchMembers(apiKey),
+                fetchAvailableCrimes(apiKey),
             ]);
 
             // ── Completed crimes for CPR ──────────────────────────────────
             setStatus('Step 2: Fetching completed crimes for CPR calculation…');
-            const completedCrimes = await fetchCompletedCrimes();
+            const completedCrimes = await fetchCompletedCrimes(apiKey);
 
             // ── Analysis ─────────────────────────────────────────────────
             setStatus('Analysing…');
