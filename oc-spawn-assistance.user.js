@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.0.6
+// @version      1.0.7
 // @description  Analyzes faction member availability and OC slot supply; recommends which crime levels to spawn
 // @author       You
 // @match        https://www.torn.com/factions.php*
@@ -264,14 +264,26 @@
     // ═══════════════════════════════════════════════════════════════════════
     //  STEP 2 — BUILD CPR CACHE FROM COMPLETED CRIMES
     //
-    //  Per player:  { cpr: <0-100 float>, highestLevel: <1-10 int> }
-    //  CPR = average of slot.checkpoint_pass_rate * 100  (or success_chance
-    //        if checkpoint_pass_rate absent — see note below)
+    //  Two-pass approach:
+    //    Pass 1 — find each player's highest completed difficulty level
+    //    Pass 2 — average CPR only from crimes at (highestLevel - 1) or above
+    //             so easy low-level runs don't inflate the score
     // ═══════════════════════════════════════════════════════════════════════
     function buildCprCache(completedCrimes) {
-        // Map: playerId → { rateSum, count, highestLevel }
-        const cache = {};
+        // Pass 1: find highest level per player
+        const highestLevel = {};
+        for (const crime of completedCrimes) {
+            const diff = crime.difficulty || 0;
+            if (!Array.isArray(crime.slots)) continue;
+            for (const slot of crime.slots) {
+                const uid = slot.user_id ?? slot.user?.id;
+                if (!uid) continue;
+                if ((highestLevel[uid] || 0) < diff) highestLevel[uid] = diff;
+            }
+        }
 
+        // Pass 2: CPR only from crimes at >= (highestLevel - 1)
+        const cache = {};
         for (const crime of completedCrimes) {
             const diff = crime.difficulty || 0;
             if (!Array.isArray(crime.slots)) continue;
@@ -280,26 +292,28 @@
                 const uid = slot.user_id ?? slot.user?.id;
                 if (!uid) continue;
 
-                // checkpoint_pass_rate is the primary CPR source;
-                // fall back to success_chance if not present (older/different responses)
+                const topLevel = highestLevel[uid] || 0;
+                // Skip crimes more than 1 level below the player's highest
+                if (diff < topLevel - 1) continue;
+
                 const rawRate = slot.checkpoint_pass_rate ?? slot.success_chance ?? null;
                 if (rawRate === null) continue;
 
-                if (!cache[uid]) cache[uid] = { rateSum: 0, count: 0, highestLevel: 0 };
-                cache[uid].rateSum    += rawRate;   // already 0-100
-                cache[uid].count      += 1;
-                if (diff > cache[uid].highestLevel) cache[uid].highestLevel = diff;
+                if (!cache[uid]) cache[uid] = { rateSum: 0, count: 0 };
+                cache[uid].rateSum += rawRate;   // already 0-100
+                cache[uid].count   += 1;
             }
         }
 
         // Collapse to { cpr, highestLevel, joinable }
         const result = {};
         for (const [uid, d] of Object.entries(cache)) {
-            const cpr        = d.count > 0 ? d.rateSum / d.count : 0;
-            const joinable   = cpr >= CONFIG.MINCPR + CONFIG.CPR_BOOST
-                                ? Math.min(d.highestLevel + 1, 10)
-                                : d.highestLevel;
-            result[uid] = { cpr: Math.round(cpr * 10) / 10, highestLevel: d.highestLevel, joinable };
+            const cpr      = d.count > 0 ? d.rateSum / d.count : 0;
+            const topLevel = highestLevel[uid] || 0;
+            const joinable = cpr >= CONFIG.MINCPR + CONFIG.CPR_BOOST
+                                ? Math.min(topLevel + 1, 10)
+                                : topLevel;
+            result[uid] = { cpr: Math.round(cpr * 10) / 10, highestLevel: topLevel, joinable };
         }
         return result;
     }
