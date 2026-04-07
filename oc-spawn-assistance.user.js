@@ -51,7 +51,7 @@
             bottom: 115px;
             right: 16px;
             z-index: 9998;
-            width: 560px;
+            width: min(560px, calc(100vw - 32px));
             max-height: 72vh;
             overflow-y: auto;
             background: #1a1a2e;
