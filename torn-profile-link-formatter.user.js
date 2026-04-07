@@ -946,8 +946,9 @@
                 progressBar.style.width = `${(processed / totalMembers) * 100}%`;
                 progressLabel.textContent = `Copying: ${processed}/${totalMembers}`;
                 
-                // Yield to UI so the counter and progress bar visually update
-                await new Promise(r => setTimeout(r, 0));
+                // 150ms delay between members to avoid Torn API rate limit (100 req/min)
+                // Also yields to UI so the counter and progress bar visually update
+                await new Promise(r => setTimeout(r, 150));
             }
             
             // Hide progress bar on completion after a delay so it stays visible at 100%
