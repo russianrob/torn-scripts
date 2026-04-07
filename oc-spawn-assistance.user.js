@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.0.2
+// @version      1.0.3
 // @description  Analyzes faction member availability and OC slot supply; recommends which crime levels to spawn
 // @author       You
 // @match        https://www.torn.com/factions.php*
@@ -278,7 +278,7 @@
                 if (rawRate === null) continue;
 
                 if (!cache[uid]) cache[uid] = { rateSum: 0, count: 0, highestLevel: 0 };
-                cache[uid].rateSum    += rawRate * 100;   // convert 0-1 → 0-100
+                cache[uid].rateSum    += rawRate;   // already 0-100
                 cache[uid].count      += 1;
                 if (diff > cache[uid].highestLevel) cache[uid].highestLevel = diff;
             }
