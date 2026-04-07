@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.0.8
+// @version      1.0.9
 // @description  Analyzes faction member availability and OC slot supply; recommends which crime levels to spawn
 // @author       You
 // @match        https://www.torn.com/factions.php*
@@ -428,30 +428,28 @@
     // ═══════════════════════════════════════════════════════════════════════
     //  STEP 3 — SPAWN RECOMMENDATION
     //
-    //  For each level 1-10:
-    //    eligible members with joinable = level vs open slots at that level
-    //    DEFICIT → recommend spawning; SURPLUS → no action needed
+    //  Deficit = (free now + freeing soon) - open slots
+    //  Positive deficit → SPAWN; zero → Covered; negative → Surplus
     // ═══════════════════════════════════════════════════════════════════════
     function buildRecommendations(eligible, slotMap) {
-        // Members who are CURRENTLY free (not in any OC) contribute immediately
-        // Members in OC-ending-soon contribute to the forecast pool
         const recs = [];
 
         for (let lvl = 1; lvl <= 10; lvl++) {
             const membersForLevel = eligible.filter(m => m.joinable === lvl);
             const freeNow         = membersForLevel.filter(m => !m.inOC);
             const soonFree        = membersForLevel.filter(m => m.inOC);
+            const totalNeeded     = freeNow.length + soonFree.length;
 
-            const info     = slotMap[lvl] || { totalSlots: 0, openSlots: 0, crimes: [] };
-            const openNow  = info.openSlots;
-            const deficit  = freeNow.length - openNow;  // positive = need more slots, negative = surplus slots
+            const info    = slotMap[lvl] || { totalSlots: 0, openSlots: 0, crimes: [] };
+            const openNow = info.openSlots;
+            const deficit = totalNeeded - openNow;  // uses free + soon vs open slots
 
             let action;
-            if (freeNow.length === 0 && soonFree.length === 0) {
+            if (totalNeeded === 0) {
                 action = 'none';
             } else if (deficit > 0) {
-                action = `spawn`;   // more eligible members than open slots
-            } else if (deficit === 0 && freeNow.length > 0) {
+                action = 'spawn';   // not enough open slots for all eligible members
+            } else if (deficit === 0) {
                 action = 'ok';      // exact match
             } else {
                 action = 'surplus'; // more slots than members
