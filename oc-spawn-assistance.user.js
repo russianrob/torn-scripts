@@ -1,13 +1,15 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.3.1
+// @version      1.3.2
 // @description  Analyzes faction member availability and OC slot supply; recommends which crime levels to spawn
 // @author       You
 // @match        https://www.torn.com/factions.php*
 // @grant        GM_addStyle
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_xmlhttpRequest
+// @connect      tornwar.com
 // ==/UserScript==
 
 (function () {
@@ -51,7 +53,31 @@
     //  Server verifies faction, caches CPR 6h, returns spawn data.
     // ═══════════════════════════════════════════════════════════════════════
     async function fetchServerOcData(apiKey) {
-        const res = await fetch(`${SERVER}/api/oc/spawn-key?key=${encodeURIComponent(apiKey)}`);
+        const url = `${SERVER}/api/oc/spawn-key?key=${encodeURIComponent(apiKey)}`;
+
+        // Use GM_xmlhttpRequest when available (TornPDA WebView blocks cross-origin fetch)
+        if (typeof GM_xmlhttpRequest === 'function') {
+            return new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url,
+                    onload(r) {
+                        let data = {};
+                        try { data = JSON.parse(r.responseText); } catch (_) {}
+                        if (r.status === 403) {
+                            const e = new Error(data.error || 'Access restricted to faction members only.');
+                            e.status = 403; return reject(e);
+                        }
+                        if (r.status >= 400) return reject(new Error(data.error || `Server error (${r.status})`));
+                        resolve(data);
+                    },
+                    onerror(e) { reject(new Error('Network error — could not reach tornwar.com')); },
+                });
+            });
+        }
+
+        // Standard fetch fallback (Safari / desktop)
+        const res = await fetch(url);
         const data = await res.json().catch(() => ({}));
         if (res.status === 403) {
             const err = new Error(data.error || 'Access restricted to faction members only.');
