@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.0.9
+// @version      1.1.0
 // @description  Analyzes faction member availability and OC slot supply; recommends which crime levels to spawn
 // @author       You
 // @match        https://www.torn.com/factions.php*
@@ -32,7 +32,6 @@
     function getApiKey() {
         const saved = GM_getValue('oc_spawn_api_key', '');
         if (saved) return saved;
-        // TornPDA injects the app's API key as window.localAPIkey
         if (typeof window.localAPIkey === 'string' && window.localAPIkey.length > 0)
             return window.localAPIkey;
         return CONFIG.API_KEY;
@@ -71,30 +70,79 @@
             width: min(560px, calc(100vw - 48px));
             max-height: 72vh;
             overflow-y: auto;
-            background: #1a1a2e;
-            color: #e0e0e0;
-            border: 1px solid #2d6a4f;
-            border-radius: 8px;
+            background: #0f1a14;
+            color: #d1d5db;
+            border: 1px solid #2a3f30;
+            border-radius: 10px;
             padding: 14px 16px;
             font-size: 12px;
-            font-family: monospace;
-            box-shadow: 0 4px 20px rgba(0,0,0,.6);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            box-shadow: 0 4px 24px rgba(0,0,0,.7);
             display: none;
         }
         #oc-spawn-panel h2 {
             margin: 0 0 10px;
-            font-size: 14px;
+            font-size: 15px;
+            font-weight: 700;
             color: #74c69d;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            letter-spacing: -0.2px;
         }
         #oc-spawn-panel h3 {
-            margin: 10px 0 5px;
-            font-size: 12px;
-            color: #95d5b2;
-            border-bottom: 1px solid #2d4a3e;
-            padding-bottom: 3px;
+            margin: 14px 0 6px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.7px;
+            border-bottom: 1px solid #1a2e20;
+            padding-bottom: 4px;
+        }
+        .oc-stats-strip {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-bottom: 10px;
+        }
+        .oc-stat-chip {
+            background: #131f18;
+            border: 1px solid #253525;
+            border-radius: 20px;
+            padding: 3px 10px;
+            font-size: 11px;
+            color: #9ca3af;
+        }
+        .oc-stat-chip b { color: #74c69d; font-weight: 600; }
+        .oc-spawn-banner {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 5px;
+            background: #1c1a0f;
+            border: 1px solid #3d3010;
+            border-left: 3px solid #f4a261;
+            border-radius: 6px;
+            padding: 8px 12px;
+            margin-bottom: 12px;
+            font-size: 11px;
+            color: #9ca3af;
+        }
+        .oc-spawn-banner.oc-banner-ok {
+            background: #0f1c14;
+            border-color: #1b4332;
+            border-left-color: #74c69d;
+            color: #74c69d;
+        }
+        .oc-lvl-chip {
+            background: rgba(244,162,97,.15);
+            color: #f4a261;
+            border: 1px solid rgba(244,162,97,.3);
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-size: 11px;
+            font-weight: 600;
         }
         .oc-table {
             width: 100%;
@@ -103,50 +151,88 @@
             font-size: 11px;
         }
         .oc-table th {
-            background: #1b4332;
-            color: #b7e4c7;
-            padding: 4px 6px;
+            background: #0f1a14;
+            color: #6b7280;
+            padding: 5px 8px;
             text-align: left;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #1a2e20;
         }
         .oc-table td {
-            padding: 3px 8px;
-            border-bottom: 1px solid #2d4a3e;
-            vertical-align: top;
+            padding: 4px 8px;
+            border-bottom: 1px solid #131f18;
+            vertical-align: middle;
             white-space: nowrap;
         }
-        .oc-table tr:hover td { background: #162032; }
-        .oc-tag-spawn   { color: #f4a261; font-weight: bold; }
-        .oc-tag-ok      { color: #74c69d; }
-        .oc-tag-surplus { color: #90e0ef; }
-        .oc-tag-none    { color: #888; }
+        .oc-table tr:hover td { background: #131f18; }
+        .oc-row-spawn > td:first-child { border-left: 2px solid #f4a261; padding-left: 6px; }
+        .oc-row-ok    > td:first-child { border-left: 2px solid #74c69d; padding-left: 6px; }
+        .oc-row-surplus > td:first-child { border-left: 2px solid #60a5fa; padding-left: 6px; }
+        .oc-tag-spawn {
+            display: inline-block;
+            background: rgba(244,162,97,.15);
+            color: #f4a261;
+            border: 1px solid rgba(244,162,97,.3);
+            border-radius: 4px;
+            padding: 2px 7px;
+            font-size: 10px;
+            font-weight: 700;
+        }
+        .oc-tag-ok {
+            display: inline-block;
+            background: rgba(116,198,157,.12);
+            color: #74c69d;
+            border: 1px solid rgba(116,198,157,.25);
+            border-radius: 4px;
+            padding: 2px 7px;
+            font-size: 10px;
+        }
+        .oc-tag-surplus {
+            display: inline-block;
+            background: rgba(96,165,250,.1);
+            color: #90e0ef;
+            border: 1px solid rgba(96,165,250,.2);
+            border-radius: 4px;
+            padding: 2px 7px;
+            font-size: 10px;
+        }
+        .oc-tag-none { color: #6b7280; }
         .oc-badge {
             display: inline-block;
-            padding: 1px 5px;
-            border-radius: 3px;
+            padding: 2px 7px;
+            border-radius: 4px;
             font-size: 10px;
-            margin-left: 3px;
         }
-        .oc-badge-in  { background: #264653; color: #90e0ef; }
-        .oc-badge-soon{ background: #3d3030; color: #f4a261; }
-        .oc-badge-free { background: #1b4332; color: #74c69d; }
+        .oc-badge-in   { background: rgba(59,130,246,.1);   color: #60a5fa; border: 1px solid rgba(59,130,246,.2); }
+        .oc-badge-soon { background: rgba(244,162,97,.12);  color: #f4a261; border: 1px solid rgba(244,162,97,.25); }
+        .oc-badge-free { background: rgba(116,198,157,.12); color: #74c69d; border: 1px solid rgba(116,198,157,.25); }
+        .oc-cpr-high { color: #74c69d; }
+        .oc-cpr-mid  { color: #f4a261; }
+        .oc-cpr-low  { color: #9ca3af; }
+        .oc-member-id { color: #374151; font-size: 10px; }
         #oc-spawn-status {
-            color: #aaa;
+            color: #6b7280;
             font-style: italic;
-            margin: 4px 0 8px;
-            font-size: 11px;
+            margin: 4px 0 10px;
+            font-size: 10px;
         }
         #oc-spawn-refresh {
-            background: #2d6a4f;
-            color: #fff;
-            border: none;
-            border-radius: 4px;
+            background: #152018;
+            color: #74c69d;
+            border: 1px solid #2d4a3e;
+            border-radius: 6px;
             padding: 4px 10px;
             cursor: pointer;
             font-size: 11px;
+            font-family: inherit;
+            font-weight: 600;
         }
-        #oc-spawn-refresh:hover { background: #1b4332; }
-        #oc-spawn-refresh:disabled { opacity: .5; cursor: default; }
-        .oc-error { color: #e76f51; font-weight: bold; }
+        #oc-spawn-refresh:hover { background: #2d6a4f; color: #fff; }
+        #oc-spawn-refresh:disabled { opacity: .4; cursor: default; }
+        .oc-error { color: #f87171; font-weight: 600; }
     `);
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -164,7 +250,7 @@
             OC Spawn Assistance
             <span style="display:flex;gap:6px;align-items:center;">
                 <button id="oc-spawn-refresh">↻ Refresh</button>
-                <button id="oc-spawn-close" style="background:#555;color:#fff;border:none;border-radius:4px;padding:4px 9px;font-size:13px;cursor:pointer;line-height:1;">✕</button>
+                <button id="oc-spawn-close" style="background:#1a2a1f;color:#9ca3af;border:1px solid #2d4a3e;border-radius:6px;padding:4px 9px;font-size:12px;cursor:pointer;line-height:1;font-family:inherit;">✕</button>
             </span>
         </h2>
         <div id="oc-spawn-status">Click Refresh to load data.</div>
@@ -174,7 +260,7 @@
                        border:1px solid #2d6a4f;border-radius:4px;font-size:11px;font-family:monospace;"/>
             <button id="oc-spawn-key-save"
                 style="margin-left:4px;padding:4px 8px;background:#2d6a4f;color:#fff;
-                       border:none;border-radius:4px;font-size:11px;cursor:pointer;">Save</button>
+                       border:none;border-radius:4px;font-size:11px;cursor:pointer;font-family:inherit;">Save</button>
         </div>
         <div id="oc-spawn-body"></div>
     `;
@@ -191,7 +277,6 @@
         panel.style.display = 'none';
     });
 
-    // Show key input row if no key is configured yet
     function checkKeyRow() {
         const key = getApiKey();
         const noKey = !key || key === 'YOUR_API_KEY_HERE';
@@ -224,13 +309,11 @@
         return data;
     }
 
-    // Normalise members — v2 may return object keyed by id or an array
     function normMembers(raw) {
         if (Array.isArray(raw)) return raw;
         return Object.values(raw);
     }
 
-    // Normalise crimes — same issue
     function normCrimes(raw) {
         if (Array.isArray(raw)) return raw;
         return Object.values(raw);
@@ -270,7 +353,6 @@
     //             so easy low-level runs don't inflate the score
     // ═══════════════════════════════════════════════════════════════════════
     function buildCprCache(completedCrimes) {
-        // Pass 1: find highest level per player
         const highestLevel = {};
         for (const crime of completedCrimes) {
             const diff = crime.difficulty || 0;
@@ -282,7 +364,6 @@
             }
         }
 
-        // Pass 2: CPR only from crimes at >= (highestLevel - 1)
         const cache = {};
         for (const crime of completedCrimes) {
             const diff = crime.difficulty || 0;
@@ -293,19 +374,17 @@
                 if (!uid) continue;
 
                 const topLevel = highestLevel[uid] || 0;
-                // Skip crimes more than 1 level below the player's highest
                 if (diff < topLevel - 1) continue;
 
                 const rawRate = slot.checkpoint_pass_rate ?? slot.success_chance ?? null;
                 if (rawRate === null) continue;
 
                 if (!cache[uid]) cache[uid] = { rateSum: 0, count: 0 };
-                cache[uid].rateSum += rawRate;   // already 0-100
+                cache[uid].rateSum += rawRate;
                 cache[uid].count   += 1;
             }
         }
 
-        // Collapse to { cpr, highestLevel, joinable }
         const result = {};
         for (const [uid, d] of Object.entries(cache)) {
             const cpr      = d.count > 0 ? d.rateSum / d.count : 0;
@@ -320,16 +399,11 @@
 
     // ═══════════════════════════════════════════════════════════════════════
     //  STEP 1 — PROCESS MEMBERS vs AVAILABLE CRIMES
-    //
-    //  "In OC" = member id appears in any available crime slot (status ≠ Expired)
-    //  "OC ready at" = the crime's ready_at (planning finishes), or planning_at
-    //                  for Recruiting crimes that are about to fill
     // ═══════════════════════════════════════════════════════════════════════
     function processMembers(members, availableCrimes, cprCache) {
         const activeCutoff    = now() - CONFIG.ACTIVE_DAYS * 86400;
         const forecastCutoff  = now() + CONFIG.FORECAST_HOURS * 3600;
 
-        // Build: uid → { crimeDifficulty, status, readyAt }
         const memberOcMap = {};
         for (const crime of availableCrimes) {
             if (crime.status === 'Expired') continue;
@@ -363,7 +437,6 @@
             const ocInfo = memberOcMap[uid];
             const inOC   = !!ocInfo;
 
-            // If in OC but won't be free within FORECAST window → skip
             if (inOC && ocInfo.readyAt > forecastCutoff) {
                 skipped.push({ ...m, skipReason: `In OC (ready ${fmtTs(ocInfo.readyAt)})` });
                 continue;
@@ -372,7 +445,6 @@
             const cpr         = cprCache[uid] ?? null;
             const cprValue    = cpr?.cpr ?? null;
             const highestLvl  = cpr?.highestLevel ?? 0;
-            // Under MINCPR or no history → force Lvl 1
             const joinable    = (cprValue === null || cprValue < CONFIG.MINCPR)
                                     ? 1
                                     : (cpr?.joinable ?? 1);
@@ -400,7 +472,6 @@
     //  STEP 2 — COUNT OPEN SLOTS IN RECRUITING CRIMES
     // ═══════════════════════════════════════════════════════════════════════
     function countOpenSlots(availableCrimes) {
-        // Map: difficulty → { totalSlots, openSlots, crimes: [] }
         const slotMap = {};
 
         for (const crime of availableCrimes) {
@@ -427,9 +498,6 @@
 
     // ═══════════════════════════════════════════════════════════════════════
     //  STEP 3 — SPAWN RECOMMENDATION
-    //
-    //  Deficit = (free now + freeing soon) - open slots
-    //  Positive deficit → SPAWN; zero → Covered; negative → Surplus
     // ═══════════════════════════════════════════════════════════════════════
     function buildRecommendations(eligible, slotMap) {
         const recs = [];
@@ -442,17 +510,17 @@
 
             const info    = slotMap[lvl] || { totalSlots: 0, openSlots: 0, crimes: [] };
             const openNow = info.openSlots;
-            const deficit = totalNeeded - openNow;  // uses free + soon vs open slots
+            const deficit = totalNeeded - openNow;
 
             let action;
             if (totalNeeded === 0) {
                 action = 'none';
             } else if (deficit > 0) {
-                action = 'spawn';   // not enough open slots for all eligible members
+                action = 'spawn';
             } else if (deficit === 0) {
-                action = 'ok';      // exact match
+                action = 'ok';
             } else {
-                action = 'surplus'; // more slots than members
+                action = 'surplus';
             }
 
             recs.push({
@@ -488,19 +556,20 @@
             if (r.action === 'none') return '';
             let actionHtml;
             if (r.action === 'spawn') {
-                actionHtml = `<span class="oc-tag-spawn">SPAWN ${r.deficit} more lvl ${r.level}</span>`;
+                actionHtml = `<span class="oc-tag-spawn">SPAWN +${r.deficit}</span>`;
             } else if (r.action === 'ok') {
                 actionHtml = `<span class="oc-tag-ok">✓ Covered</span>`;
             } else {
-                actionHtml = `<span class="oc-tag-surplus">Surplus (${Math.abs(r.deficit)} extra slots)</span>`;
+                actionHtml = `<span class="oc-tag-surplus">+${Math.abs(r.deficit)} extra</span>`;
             }
+            const rowClass = `oc-row-${r.action}`;
             const soonBadge = r.soonMembers > 0
-                ? `<span class="oc-badge oc-badge-soon">+${r.soonMembers} soon</span>` : '';
+                ? ` <span class="oc-badge oc-badge-soon">+${r.soonMembers}</span>` : '';
             return `
-                <tr>
+                <tr class="${rowClass}">
                     <td><b>Lvl ${r.level}</b></td>
                     <td>${r.freeMembers}${soonBadge}</td>
-                    <td>${r.openSlots} / ${r.totalSlots} <span style="color:#666">(${r.recruitingOCs} OCs)</span></td>
+                    <td>${r.openSlots} / ${r.totalSlots} <span style="color:#374151">(${r.recruitingOCs})</span></td>
                     <td>${actionHtml}</td>
                 </tr>`;
         }).filter(Boolean).join('');
@@ -512,8 +581,8 @@
                 <thead>
                     <tr>
                         <th>Level</th>
-                        <th>Eligible (free + soon)</th>
-                        <th>Open / Total Slots</th>
+                        <th>Free + Soon</th>
+                        <th>Slots</th>
                         <th>Action</th>
                     </tr>
                 </thead>
@@ -526,19 +595,23 @@
         const rows = sorted.map(m => {
             let statusBadge;
             if (m.inOC) {
-                statusBadge = `<span class="oc-badge oc-badge-soon">In OC → free ${fmtTs(m.ocReadyAt)}</span>`;
+                statusBadge = `<span class="oc-badge oc-badge-in">In OC → free ${fmtTs(m.ocReadyAt)}</span>`;
             } else {
                 statusBadge = `<span class="oc-badge oc-badge-free">Free</span>`;
             }
-            const cprStr = m.cpr !== null ? `${m.cpr}%` : '<span style="color:#888">No data</span>';
-            const lvlStr = m.joinable > 0 ? `Lvl ${m.joinable}` : '<span style="color:#888">—</span>';
+            let cprClass = 'oc-cpr-low';
+            if (m.cpr !== null && m.cpr >= 80) cprClass = 'oc-cpr-high';
+            else if (m.cpr !== null && m.cpr >= CONFIG.MINCPR) cprClass = 'oc-cpr-mid';
+            const cprStr = m.cpr !== null
+                ? `<span class="${cprClass}">${m.cpr}%</span>`
+                : '<span class="oc-cpr-low">—</span>';
             return `
                 <tr>
-                    <td>${m.name} [${m.id}]</td>
+                    <td>${m.name} <span class="oc-member-id">[${m.id}]</span></td>
                     <td>${statusBadge}</td>
                     <td>${cprStr}</td>
-                    <td>${m.highestLevel > 0 ? m.highestLevel : '—'}</td>
-                    <td>${lvlStr}</td>
+                    <td style="color:#6b7280">${m.highestLevel > 0 ? m.highestLevel : '—'}</td>
+                    <td><b style="color:#74c69d">Lvl ${m.joinable}</b></td>
                 </tr>`;
         }).join('');
 
@@ -547,10 +620,10 @@
                 <thead>
                     <tr>
                         <th>Member</th>
-                        <th>OC Status</th>
+                        <th>Status</th>
                         <th>CPR</th>
-                        <th>Highest Lvl</th>
-                        <th>JOINABLE</th>
+                        <th>Highest</th>
+                        <th>Joinable</th>
                     </tr>
                 </thead>
                 <tbody>${rows}</tbody>
@@ -563,42 +636,41 @@
         const freeCount       = eligible.filter(m => !m.inOC).length;
         const soonCount       = eligible.filter(m => m.inOC).length;
         const spawnLevels     = recs.filter(r => r.action === 'spawn').map(r => `Lvl ${r.level}`);
-        const spawnMsg        = spawnLevels.length
-            ? `<span class="oc-tag-spawn">Recommended spawns: ${spawnLevels.join(', ')}</span>`
-            : `<span class="oc-tag-ok">No additional spawns needed right now.</span>`;
+
+        const bannerHtml = spawnLevels.length
+            ? `<div class="oc-spawn-banner">Spawn needed: ${spawnLevels.map(l => `<span class="oc-lvl-chip">${l}</span>`).join('')}</div>`
+            : `<div class="oc-spawn-banner oc-banner-ok">✓ No additional spawns needed.</div>`;
 
         const skippedHtml = skipped.length > 0
             ? `<details style="margin-top:6px;">
-                <summary style="cursor:pointer;color:#888;font-size:11px;">${skipped.length} members skipped (click to expand)</summary>
+                <summary style="cursor:pointer;color:#6b7280;font-size:11px;font-family:inherit;">${skipped.length} members skipped (click to expand)</summary>
                 <table class="oc-table" style="margin-top:4px;">
                     <thead><tr><th>Member</th><th>Reason</th></tr></thead>
                     <tbody>${skipped.map(m =>
-                        `<tr><td>${m.name} [${m.id}]</td><td style="color:#888">${m.skipReason}</td></tr>`
+                        `<tr><td>${m.name} <span class="oc-member-id">[${m.id}]</span></td><td style="color:#6b7280">${m.skipReason}</td></tr>`
                     ).join('')}</tbody>
                 </table>
                </details>`
             : '';
 
         document.getElementById('oc-spawn-body').innerHTML = `
-            <div style="margin-bottom:8px;line-height:1.6;">
-                Analyzed <b>${totalMembers}</b> members &nbsp;·&nbsp;
-                <b>${eligibleCount}</b> eligible &nbsp;·&nbsp;
-                <b>${freeCount}</b> free now &nbsp;·&nbsp;
-                <b>${soonCount}</b> freeing within ${CONFIG.FORECAST_HOURS}h
+            <div class="oc-stats-strip">
+                <span class="oc-stat-chip"><b>${totalMembers}</b> members</span>
+                <span class="oc-stat-chip"><b>${eligibleCount}</b> eligible</span>
+                <span class="oc-stat-chip"><b>${freeCount}</b> free now</span>
+                <span class="oc-stat-chip"><b>${soonCount}</b> soon</span>
             </div>
-            <div style="margin-bottom:10px;padding:6px 10px;background:#1b2e1e;border-radius:4px;">
-                ${spawnMsg}
-            </div>
+            ${bannerHtml}
 
-            <h3>▸ Spawn Recommendations (by Level)</h3>
+            <h3>Spawn Recommendations</h3>
             ${renderRecommendations(recs)}
 
-            <h3>▸ Eligible Member Details</h3>
+            <h3>Eligible Members</h3>
             ${renderEligibleMembers(eligible)}
 
             ${skippedHtml}
 
-            <p style="color:#555;font-size:10px;margin-top:10px;">
+            <p style="color:#374151;font-size:10px;margin-top:10px;">
                 Config: ACTIVE_DAYS=${CONFIG.ACTIVE_DAYS} · FORECAST_HOURS=${CONFIG.FORECAST_HOURS}
                 · MINCPR=${CONFIG.MINCPR}% · CPR_BOOST=${CONFIG.CPR_BOOST}%
                 · Lookback=${CONFIG.CPR_LOOKBACK_DAYS}d
@@ -626,32 +698,28 @@
         document.getElementById('oc-spawn-body').innerHTML = '';
 
         try {
-            // ── Parallel: members + available crimes ─────────────────────
             setStatus('Step 1: Fetching members and available crimes…');
             const [members, availableCrimes] = await Promise.all([
                 fetchMembers(apiKey),
                 fetchAvailableCrimes(apiKey),
             ]);
 
-            // ── Completed crimes for CPR ──────────────────────────────────
             setStatus('Step 2: Fetching completed crimes for CPR calculation…');
             const completedCrimes = await fetchCompletedCrimes(apiKey);
 
-            // ── Analysis ─────────────────────────────────────────────────
             setStatus('Analysing…');
             const cprCache   = buildCprCache(completedCrimes);
             const slotMap    = countOpenSlots(availableCrimes);
             const { eligible, skipped } = processMembers(members, availableCrimes, cprCache);
             const recs       = buildRecommendations(eligible, slotMap);
 
-            // ── Render ───────────────────────────────────────────────────
             renderBody(recs, eligible, skipped, cprCache, slotMap);
             setStatus(`Last updated: ${new Date().toLocaleTimeString()} · ${members.length} members · ${completedCrimes.length} completed crimes analysed`);
 
         } catch (err) {
             document.getElementById('oc-spawn-body').innerHTML =
                 `<p class="oc-error">Error: ${err.message}</p>
-                 <p style="color:#888;font-size:11px;">Check: API key is correct and has Limited (or higher) faction access.</p>`;
+                 <p style="color:#6b7280;font-size:11px;">Check: API key is correct and has Limited (or higher) faction access.</p>`;
             setStatus(`Error: ${err.message}`);
             console.error('[OC Spawn]', err);
         } finally {
@@ -659,7 +727,6 @@
         }
     }
 
-    // Auto-open panel if URL is on the crimes tab
     if (window.location.href.includes('tab=crimes') ||
         window.location.hash.includes('crimes')) {
         panelVisible = true;
