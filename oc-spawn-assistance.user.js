@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.4.0
+// @version      1.4.1
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       You
 // @match        https://www.torn.com/factions.php*
@@ -51,7 +51,73 @@
     let CONFIG = loadConfig();
 
     let cprBreakdownMap = {};
+    let scopePushTimer  = null;
     const SERVER = 'https://tornwar.com';
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  DOM SCOPE READER  — auto-reads scope from the recruiting tab
+    // ═══════════════════════════════════════════════════════════════════════
+    function readScopeFromDom() {
+        // Strategy 1: any element whose class contains 'scope' (case-insensitive)
+        const byClass = document.querySelector('[class*="scope" i]');
+        if (byClass) {
+            const num = parseInt(byClass.textContent.trim());
+            if (!isNaN(num) && num >= 0 && num <= SCOPE_MAX) return num;
+            // maybe the number is a child
+            const numChild = byClass.querySelector('span, b, strong');
+            if (numChild) {
+                const n2 = parseInt(numChild.textContent.trim());
+                if (!isNaN(n2) && n2 >= 0 && n2 <= SCOPE_MAX) return n2;
+            }
+        }
+
+        // Strategy 2: leaf elements whose text matches "Scope: NN" or just "NN/100"
+        const candidates = document.querySelectorAll('span, div, p, li');
+        for (const el of candidates) {
+            if (el.children.length > 2) continue; // skip containers
+            const text = el.textContent.trim();
+            // "Scope: 42" or "Scope 42" or "42/100"
+            const m = text.match(/scope[\s:]*?(\d+)/i) || text.match(/^(\d{1,3})\s*/\s*100$/i);
+            if (m) {
+                const val = parseInt(m[1]);
+                if (val >= 0 && val <= SCOPE_MAX) return val;
+            }
+        }
+        return null;
+    }
+
+    function setupScopeDomReader() {
+        let lastScope = null;
+
+        function check() {
+            const scope = readScopeFromDom();
+            if (scope === null || scope === lastScope) return;
+            lastScope = scope;
+
+            if (scope !== CONFIG.SCOPE) {
+                CONFIG.SCOPE = scope;
+                CONFIG._scopeAutoDetected = true;
+                console.log('[OC Spawn] Auto-detected scope from DOM:', scope);
+                // Update settings panel if open
+                const scopeEl = document.getElementById('cfg-scope');
+                if (scopeEl) scopeEl.value = scope;
+                // Push to server, debounced 5s
+                clearTimeout(scopePushTimer);
+                scopePushTimer = setTimeout(async () => {
+                    const apiKey = getApiKey();
+                    if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') {
+                        await pushFactionSettings(apiKey, CONFIG);
+                        console.log('[OC Spawn] Scope auto-pushed to server:', scope);
+                    }
+                }, 5000);
+            }
+        }
+
+        // Run immediately and watch for DOM changes
+        check();
+        const observer = new MutationObserver(check);
+        observer.observe(document.body, { childList: true, subtree: true });
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     //  API KEY
@@ -587,10 +653,12 @@
             </div>`;
         }
         const { current, regen, expectedGain, projected } = scopeProjection;
-        const pct = Math.round(projected / SCOPE_MAX * 100);
         const barClass = projected < 10 ? 'warn' : 'ok';
+        const autoTag = CONFIG._scopeAutoDetected
+            ? `<span style="font-size:9px;color:#2d6a4f;margin-left:4px;">● live</span>`
+            : `<span style="font-size:9px;color:#374151;margin-left:4px;">manual</span>`;
         return `<div class="oc-scope-strip">
-            <div style="white-space:nowrap;color:#9ca3af;font-size:10px;">Scope</div>
+            <div style="white-space:nowrap;color:#9ca3af;font-size:10px;">Scope${autoTag}</div>
             <div style="font-weight:600;color:#f3f4f6;white-space:nowrap;">${current}</div>
             <div class="oc-scope-bar-wrap"><div class="oc-scope-bar ${barClass}" style="width:${Math.round(current/SCOPE_MAX*100)}%"></div></div>
             <div style="color:#6b7280;font-size:10px;white-space:nowrap;">→ <b style="color:#74c69d">${projected}</b> projected
@@ -780,5 +848,8 @@
     if (window.location.href.includes('tab=crimes') || window.location.hash.includes('crimes')) {
         panelVisible = true; panel.style.display = 'block';
     }
+
+    // Start DOM scope reader (runs whenever recruiting tab is visible)
+    setupScopeDomReader();
 
 })();
