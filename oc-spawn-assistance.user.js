@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.1.2
+// @version      1.1.3
 // @description  Analyzes faction member availability and OC slot supply; recommends which crime levels to spawn
 // @author       You
 // @match        https://www.torn.com/factions.php*
@@ -166,6 +166,7 @@
             border-bottom: 1px solid #131f18;
             vertical-align: middle;
             white-space: nowrap;
+            color: #f3f4f6;
         }
         .oc-table tr:hover td { background: #131f18; }
         .oc-row-spawn > td:first-child { border-left: 2px solid #f4a261; padding-left: 6px; }
