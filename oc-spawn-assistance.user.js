@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.1.0
+// @version      1.1.1
 // @description  Analyzes faction member availability and OC slot supply; recommends which crime levels to spawn
 // @author       You
 // @match        https://www.torn.com/factions.php*
@@ -212,7 +212,7 @@
         .oc-cpr-high { color: #74c69d; }
         .oc-cpr-mid  { color: #f4a261; }
         .oc-cpr-low  { color: #9ca3af; }
-        .oc-member-id { color: #374151; font-size: 10px; }
+        .oc-member-id { color: #6b7280; font-size: 10px; }
         #oc-spawn-status {
             color: #6b7280;
             font-style: italic;
