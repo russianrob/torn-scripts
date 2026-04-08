@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.3.2
+// @version      1.3.3
 // @description  Analyzes faction member availability and OC slot supply; recommends which crime levels to spawn
 // @author       You
 // @match        https://www.torn.com/factions.php*
@@ -52,39 +52,63 @@
     //  Single plain GET, no custom headers (no CORS preflight).
     //  Server verifies faction, caches CPR 6h, returns spawn data.
     // ═══════════════════════════════════════════════════════════════════════
-    async function fetchServerOcData(apiKey) {
-        const url = `${SERVER}/api/oc/spawn-key?key=${encodeURIComponent(apiKey)}`;
-
-        // Use GM_xmlhttpRequest when available (TornPDA WebView blocks cross-origin fetch)
+    // ═══════════════════════════════════════════════════════════════════════
+    //  GENERIC GM REQUEST  — uses GM_xmlhttpRequest (TornPDA) or fetch
+    // ═══════════════════════════════════════════════════════════════════════
+    function gmRequest(url) {
         if (typeof GM_xmlhttpRequest === 'function') {
             return new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({
-                    method: 'GET',
-                    url,
+                    method: 'GET', url,
                     onload(r) {
-                        let data = {};
-                        try { data = JSON.parse(r.responseText); } catch (_) {}
-                        if (r.status === 403) {
-                            const e = new Error(data.error || 'Access restricted to faction members only.');
-                            e.status = 403; return reject(e);
-                        }
-                        if (r.status >= 400) return reject(new Error(data.error || `Server error (${r.status})`));
-                        resolve(data);
+                        try { resolve({ ok: r.status < 400, status: r.status, data: JSON.parse(r.responseText) }); }
+                        catch (e) { reject(new Error('Bad JSON from server')); }
                     },
-                    onerror(e) { reject(new Error('Network error — could not reach tornwar.com')); },
+                    onerror() { reject(new Error('Network error')); },
                 });
             });
         }
+        return fetch(url).then(async r => ({ ok: r.ok, status: r.status, data: await r.json() }));
+    }
 
-        // Standard fetch fallback (Safari / desktop)
-        const res = await fetch(url);
-        const data = await res.json().catch(() => ({}));
-        if (res.status === 403) {
-            const err = new Error(data.error || 'Access restricted to faction members only.');
+    // ═══════════════════════════════════════════════════════════════════════
+    //  FACTION SETTINGS  — fetch & push via server
+    // ═══════════════════════════════════════════════════════════════════════
+    async function fetchFactionSettings(apiKey) {
+        try {
+            const r = await gmRequest(`${SERVER}/api/oc/settings?key=${encodeURIComponent(apiKey)}`);
+            if (!r.ok) return null;
+            return r.data;
+        } catch (e) {
+            console.warn('[OC Spawn] Could not fetch faction settings:', e.message);
+            return null;
+        }
+    }
+
+    async function pushFactionSettings(apiKey, cfg) {
+        try {
+            const p = new URLSearchParams({
+                key:            apiKey,
+                active_days:    cfg.ACTIVE_DAYS,
+                forecast_hours: cfg.FORECAST_HOURS,
+                mincpr:         cfg.MINCPR,
+                cpr_boost:      cfg.CPR_BOOST,
+                lookback_days:  cfg.CPR_LOOKBACK_DAYS,
+            });
+            await gmRequest(`${SERVER}/api/oc/settings/update?${p}`);
+        } catch (e) {
+            console.warn('[OC Spawn] Could not push faction settings:', e.message);
+        }
+    }
+
+    async function fetchServerOcData(apiKey) {
+        const r = await gmRequest(`${SERVER}/api/oc/spawn-key?key=${encodeURIComponent(apiKey)}`);
+        if (r.status === 403) {
+            const err = new Error(r.data?.error || 'Access restricted to faction members only.');
             err.status = 403; throw err;
         }
-        if (!res.ok) throw new Error(data.error || `Server error (${res.status})`);
-        return data;
+        if (!r.ok) throw new Error(r.data?.error || `Server error (${r.status})`);
+        return r.data;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -303,16 +327,20 @@
         setStatus('API key saved. Click Refresh.');
     });
 
-    document.getElementById('oc-spawn-cfg-save').addEventListener('click', () => {
+    document.getElementById('oc-spawn-cfg-save').addEventListener('click', async () => {
         const get = id => Math.max(0, parseInt(document.getElementById(id).value) || 0);
-        GM_setValue('cfg_active_days',    get('cfg-active-days'));
-        GM_setValue('cfg_forecast_hours', get('cfg-forecast-hours'));
-        GM_setValue('cfg_mincpr',         get('cfg-mincpr'));
-        GM_setValue('cfg_cpr_boost',      get('cfg-cpr-boost'));
-        GM_setValue('cfg_lookback_days',  get('cfg-lookback-days'));
-        CONFIG = loadConfig();
+        CONFIG.ACTIVE_DAYS       = get('cfg-active-days');
+        CONFIG.FORECAST_HOURS    = get('cfg-forecast-hours');
+        CONFIG.MINCPR            = get('cfg-mincpr');
+        CONFIG.CPR_BOOST         = get('cfg-cpr-boost');
+        CONFIG.CPR_LOOKBACK_DAYS = get('cfg-lookback-days');
         document.getElementById('oc-settings-panel').style.display = 'none';
-        setStatus('Settings saved. Click Refresh.');
+        setStatus('Saving settings for all faction members…');
+        const apiKey = getApiKey();
+        if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') {
+            await pushFactionSettings(apiKey, CONFIG);
+        }
+        setStatus('Settings saved for all faction members. Click Refresh.');
     });
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -523,6 +551,18 @@
         document.getElementById('oc-spawn-body').innerHTML = '';
 
         try {
+            // Fetch faction-wide settings first, apply to CONFIG
+            setStatus('Loading settings…');
+            const srvSettings = await fetchFactionSettings(apiKey);
+            if (srvSettings) {
+                CONFIG.ACTIVE_DAYS       = srvSettings.active_days;
+                CONFIG.FORECAST_HOURS    = srvSettings.forecast_hours;
+                CONFIG.MINCPR            = srvSettings.mincpr;
+                CONFIG.CPR_BOOST         = srvSettings.cpr_boost;
+                CONFIG.CPR_LOOKBACK_DAYS = srvSettings.lookback_days;
+                populateSettings(); // reflect in settings panel if open
+            }
+
             // Single call: verifies faction + returns data (CPR cached 6h server-side)
             setStatus('Fetching OC data…');
             let members, availableCrimes, rawCprCache;
