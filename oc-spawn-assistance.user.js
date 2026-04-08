@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.3.0
+// @version      1.3.1
 // @description  Analyzes faction member availability and OC slot supply; recommends which crime levels to spawn
 // @author       You
 // @match        https://www.torn.com/factions.php*
@@ -46,54 +46,19 @@
     function saveApiKey(key) { GM_setValue('oc_spawn_api_key', key.trim()); }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //  SERVER AUTH  — POST /api/auth → JWT (cached 12h)
-    //  Faction gate is handled server-side; 403 = not in faction.
+    //  SERVER DATA  — GET /api/oc/spawn-key
+    //  Single plain GET, no custom headers (no CORS preflight).
+    //  Server verifies faction, caches CPR 6h, returns spawn data.
     // ═══════════════════════════════════════════════════════════════════════
-    async function getOrRefreshToken(apiKey) {
-        const cached = GM_getValue('oc_srv_token', null);
-        if (cached && (Date.now() - cached.ts) < 12 * 3600_000) return cached.token;
-
-        const res  = await fetch(`${SERVER}/api/auth`, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ apiKey }),
-        });
-        const data = await res.json();
-
+    async function fetchServerOcData(apiKey) {
+        const res = await fetch(`${SERVER}/api/oc/spawn-key?key=${encodeURIComponent(apiKey)}`);
+        const data = await res.json().catch(() => ({}));
         if (res.status === 403) {
             const err = new Error(data.error || 'Access restricted to faction members only.');
-            err.status = 403;
-            throw err;
+            err.status = 403; throw err;
         }
-        if (!res.ok) throw new Error(data.error || `Auth failed (${res.status})`);
-        if (!data.token) throw new Error('No token received from server.');
-
-        GM_setValue('oc_srv_token', { token: data.token, ts: Date.now() });
-        return data.token;
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    //  SERVER DATA  — GET /api/oc/spawn
-    //  Returns { members, availableCrimes, cprCache }
-    //  Server caches completed crimes (CPR) for 6 hours.
-    // ═══════════════════════════════════════════════════════════════════════
-    async function fetchServerOcData(token) {
-        const res = await fetch(`${SERVER}/api/oc/spawn`, {
-            headers: { 'Authorization': `Bearer ${token}` },
-        });
-
-        if (res.status === 401) {
-            // Token expired — clear and ask caller to retry
-            GM_setValue('oc_srv_token', null);
-            const err = new Error('Session expired — click Refresh again.');
-            err.status = 401;
-            throw err;
-        }
-        if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
-            throw new Error(data.error || `Server error (${res.status})`);
-        }
-        return res.json();
+        if (!res.ok) throw new Error(data.error || `Server error (${res.status})`);
+        return data;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -532,11 +497,11 @@
         document.getElementById('oc-spawn-body').innerHTML = '';
 
         try {
-            // Step 1: authenticate (faction gate built in)
-            setStatus('Authenticating with server…');
-            let token;
+            // Single call: verifies faction + returns data (CPR cached 6h server-side)
+            setStatus('Fetching OC data…');
+            let members, availableCrimes, rawCprCache;
             try {
-                token = await getOrRefreshToken(apiKey);
+                ({ members, availableCrimes, cprCache: rawCprCache } = await fetchServerOcData(apiKey));
             } catch (err) {
                 if (err.status === 403) {
                     document.getElementById('oc-spawn-body').innerHTML =
@@ -546,10 +511,6 @@
                 }
                 throw err;
             }
-
-            // Step 2: fetch data from server (CPR cached 6h)
-            setStatus('Fetching OC data…');
-            const { members, availableCrimes, cprCache: rawCprCache } = await fetchServerOcData(token);
 
             // Re-apply user's MINCPR/CPR_BOOST to joinable (server uses its own defaults)
             const cprCache = {};
