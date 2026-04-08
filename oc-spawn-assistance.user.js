@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.1.6
+// @version      1.1.7
 // @description  Analyzes faction member availability and OC slot supply; recommends which crime levels to spawn
 // @author       You
 // @match        https://www.torn.com/factions.php*
@@ -314,17 +314,21 @@
             OC Spawn Assistance
             <span style="display:flex;gap:6px;align-items:center;">
                 <button id="oc-spawn-refresh">↻ Refresh</button>
+                <button id="oc-spawn-settings" style="background:#1a2a1f;color:#9ca3af;border:1px solid #2d4a3e;border-radius:6px;padding:4px 9px;font-size:12px;cursor:pointer;line-height:1;font-family:inherit;" title="Settings">⚙</button>
                 <button id="oc-spawn-close" style="background:#1a2a1f;color:#9ca3af;border:1px solid #2d4a3e;border-radius:6px;padding:4px 9px;font-size:12px;cursor:pointer;line-height:1;font-family:inherit;">✕</button>
             </span>
         </h2>
         <div id="oc-spawn-status">Click Refresh to load data.</div>
-        <div id="oc-spawn-key-row" style="display:none;margin-bottom:8px;">
-            <input id="oc-spawn-key-input" type="password" placeholder="Paste Torn API key…"
-                style="width:calc(100% - 74px);padding:4px 6px;background:#0d1b2a;color:#e0e0e0;
-                       border:1px solid #2d6a4f;border-radius:4px;font-size:11px;font-family:monospace;"/>
-            <button id="oc-spawn-key-save"
-                style="margin-left:4px;padding:4px 8px;background:#2d6a4f;color:#fff;
-                       border:none;border-radius:4px;font-size:11px;cursor:pointer;font-family:inherit;">Save</button>
+        <div id="oc-spawn-key-row" style="display:none;margin-bottom:8px;background:#0f1f16;border:1px solid #2a3f30;border-radius:6px;padding:8px 10px;">
+            <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">API Key</div>
+            <div style="display:flex;gap:6px;align-items:center;">
+                <input id="oc-spawn-key-input" type="password" placeholder="Paste Torn API key…"
+                    style="flex:1;padding:4px 8px;background:#0d1b2a;color:#f3f4f6;
+                           border:1px solid #2d4a3e;border-radius:4px;font-size:11px;font-family:monospace;"/>
+                <button id="oc-spawn-key-save"
+                    style="padding:4px 10px;background:#2d6a4f;color:#fff;
+                           border:none;border-radius:4px;font-size:11px;cursor:pointer;font-family:inherit;font-weight:600;">Save</button>
+            </div>
         </div>
         <div id="oc-spawn-body"></div>
     `;
@@ -347,11 +351,25 @@
         panelVisible = false;
         panel.style.display = 'none';
     });
+    document.getElementById('oc-spawn-settings').addEventListener('click', () => {
+        const row = document.getElementById('oc-spawn-key-row');
+        const isOpen = row.style.display !== 'none';
+        row.style.display = isOpen ? 'none' : 'block';
+        if (!isOpen) {
+            // Pre-fill with masked hint of current key
+            const key = getApiKey();
+            const input = document.getElementById('oc-spawn-key-input');
+            if (key && key !== 'YOUR_API_KEY_HERE') {
+                input.placeholder = '••••••••' + key.slice(-4);
+                input.value = '';
+            }
+        }
+    });
 
     function checkKeyRow() {
         const key = getApiKey();
         const noKey = !key || key === 'YOUR_API_KEY_HERE';
-        document.getElementById('oc-spawn-key-row').style.display = noKey ? 'flex' : 'none';
+        document.getElementById('oc-spawn-key-row').style.display = noKey ? 'block' : 'none';
     }
     checkKeyRow();
 
