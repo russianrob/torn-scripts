@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.1.4
+// @version      1.1.5
 // @description  Analyzes faction member availability and OC slot supply; recommends which crime levels to spawn
 // @author       You
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
     // ═══════════════════════════════════════════════════════════════════════
     const CONFIG = {
         API_KEY:           'YOUR_API_KEY_HERE',
+        FACTION_ID:        42055,   // Only members of this faction can use the script
         ACTIVE_DAYS:       7,
         FORECAST_HOURS:    24,
         MINCPR:            60,
@@ -39,6 +40,29 @@
         return CONFIG.API_KEY;
     }
     function saveApiKey(key) { GM_setValue('oc_spawn_api_key', key.trim()); }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  FACTION GATE
+    //  Verifies the API key belongs to a member of CONFIG.FACTION_ID.
+    //  Result cached for 1 hour to avoid redundant calls.
+    // ═══════════════════════════════════════════════════════════════════════
+    async function verifyFaction(apiKey) {
+        const cacheKey = 'oc_faction_verified_' + apiKey.slice(-6);
+        const cached   = GM_getValue(cacheKey, null);
+        if (cached && (Date.now() - cached.ts) < 3600_000) return cached.ok;
+
+        try {
+            const res  = await fetch(`https://api.torn.com/v2/user?selections=basic&key=${apiKey}`);
+            const data = await res.json();
+            if (data.error) throw new Error(data.error.error);
+            const ok = data.faction?.faction_id === CONFIG.FACTION_ID;
+            GM_setValue(cacheKey, { ok, ts: Date.now() });
+            return ok;
+        } catch (e) {
+            console.warn('[OC Spawn] Faction check failed:', e);
+            return false;
+        }
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     //  STYLES
@@ -726,10 +750,19 @@
 
         const refreshBtn = document.getElementById('oc-spawn-refresh');
         refreshBtn.disabled = true;
-        setStatus('Fetching data…');
+        setStatus('Verifying faction membership…');
         document.getElementById('oc-spawn-body').innerHTML = '';
 
         try {
+            const allowed = await verifyFaction(apiKey);
+            if (!allowed) {
+                document.getElementById('oc-spawn-body').innerHTML =
+                    `<p class="oc-error">⛔ Access restricted to faction members only.</p>
+                     <p style="color:#6b7280;font-size:11px;">Your API key is not associated with faction #${CONFIG.FACTION_ID}.</p>`;
+                setStatus('Access denied.');
+                return;
+            }
+
             setStatus('Step 1: Fetching members and available crimes…');
             const [members, availableCrimes] = await Promise.all([
                 fetchMembers(apiKey),
