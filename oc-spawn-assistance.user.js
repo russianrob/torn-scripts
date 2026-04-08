@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.1.9
+// @version      1.2.0
 // @description  Analyzes faction member availability and OC slot supply; recommends which crime levels to spawn
 // @author       You
 // @match        https://www.torn.com/factions.php*
@@ -48,23 +48,20 @@
     //  FACTION GATE
     // ═══════════════════════════════════════════════════════════════════════
     async function verifyFaction(apiKey) {
-        // Bump cache key to v3 to invalidate any stale results
-        const cacheKey = 'oc_faction_v3_' + apiKey.slice(-6);
+        const cacheKey = 'oc_faction_srv_' + apiKey.slice(-6);
         const cached   = GM_getValue(cacheKey, null);
         if (cached && (Date.now() - cached.ts) < 3600_000) return cached.ok;
         try {
-            // v1 API reliably returns faction.faction_id in all situations including travel
-            const res  = await fetch(`https://api.torn.com/user/?selections=basic&key=${apiKey}`);
+            const res  = await fetch(`https://tornwar.com/api/oc-verify?key=${encodeURIComponent(apiKey)}`);
             const data = await res.json();
-            if (data.error) throw new Error(data.error.error);
-            const factionId = data.faction?.faction_id ?? null;
-            const ok = Number(factionId) === CONFIG.FACTION_ID;
-            console.log('[OC Spawn] Faction check: id=' + factionId + ' expected=' + CONFIG.FACTION_ID + ' ok=' + ok);
+            const ok   = data.ok === true;
             GM_setValue(cacheKey, { ok, ts: Date.now() });
+            console.log('[OC Spawn] Server gate:', data);
             return ok;
         } catch (e) {
-            console.warn('[OC Spawn] Faction check failed:', e);
-            return false;
+            // If server is unreachable, fail open so users aren\'t blocked by downtime
+            console.warn('[OC Spawn] Server gate unreachable, failing open:', e);
+            return true;
         }
     }
 
