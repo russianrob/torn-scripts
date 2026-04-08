@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.4.1
+// @version      1.4.2
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       You
 // @match        https://www.torn.com/factions.php*
@@ -77,7 +77,7 @@
             if (el.children.length > 2) continue; // skip containers
             const text = el.textContent.trim();
             // "Scope: 42" or "Scope 42" or "42/100"
-            const m = text.match(/scope[\s:]*?(\d+)/i) || text.match(/^(\d{1,3})\s*/\s*100$/i);
+            const m = text.match(/scope[\s:]*?(\d+)/i);
             if (m) {
                 const val = parseInt(m[1]);
                 if (val >= 0 && val <= SCOPE_MAX) return val;
