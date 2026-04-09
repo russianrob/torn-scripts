@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.6.6
+// @version      1.6.7
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -425,7 +425,8 @@
             document.removeEventListener('mouseup',   onEnd);
             document.removeEventListener('touchend',  onEnd);
             if (moved) {
-                suppressClick = true; // prevent the browser-synthesized click after drag
+                suppressClick = true;
+                setTimeout(() => { suppressClick = false; }, 300); // reset if no synthetic click arrives
                 if (storageKey) GM_setValue(storageKey, {
                     top:  parseInt(el.style.top),
                     left: parseInt(el.style.left),
