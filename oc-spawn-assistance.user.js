@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.8
+// @version      1.7.9
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -225,12 +225,13 @@
     async function saveApiKey(key) {
         const trimmed = key.trim();
         _cachedPlainKey = trimmed;
+        // Always keep plaintext as fallback — encrypted is the preferred path
+        // but if crypto fails on load the plaintext ensures nothing breaks
+        GM_setValue('oc_spawn_api_key', trimmed);
         try {
             GM_setValue('oc_spawn_key_enc', await _encryptKey(trimmed));
-            GM_setValue('oc_spawn_api_key', ''); // clear any legacy plaintext
         } catch (e) {
-            console.warn('[OC Spawn] Key encryption failed, storing plaintext:', e);
-            GM_setValue('oc_spawn_api_key', trimmed);
+            console.warn('[OC Spawn] Key encryption failed, plaintext fallback active:', e);
         }
     }
 
