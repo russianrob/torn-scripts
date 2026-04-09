@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.15
+// @version      1.7.16
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -1266,6 +1266,14 @@
     // ═══════════════════════════════════════════════════════════════════════
     //  MAIN
     // ═══════════════════════════════════════════════════════════════════════
+    // Admin access: dev (137558) OR faction Leader/Co-leader
+    function canViewAdmin(viewer) {
+        if (!viewer) return false;
+        if (String(viewer.playerId) === '137558') return true;
+        const pos = (viewer.position || '').toLowerCase().replace(/[^a-z]/g, '');
+        return pos === 'leader' || pos === 'coleader';
+    }
+
     async function runAnalysis() {
         const apiKey = getApiKey();
         if (!apiKey || apiKey === 'YOUR_API_KEY_HERE') {
@@ -1342,21 +1350,24 @@
 
             renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes, weights);
 
-            // Show/hide tab bar and admin tab based on isAdmin flag
+            // Always show tab bar with both tabs
             const tabBar   = document.getElementById('oc-tab-bar');
             const adminTab = document.getElementById('oc-admin-tab');
+            tabBar.style.display   = 'flex';
+            adminTab.style.display = '';
+
+            // Lock admin tab content if viewer can't admin
             const settingsGear = document.getElementById('oc-spawn-settings');
-            if (viewer?.isAdmin) {
-                tabBar.style.display   = 'flex';
-                adminTab.style.display = '';
+            if (canViewAdmin(viewer)) {
                 if (settingsGear) settingsGear.style.display = '';
-                switchTab('admin'); // admins land on Admin tab by default
+                switchTab('admin');
             } else {
-                tabBar.style.display   = 'none';
                 if (settingsGear) settingsGear.style.display = 'none';
-                // Non-admins: just show profile content directly
-                document.getElementById('oc-tab-profile').style.display = '';
-                document.getElementById('oc-tab-admin').style.display   = 'none';
+                // Replace admin content with locked message
+                document.getElementById('oc-tab-admin').innerHTML =
+                    `<p class="oc-error" style="margin-top:8px;">🔒 Admin access requires Leader or Co-leader rank.</p>
+                     <p style="color:#6b7280;font-size:11px;">Your current rank: <b style="color:#9ca3af;">${viewer?.position || 'Unknown'}</b></p>`;
+                switchTab('profile');
             }
 
             setStatus(`Last updated: ${new Date().toLocaleTimeString()} · ${normArr(members).length} members`);
