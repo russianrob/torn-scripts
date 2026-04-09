@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.14
+// @version      1.7.15
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -351,6 +351,11 @@
         .oc-error { color: #f87171; font-weight: 600; }
         .oc-hdr-btn { background: #1a2a1f; color: #9ca3af; border: 1px solid #2d4a3e; border-radius: 6px; padding: 4px 9px; font-size: 12px; cursor: pointer; line-height: 1; font-family: inherit; }
         .oc-hdr-btn:hover { background: #253525; color: #d1d5db; }
+        /* Tab bar */
+        .oc-tab-bar { display: flex; border-bottom: 1px solid #2d4a3e; margin-bottom: 10px; gap: 0; }
+        .oc-tab { background: none; border: none; border-bottom: 2px solid transparent; color: #6b7280; padding: 6px 16px; cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 500; margin-bottom: -1px; transition: color .15s; }
+        .oc-tab:hover:not(.oc-tab-active) { color: #d1d5db; }
+        .oc-tab-active { color: #74c69d; border-bottom-color: #74c69d; }
         /* Viewer personal card */
         .oc-viewer-card {
             background: #111f18; border: 1px solid #2d4a3e;
@@ -559,7 +564,12 @@
             </div>
         </div>
 
-        <div id="oc-spawn-body"></div>
+        <div id="oc-tab-bar" class="oc-tab-bar" style="display:none;">
+            <button class="oc-tab oc-tab-active" data-tab="profile">My OC</button>
+            <button class="oc-tab" data-tab="admin" id="oc-admin-tab" style="display:none;">Admin</button>
+        </div>
+        <div id="oc-tab-profile"></div>
+        <div id="oc-tab-admin" style="display:none;"></div>
     `;
     document.body.appendChild(panel);
 
@@ -602,10 +612,26 @@
         GM_setValue('oc_panel_closed', true); // stay closed until user taps button
     });
     document.getElementById('oc-spawn-settings').addEventListener('click', () => {
+        // Switch to Admin tab first, then toggle settings
+        switchTab('admin');
         const sp = document.getElementById('oc-settings-panel');
         const opening = sp.style.display === 'none' || sp.style.display === '';
         sp.style.display = opening ? 'block' : 'none';
         if (opening) populateSettings();
+    });
+
+    function switchTab(name) {
+        document.querySelectorAll('.oc-tab').forEach(t => {
+            t.classList.toggle('oc-tab-active', t.dataset.tab === name);
+        });
+        document.getElementById('oc-tab-profile').style.display = name === 'profile' ? '' : 'none';
+        document.getElementById('oc-tab-admin').style.display   = name === 'admin'   ? '' : 'none';
+        // Close settings panel when switching to profile
+        if (name === 'profile') document.getElementById('oc-settings-panel').style.display = 'none';
+    }
+
+    document.querySelectorAll('.oc-tab').forEach(btn => {
+        btn.addEventListener('click', () => switchTab(btn.dataset.tab));
     });
 
     function populateSettings() {
@@ -1210,14 +1236,19 @@
                     <tbody>${skipped.map(m => `<tr><td><span class="oc-member-name">${m.name}</span> <span class="oc-member-id">[${m.id}]</span></td><td style="color:#6b7280">${m.skipReason}</td></tr>`).join('')}</tbody>
                 </table></details>` : '';
 
-        document.getElementById('oc-spawn-body').innerHTML = `
+        // Profile tab — viewer card only
+        document.getElementById('oc-tab-profile').innerHTML =
+            renderViewerCard(viewer, eligible, skipped, availableCrimes) ||
+            '<p style="color:#6b7280;font-size:11px;">No personal OC data yet — refresh to load.</p>';
+
+        // Admin tab — everything else
+        document.getElementById('oc-tab-admin').innerHTML = `
             <div class="oc-stats-strip">
                 <span class="oc-stat-chip"><b>${total}</b> members</span>
                 <span class="oc-stat-chip"><b>${eli}</b> eligible</span>
                 <span class="oc-stat-chip"><b>${free}</b> free now</span>
                 <span class="oc-stat-chip"><b>${soon}</b> soon</span>
             </div>
-            ${renderViewerCard(viewer, eligible, skipped, availableCrimes)}
             ${renderScopeStrip(scopeProjection)}
             ${banner}
             <h3>Spawn Recommendations — High Priority First</h3>
@@ -1240,14 +1271,15 @@
         if (!apiKey || apiKey === 'YOUR_API_KEY_HERE') {
             document.getElementById('oc-settings-panel').style.display = 'block';
             populateSettings();
-            document.getElementById('oc-spawn-body').innerHTML = `<p class="oc-error">⚠ Enter your Torn API key in Settings above.</p>`;
+            document.getElementById('oc-tab-profile').innerHTML = `<p class="oc-error">⚠ Enter your Torn API key in Settings above.</p>`;
             setStatus('API key not configured.');
             return;
         }
 
         const refreshBtn = document.getElementById('oc-spawn-refresh');
         refreshBtn.disabled = true;
-        document.getElementById('oc-spawn-body').innerHTML = '';
+        document.getElementById('oc-tab-profile').innerHTML = '';
+        document.getElementById('oc-tab-admin').innerHTML   = '';
 
         try {
             // Fetch faction-wide settings
@@ -1283,7 +1315,7 @@
                 ({ members, availableCrimes, cprCache: rawCprCache, viewer, weights } = await fetchServerOcData(apiKey));
             } catch (err) {
                 if (err.status === 403) {
-                    document.getElementById('oc-spawn-body').innerHTML =
+                    document.getElementById('oc-tab-profile').innerHTML =
                         `<p class="oc-error">⛔ Access restricted — your key is not in faction #${CONFIG.FACTION_ID}.</p>`;
                     setStatus('Access denied.');
                     return;
@@ -1310,14 +1342,27 @@
 
             renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes, weights);
 
-            // Hide settings gear for non-owner-faction members (partner factions, Xanax subs)
+            // Show/hide tab bar and admin tab based on isAdmin flag
+            const tabBar   = document.getElementById('oc-tab-bar');
+            const adminTab = document.getElementById('oc-admin-tab');
             const settingsGear = document.getElementById('oc-spawn-settings');
-            if (settingsGear) settingsGear.style.display = viewer?.isOwnerFaction ? '' : 'none';
+            if (viewer?.isAdmin) {
+                tabBar.style.display   = 'flex';
+                adminTab.style.display = '';
+                if (settingsGear) settingsGear.style.display = '';
+                switchTab('admin'); // admins land on Admin tab by default
+            } else {
+                tabBar.style.display   = 'none';
+                if (settingsGear) settingsGear.style.display = 'none';
+                // Non-admins: just show profile content directly
+                document.getElementById('oc-tab-profile').style.display = '';
+                document.getElementById('oc-tab-admin').style.display   = 'none';
+            }
 
             setStatus(`Last updated: ${new Date().toLocaleTimeString()} · ${normArr(members).length} members`);
 
         } catch (err) {
-            document.getElementById('oc-spawn-body').innerHTML =
+            document.getElementById('oc-tab-profile').innerHTML =
                 `<p class="oc-error">Error: ${err.message}</p>
                  <p style="color:#6b7280;font-size:11px;">Check your API key has Limited (or higher) faction access.</p>`;
             setStatus(`Error: ${err.message}`);
