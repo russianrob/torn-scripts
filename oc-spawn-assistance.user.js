@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.3
+// @version      1.7.4
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -954,8 +954,10 @@
         // Sort by joinable level desc, then name
         const sorted = [...eligible].sort((a, b) => (b.joinable - a.joinable) || a.name.localeCompare(b.name));
         const rows = sorted.map(m => {
+            const readyLabel = (m.ocReadyAt && m.ocReadyAt > now())
+                ? `free ${fmtTs(m.ocReadyAt)}` : 'active (paused)';
             const sb = m.inOC
-                ? `<span class="oc-badge oc-badge-in">In OC → free ${fmtTs(m.ocReadyAt)}</span>`
+                ? `<span class="oc-badge oc-badge-in">In OC → ${readyLabel}</span>`
                 : `<span class="oc-badge oc-badge-free">Free</span>`;
             let cc = 'oc-cpr-low';
             if (m.cpr !== null && m.cpr >= 80)                cc = 'oc-cpr-high';
@@ -1001,7 +1003,10 @@
         if (!me) {
             statusHtml = `<span style="color:#6b7280">Not found in eligible members</span>`;
         } else if (me.inOC) {
-            statusHtml = `<span class="oc-badge oc-badge-in">In OC → free ${fmtTs(me.ocReadyAt)}</span>`;
+            const readyLabel = (me.ocReadyAt && me.ocReadyAt > now())
+                ? `free ${fmtTs(me.ocReadyAt)}`
+                : 'active (timer paused)';
+            statusHtml = `<span class="oc-badge oc-badge-in">In OC → ${readyLabel}</span>`;
         } else {
             statusHtml = `<span class="oc-badge oc-badge-free">Free now</span>`;
         }
