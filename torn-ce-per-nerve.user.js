@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn – CE per Nerve Tracker
 // @namespace    https://torn.com
-// @version      3.3.2
+// @version      3.3.3
 // @description  Tracks CE per nerve for every crime type. Live crime chain, progression bonus, NNB tracking via API key with faction offset so the panel shows your real base NNB.
 // @author       Custom
 // @match        https://www.torn.com/loader.php?sid=crimes*
@@ -288,6 +288,13 @@
                 crimeChain = data.crimeChain;
             }
 
+            // Inject server-calculated bust stats as a virtual entry
+            if (data.bustStats) {
+                const serverBusts = loadStats();
+                serverBusts['busting'] = { ...data.bustStats, _fromServer: true };
+                saveStats(serverBusts);
+            }
+
             meta = { ...meta, nnb: nnbCurrent, nnbPrev, chain: crimeChain, factionOffset };
             saveMeta(meta);
 
@@ -529,9 +536,11 @@ gap:3px;padding:3px 4px;border-radius:4px;align-items:center;}
         const rows  = Object.values(stats)
             .filter(s => s.attempts > 0)
             .map(s => {
-                const sr       = s.successes / s.attempts;
-                const avgNerve = s.totalNerveSpent / s.attempts;
-                return { ...s, sr, avgNerve, ceScore: sr * avgNerve };
+                // Server bust entry has sr/avgNerve/ceScore pre-computed
+                const sr       = s.sr       ?? (s.successes / s.attempts);
+                const avgNerve = s.avgNerve ?? (s.totalNerveSpent / s.attempts);
+                const ceScore  = s.ceScore  ?? (sr * avgNerve);
+                return { ...s, sr, avgNerve, ceScore };
             })
             .sort((a, b) => b.ceScore - a.ceScore);
 
