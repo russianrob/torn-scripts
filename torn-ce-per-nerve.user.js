@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn – CE per Nerve Tracker
 // @namespace    https://torn.com
-// @version      3.4.1
+// @version      3.5.0
 // @description  Tracks CE per nerve for every crime type. Live crime chain, progression bonus, NNB tracking via API key with faction offset so the panel shows your real base NNB.
 // @author       Custom
 // @match        https://www.torn.com/loader.php?sid=crimes*
@@ -282,6 +282,15 @@
 
                 const factionInput = document.getElementById('ce-faction-in');
                 if (factionInput && !factionInput.matches(':focus')) factionInput.value = factionOffset;
+
+                // Sync lastNNBIncreaseAt from server
+                if (data.lastNNBIncreaseAt) {
+                    meta.lastNNBIncreaseAt = data.lastNNBIncreaseAt;
+                    const sinceIn = document.getElementById('ce-since-in');
+                    if (sinceIn && !sinceIn.matches(':focus')) {
+                        sinceIn.value = new Date(data.lastNNBIncreaseAt * 1000).toISOString().slice(0, 10);
+                    }
+                }
             }
 
             // Sync chain from server — authoritative calculation from crime logs
@@ -359,7 +368,7 @@ border-bottom:1px solid #334155;}
 border-radius:4px;cursor:pointer;font-size:10px;margin-left:4px;}
 .cbt:hover{background:#475569;}
 #ce-status{padding:5px 10px 4px;background:#16213e;border-bottom:1px solid #1e3a5f;
-display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px;}
+display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px;align-items:start;}
 .ce-stat-lbl{color:#64748b;font-size:10px;}
 .ce-stat-val{color:#e2e8f0;font-weight:600;}
 .ce-stat-val.up{color:#34d399;}
@@ -426,11 +435,16 @@ gap:3px;padding:3px 4px;border-radius:4px;align-items:center;}
     <div class="ce-stat-lbl">Session crimes</div>
     <div class="ce-stat-val" id="ce-session-val">0</div>
   </div>
+  <div style="grid-column:1/-1;margin-top:2px;display:flex;align-items:center;gap:6px">
+    <span class="ce-stat-lbl" style="flex:0 0 auto">Since NNB ↑:</span>
+    <input id="ce-since-in" type="date" style="background:#1e293b;border:1px solid #334155;color:#d1d5db;padding:2px 4px;border-radius:4px;font-size:10px;flex:1" title="Date of your last NNB +5 increase" />
+    <button class="cbt" id="ce-since-save">Set</button>
+  </div>
 </div>
 <div id="ce-body">
   <div class="ce-none">Commit crimes to start tracking CE.<br>Rankings persist across sessions.</div>
 </div>
-<div id="ce-foot">CE Score = succ% × nerve &nbsp;·&nbsp; chain bonus adds up to +20% on top</div>
+<div id="ce-foot" id="ce-foot">CE Score = succ% × nerve &nbsp;·&nbsp; since last NNB ↑</div>
 <div id="ce-api-bar" style="align-items:center">
   <span style="color:#64748b;font-size:10px;flex:1">Faction nerve offset:</span>
   <input id="ce-api-in" type="hidden" />
@@ -507,6 +521,32 @@ gap:3px;padding:3px 4px;border-radius:4px;align-items:center;}
 
         // Manual refresh
         document.getElementById('ce-api-refresh').onclick = () => refreshFromAPI();
+
+        // Set last NNB increase date — tells server to re-fetch crime history from that point
+        const sinceInput = document.getElementById('ce-since-in');
+        if (sinceInput) {
+            // Populate from server on load
+            const storedTs = meta.lastNNBIncreaseAt;
+            if (storedTs) sinceInput.value = new Date(storedTs * 1000).toISOString().slice(0, 10);
+            document.getElementById('ce-since-save').onclick = async () => {
+                const ts = Math.floor(new Date(sinceInput.value).getTime() / 1000);
+                if (!ts || isNaN(ts)) return;
+                meta.lastNNBIncreaseAt = ts;
+                saveMeta(meta);
+                try {
+                    await fetch(SERVER_ENDPOINT + '/config', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ lastNNBIncreaseAt: ts }),
+                    });
+                } catch {}
+                // Clear local crime history so it refreshes from server on next sync
+                const s = loadStats();
+                Object.keys(s).filter(k => s[k]._fromServer).forEach(k => delete s[k]);
+                saveStats(s);
+                refreshFromAPI();
+            };
+        }
 
         makeDraggable(p, document.getElementById('ce-hd'));
 
