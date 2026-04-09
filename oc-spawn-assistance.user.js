@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.11
+// @version      1.7.12
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -41,11 +41,13 @@
         return {
             API_KEY:           'YOUR_API_KEY_HERE',
             FACTION_ID:        0, // Set by server
-            ACTIVE_DAYS:       Number(GM_getValue('cfg_active_days',    7)),
-            FORECAST_HOURS:    Number(GM_getValue('cfg_forecast_hours', 24)),
-            MINCPR:            Number(GM_getValue('cfg_mincpr',         60)),
-            CPR_BOOST:         Number(GM_getValue('cfg_cpr_boost',      15)),
-            CPR_LOOKBACK_DAYS: Number(GM_getValue('cfg_lookback_days',  90)),
+            ACTIVE_DAYS:             Number(GM_getValue('cfg_active_days',         7)),
+            FORECAST_HOURS:          Number(GM_getValue('cfg_forecast_hours',     24)),
+            MINCPR:                  Number(GM_getValue('cfg_mincpr',              60)),
+            CPR_BOOST:               Number(GM_getValue('cfg_cpr_boost',          15)),
+            CPR_LOOKBACK_DAYS:       Number(GM_getValue('cfg_lookback_days',      90)),
+            HIGH_WEIGHT_THRESHOLD:   Number(GM_getValue('cfg_high_weight_pct',    25)),
+            HIGH_WEIGHT_MIN_CPR:     Number(GM_getValue('cfg_high_weight_mincpr', 75)),
             SCOPE:             GM_getValue('cfg_scope', null),  // null = not configured
             VERSION:           '1.5.4',
         };
@@ -223,13 +225,15 @@
     async function pushFactionSettings(apiKey, cfg) {
         try {
             const p = new URLSearchParams({
-                key:            apiKey,
-                active_days:    cfg.ACTIVE_DAYS,
-                forecast_hours: cfg.FORECAST_HOURS,
-                mincpr:         cfg.MINCPR,
-                cpr_boost:      cfg.CPR_BOOST,
-                lookback_days:  cfg.CPR_LOOKBACK_DAYS,
-                scope:          cfg.SCOPE !== null ? cfg.SCOPE : '',
+                key:                  apiKey,
+                active_days:          cfg.ACTIVE_DAYS,
+                forecast_hours:       cfg.FORECAST_HOURS,
+                mincpr:               cfg.MINCPR,
+                cpr_boost:            cfg.CPR_BOOST,
+                lookback_days:        cfg.CPR_LOOKBACK_DAYS,
+                high_weight_pct:      cfg.HIGH_WEIGHT_THRESHOLD,
+                high_weight_mincpr:   cfg.HIGH_WEIGHT_MIN_CPR,
+                scope:                cfg.SCOPE !== null ? cfg.SCOPE : '',
             });
             await gmRequest(`${SERVER}/api/oc/settings/update?${p}`);
         } catch (e) {
@@ -536,6 +540,20 @@
                 </div>
                 <input class="oc-setting-num" id="cfg-lookback-days" type="number" min="7" max="365"/>
             </div>
+            <div class="oc-setting-row">
+                <div class="oc-setting-info">
+                    <span class="oc-setting-label">High-Weight % Cutoff</span>
+                    <div class="oc-setting-desc">Slots at or above this weight % require the higher CPR below.</div>
+                </div>
+                <input class="oc-setting-num" id="cfg-high-weight-pct" type="number" min="1" max="100"/>
+            </div>
+            <div class="oc-setting-row">
+                <div class="oc-setting-info">
+                    <span class="oc-setting-label">High-Weight Min CPR</span>
+                    <div class="oc-setting-desc">Min CPR required for slots at or above the cutoff above.</div>
+                </div>
+                <input class="oc-setting-num" id="cfg-high-weight-mincpr" type="number" min="0" max="100"/>
+            </div>
             <div style="text-align:right;margin-top:4px;">
                 <button id="oc-spawn-cfg-save" class="oc-setting-save-btn">Save for All Members</button>
             </div>
@@ -600,9 +618,11 @@
         scopeEl.placeholder = CONFIG.SCOPE !== null ? '' : '—';
         document.getElementById('cfg-active-days').value    = CONFIG.ACTIVE_DAYS;
         document.getElementById('cfg-forecast-hours').value = CONFIG.FORECAST_HOURS;
-        document.getElementById('cfg-mincpr').value         = CONFIG.MINCPR;
-        document.getElementById('cfg-cpr-boost').value      = CONFIG.CPR_BOOST;
-        document.getElementById('cfg-lookback-days').value  = CONFIG.CPR_LOOKBACK_DAYS;
+        document.getElementById('cfg-mincpr').value              = CONFIG.MINCPR;
+        document.getElementById('cfg-cpr-boost').value            = CONFIG.CPR_BOOST;
+        document.getElementById('cfg-lookback-days').value        = CONFIG.CPR_LOOKBACK_DAYS;
+        document.getElementById('cfg-high-weight-pct').value      = CONFIG.HIGH_WEIGHT_THRESHOLD;
+        document.getElementById('cfg-high-weight-mincpr').value   = CONFIG.HIGH_WEIGHT_MIN_CPR;
     }
 
     function checkKeyRow() {
@@ -630,17 +650,21 @@
         CONFIG.SCOPE          = isNaN(rawScope) ? null : Math.max(0, Math.min(100, rawScope));
         CONFIG.ACTIVE_DAYS    = get('cfg-active-days');
         CONFIG.FORECAST_HOURS = get('cfg-forecast-hours');
-        CONFIG.MINCPR         = get('cfg-mincpr');
-        CONFIG.CPR_BOOST      = get('cfg-cpr-boost');
-        CONFIG.CPR_LOOKBACK_DAYS = get('cfg-lookback-days');
+        CONFIG.MINCPR                = get('cfg-mincpr');
+        CONFIG.CPR_BOOST             = get('cfg-cpr-boost');
+        CONFIG.CPR_LOOKBACK_DAYS     = get('cfg-lookback-days');
+        CONFIG.HIGH_WEIGHT_THRESHOLD = get('cfg-high-weight-pct');
+        CONFIG.HIGH_WEIGHT_MIN_CPR   = get('cfg-high-weight-mincpr');
 
         // Local persistence
         GM_setValue('cfg_active_days',    CONFIG.ACTIVE_DAYS);
         GM_setValue('cfg_forecast_hours', CONFIG.FORECAST_HOURS);
-        GM_setValue('cfg_mincpr',         CONFIG.MINCPR);
-        GM_setValue('cfg_cpr_boost',      CONFIG.CPR_BOOST);
-        GM_setValue('cfg_lookback_days',  CONFIG.CPR_LOOKBACK_DAYS);
-        GM_setValue('cfg_scope',          CONFIG.SCOPE);
+        GM_setValue('cfg_mincpr',              CONFIG.MINCPR);
+        GM_setValue('cfg_cpr_boost',           CONFIG.CPR_BOOST);
+        GM_setValue('cfg_lookback_days',       CONFIG.CPR_LOOKBACK_DAYS);
+        GM_setValue('cfg_high_weight_pct',     CONFIG.HIGH_WEIGHT_THRESHOLD);
+        GM_setValue('cfg_high_weight_mincpr',  CONFIG.HIGH_WEIGHT_MIN_CPR);
+        GM_setValue('cfg_scope',               CONFIG.SCOPE);
 
         document.getElementById('oc-settings-panel').style.display = 'none';
         setStatus('Saving settings for all faction members…');
@@ -997,8 +1021,8 @@
         </table>`;
     }
 
-    const HIGH_WEIGHT_THRESHOLD = 25;   // slots above this % need CPR >= HIGH_WEIGHT_MIN_CPR
-    const HIGH_WEIGHT_MIN_CPR    = 75;   // min CPR for high-weight slots
+    const HIGH_WEIGHT_THRESHOLD = CONFIG.HIGH_WEIGHT_THRESHOLD;  // configurable via settings
+    const HIGH_WEIGHT_MIN_CPR    = CONFIG.HIGH_WEIGHT_MIN_CPR;   // configurable via settings
 
     function _wKey(str) { return (str || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
     function getSlotWeight(weights, ocName, roleName) {
@@ -1230,20 +1254,24 @@
             setStatus('Loading settings…');
             const srvSettings = await fetchFactionSettings(apiKey);
             if (srvSettings) {
-                CONFIG.ACTIVE_DAYS       = srvSettings.active_days;
-                CONFIG.FORECAST_HOURS    = srvSettings.forecast_hours;
-                CONFIG.MINCPR            = srvSettings.mincpr;
-                CONFIG.CPR_BOOST         = srvSettings.cpr_boost;
-                CONFIG.CPR_LOOKBACK_DAYS = srvSettings.lookback_days;
-                CONFIG.SCOPE             = srvSettings.scope;
+                CONFIG.ACTIVE_DAYS             = srvSettings.active_days;
+                CONFIG.FORECAST_HOURS          = srvSettings.forecast_hours;
+                CONFIG.MINCPR                  = srvSettings.mincpr;
+                CONFIG.CPR_BOOST               = srvSettings.cpr_boost;
+                CONFIG.CPR_LOOKBACK_DAYS       = srvSettings.lookback_days;
+                CONFIG.HIGH_WEIGHT_THRESHOLD   = srvSettings.high_weight_pct      ?? CONFIG.HIGH_WEIGHT_THRESHOLD;
+                CONFIG.HIGH_WEIGHT_MIN_CPR     = srvSettings.high_weight_mincpr   ?? CONFIG.HIGH_WEIGHT_MIN_CPR;
+                CONFIG.SCOPE                   = srvSettings.scope;
 
                 // Sync local storage with server values
-                GM_setValue('cfg_active_days',    CONFIG.ACTIVE_DAYS);
-                GM_setValue('cfg_forecast_hours', CONFIG.FORECAST_HOURS);
-                GM_setValue('cfg_mincpr',         CONFIG.MINCPR);
-                GM_setValue('cfg_cpr_boost',      CONFIG.CPR_BOOST);
-                GM_setValue('cfg_lookback_days',  CONFIG.CPR_LOOKBACK_DAYS);
-                GM_setValue('cfg_scope',          CONFIG.SCOPE);
+                GM_setValue('cfg_active_days',         CONFIG.ACTIVE_DAYS);
+                GM_setValue('cfg_forecast_hours',      CONFIG.FORECAST_HOURS);
+                GM_setValue('cfg_mincpr',              CONFIG.MINCPR);
+                GM_setValue('cfg_cpr_boost',           CONFIG.CPR_BOOST);
+                GM_setValue('cfg_lookback_days',       CONFIG.CPR_LOOKBACK_DAYS);
+                GM_setValue('cfg_high_weight_pct',     CONFIG.HIGH_WEIGHT_THRESHOLD);
+                GM_setValue('cfg_high_weight_mincpr',  CONFIG.HIGH_WEIGHT_MIN_CPR);
+                GM_setValue('cfg_scope',               CONFIG.SCOPE);
 
                 populateSettings();
             }
