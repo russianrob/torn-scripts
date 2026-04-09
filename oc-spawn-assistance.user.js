@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.7
+// @version      1.7.8
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -160,16 +160,79 @@
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //  API KEY
+    //  API KEY  — AES-256-GCM encrypted in storage, cached plaintext in memory
     // ═══════════════════════════════════════════════════════════════════════
-    function getApiKey() {
-        const saved = GM_getValue('oc_spawn_api_key', '');
-        if (saved) return saved;
-        if (typeof window.localAPIkey === 'string' && window.localAPIkey.length > 0)
-            return window.localAPIkey;
+    const _KEY_CONTEXT = 'oc-spawn-aes-256-v1'; // public app context string
+    let _derivedKey    = null; // cached CryptoKey (derived once per session)
+    let _cachedPlainKey = null; // cached decrypted key
+
+    async function _getDerivedKey() {
+        if (_derivedKey) return _derivedKey;
+        let salt = GM_getValue('oc_enc_salt', null);
+        if (!salt) {
+            salt = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+                .map(b => b.toString(16).padStart(2, '0')).join('');
+            GM_setValue('oc_enc_salt', salt);
+        }
+        const material = await crypto.subtle.importKey(
+            'raw', new TextEncoder().encode(_KEY_CONTEXT + salt),
+            'PBKDF2', false, ['deriveKey']
+        );
+        _derivedKey = await crypto.subtle.deriveKey(
+            { name: 'PBKDF2', salt: new TextEncoder().encode(salt), iterations: 100000, hash: 'SHA-256' },
+            material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+        );
+        return _derivedKey;
+    }
+
+    async function _encryptKey(plaintext) {
+        const k  = await _getDerivedKey();
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const enc = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, new TextEncoder().encode(plaintext));
+        const buf = new Uint8Array(12 + enc.byteLength);
+        buf.set(iv); buf.set(new Uint8Array(enc), 12);
+        return btoa(String.fromCharCode(...buf));
+    }
+
+    async function _decryptKey(cipher) {
+        const k   = await _getDerivedKey();
+        const buf = Uint8Array.from(atob(cipher), c => c.charCodeAt(0));
+        const dec = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, k, buf.slice(12));
+        return new TextDecoder().decode(dec);
+    }
+
+    async function getApiKey() {
+        if (_cachedPlainKey) return _cachedPlainKey;
+        // TornPDA injection takes highest priority
+        if (typeof window.localAPIkey === 'string' && window.localAPIkey.length > 0) {
+            _cachedPlainKey = window.localAPIkey; return _cachedPlainKey;
+        }
+        // Try encrypted storage
+        try {
+            const enc = GM_getValue('oc_spawn_key_enc', '');
+            if (enc) { _cachedPlainKey = await _decryptKey(enc); return _cachedPlainKey; }
+        } catch (e) { console.warn('[OC Spawn] Key decrypt failed:', e); }
+        // Migrate legacy plaintext key
+        const plain = GM_getValue('oc_spawn_api_key', '');
+        if (plain && plain !== 'YOUR_API_KEY_HERE') {
+            _cachedPlainKey = plain;
+            await saveApiKey(plain); // re-save encrypted
+            return _cachedPlainKey;
+        }
         return CONFIG.API_KEY;
     }
-    function saveApiKey(key) { GM_setValue('oc_spawn_api_key', key.trim()); }
+
+    async function saveApiKey(key) {
+        const trimmed = key.trim();
+        _cachedPlainKey = trimmed;
+        try {
+            GM_setValue('oc_spawn_key_enc', await _encryptKey(trimmed));
+            GM_setValue('oc_spawn_api_key', ''); // clear any legacy plaintext
+        } catch (e) {
+            console.warn('[OC Spawn] Key encryption failed, storing plaintext:', e);
+            GM_setValue('oc_spawn_api_key', trimmed);
+        }
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     //  GENERIC REQUEST  — GM_xmlhttpRequest (TornPDA) or fetch
@@ -590,8 +653,8 @@
         if (opening) populateSettings();
     });
 
-    function populateSettings() {
-        const key = getApiKey();
+    async function populateSettings() {
+        const key = await getApiKey();
         const inp = document.getElementById('oc-spawn-key-input');
         inp.value = '';
         inp.placeholder = (key && key !== 'YOUR_API_KEY_HERE') ? '••••••••' + key.slice(-4) : 'Paste API key…';
@@ -605,8 +668,8 @@
         document.getElementById('cfg-lookback-days').value  = CONFIG.CPR_LOOKBACK_DAYS;
     }
 
-    function checkKeyRow() {
-        const key = getApiKey();
+    async function checkKeyRow() {
+        const key = await getApiKey();
         if (!key || key === 'YOUR_API_KEY_HERE') {
             document.getElementById('oc-settings-panel').style.display = 'block';
             populateSettings();
@@ -614,14 +677,14 @@
     }
     checkKeyRow();
 
-    document.getElementById('oc-spawn-key-save').addEventListener('click', () => {
+    document.getElementById('oc-spawn-key-save').addEventListener('click', async () => {
         const val = document.getElementById('oc-spawn-key-input').value.trim();
         if (val.length < 10) return;
-        saveApiKey(val);
+        await saveApiKey(val);
         GM_setValue('oc_srv_token', null);
         document.getElementById('oc-spawn-key-input').value = '';
         document.getElementById('oc-spawn-key-input').placeholder = '••••••••' + val.slice(-4);
-        setStatus('API key saved. Click Refresh.');
+        setStatus('API key saved — encrypted in storage. Click Refresh.');
     });
 
     document.getElementById('oc-spawn-cfg-save').addEventListener('click', async () => {
@@ -644,7 +707,7 @@
 
         document.getElementById('oc-settings-panel').style.display = 'none';
         setStatus('Saving settings for all faction members…');
-        const apiKey = getApiKey();
+        const apiKey = await getApiKey();
         if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') await pushFactionSettings(apiKey, CONFIG);
         setStatus('Settings saved for all faction members. Click Refresh.');
     });
@@ -1172,7 +1235,7 @@
     //  MAIN
     // ═══════════════════════════════════════════════════════════════════════
     async function runAnalysis() {
-        const apiKey = getApiKey();
+        const apiKey = await getApiKey();
         if (!apiKey || apiKey === 'YOUR_API_KEY_HERE') {
             document.getElementById('oc-settings-panel').style.display = 'block';
             populateSettings();
@@ -1259,7 +1322,7 @@
 
     if (window.location.href.includes('tab=crimes') || window.location.hash.includes('crimes')) {
         panelVisible = true; panel.style.display = 'block';
-        if (getApiKey()) setTimeout(runAnalysis, 500);
+        getApiKey().then(k => { if (k && k !== 'YOUR_API_KEY_HERE') setTimeout(runAnalysis, 500); });
     }
 
     // Start DOM scope reader (runs whenever recruiting tab is visible)
