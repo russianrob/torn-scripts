@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn – CE per Nerve Tracker
 // @namespace    https://torn.com
-// @version      3.3.3
+// @version      3.4.0
 // @description  Tracks CE per nerve for every crime type. Live crime chain, progression bonus, NNB tracking via API key with faction offset so the panel shows your real base NNB.
 // @author       Custom
 // @match        https://www.torn.com/loader.php?sid=crimes*
@@ -144,13 +144,14 @@
         const resolvedName = hashSlug
             ? hashSlug.charAt(0).toUpperCase() + hashSlug.slice(1)
             : (TYPE_NAMES[typeID] || `Type ${typeID}`);
-        if (!stats[typeID]) stats[typeID] = {
+        // Key by hashSlug when available so local data merges with server history keys
+        const storageKey = hashSlug ? hashSlug.toLowerCase() : String(typeID);
+        if (!stats[storageKey]) stats[storageKey] = {
             typeID, name: resolvedName,
             attempts:0, successes:0, failures:0, criticals:0, totalNerveSpent:0,
         };
-        // Always update from hash slug when available — overrides any stale stored name
-        if (hashSlug) stats[typeID].name = resolvedName;
-        const s = stats[typeID];
+        if (hashSlug) stats[storageKey].name = resolvedName;
+        const s = stats[storageKey];
         s.attempts++;
         s.totalNerveSpent += nerveCost;
         if      (outcome === 'success')                  s.successes++;
@@ -288,11 +289,26 @@
                 crimeChain = data.crimeChain;
             }
 
-            // Inject server-calculated bust stats as a virtual entry
-            if (data.bustStats) {
-                const serverBusts = loadStats();
-                serverBusts['busting'] = { ...data.bustStats, _fromServer: true };
-                saveStats(serverBusts);
+            // Merge server historical crime stats as baseline (keyed by name)
+            if (data.crimeHistoryStats || data.bustStats) {
+                const merged = loadStats();
+
+                // Crime history: use server data as baseline when server has more attempts
+                if (data.crimeHistoryStats) {
+                    for (const [name, srv] of Object.entries(data.crimeHistoryStats)) {
+                        const key = name.toLowerCase();
+                        const local = merged[key];
+                        // Use server data if no local data or server has significantly more
+                        if (!local || srv.attempts > (local.attempts || 0)) {
+                            merged[key] = { ...srv, _fromServer: true };
+                        }
+                    }
+                }
+
+                // Bust stats
+                if (data.bustStats) merged['busting'] = { ...data.bustStats, _fromServer: true };
+
+                saveStats(merged);
             }
 
             meta = { ...meta, nnb: nnbCurrent, nnbPrev, chain: crimeChain, factionOffset };
