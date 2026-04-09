@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.6.9
+// @version      1.7.0
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -361,6 +361,21 @@
         .oc-error { color: #f87171; font-weight: 600; }
         .oc-hdr-btn { background: #1a2a1f; color: #9ca3af; border: 1px solid #2d4a3e; border-radius: 6px; padding: 4px 9px; font-size: 12px; cursor: pointer; line-height: 1; font-family: inherit; }
         .oc-hdr-btn:hover { background: #253525; color: #d1d5db; }
+        /* Viewer personal card */
+        .oc-viewer-card {
+            background: #111f18; border: 1px solid #2d4a3e;
+            border-left: 3px solid #74c69d;
+            border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; font-size: 11px;
+        }
+        .oc-viewer-name { font-weight: 600; color: #f3f4f6; margin-bottom: 4px; }
+        .oc-viewer-meta { color: #9ca3af; margin-bottom: 5px; font-size: 10px; }
+        .oc-viewer-crimes { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+        .oc-viewer-crime {
+            background: rgba(116,198,157,.12); color: #74c69d;
+            border: 1px solid rgba(116,198,157,.25); border-radius: 4px;
+            padding: 2px 8px; font-size: 10px;
+        }
+        .oc-viewer-none { color: #6b7280; font-size: 10px; font-style: italic; }
     `);
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -960,7 +975,55 @@
         </table>`;
     }
 
-    function renderBody(recs, eligible, skipped, scopeProjection) {
+    function renderViewerCard(viewer, eligible, skipped, availableCrimes) {
+        if (!viewer || !viewer.playerId) return '';
+        const vid = String(viewer.playerId);
+
+        // Find viewer in eligible or skipped
+        const me = eligible.find(m => String(m.id) === vid)
+                || skipped.find(m => String(m.id) === vid);
+
+        const cprText  = me?.cpr != null ? `${me.cpr}% CPR` : 'No CPR data';
+        const cprColor = me?.cpr >= 80 ? '#74c69d' : me?.cpr >= 60 ? '#f4a261' : '#9ca3af';
+        const joinable = me?.joinable || 1;
+
+        let statusHtml;
+        if (!me) {
+            statusHtml = `<span style="color:#6b7280">Not found in eligible members</span>`;
+        } else if (me.inOC) {
+            statusHtml = `<span class="oc-badge oc-badge-in">In OC → free ${fmtTs(me.ocReadyAt)}</span>`;
+        } else {
+            statusHtml = `<span class="oc-badge oc-badge-free">Free now</span>`;
+        }
+
+        // Find recruiting OCs the viewer can join (at their joinable level, with open slots)
+        const myOcs = normArr(availableCrimes).filter(c => {
+            if (c.status !== 'Recruiting') return false;
+            if (c.difficulty !== joinable) return false;
+            return (c.slots || []).some(s => !s.user_id && !s.user?.id);
+        });
+
+        let recsHtml;
+        if (me?.inOC) {
+            recsHtml = `<div class="oc-viewer-none">You\'re already in an OC.</div>`;
+        } else if (myOcs.length === 0) {
+            recsHtml = `<div class="oc-viewer-none">No open Lvl ${joinable} OCs recruiting right now.</div>`;
+        } else {
+            const chips = myOcs.map(c => {
+                const open = (c.slots || []).filter(s => !s.user_id && !s.user?.id).length;
+                return `<span class="oc-viewer-crime">${c.name} (${open} slot${open > 1 ? 's' : ''})</span>`;
+            }).join('');
+            recsHtml = `<div class="oc-viewer-crimes">${chips}</div>`;
+        }
+
+        return `<div class="oc-viewer-card">
+            <div class="oc-viewer-name">${viewer.playerName} • Lvl ${joinable} • <span style="color:${cprColor}">${cprText}</span></div>
+            <div class="oc-viewer-meta">${statusHtml}</div>
+            ${recsHtml}
+        </div>`;
+    }
+
+    function renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes) {
         const total = eligible.length + skipped.length;
         const eli   = eligible.length;
         const free  = eligible.filter(m => !m.inOC).length;
@@ -986,6 +1049,7 @@
                 <span class="oc-stat-chip"><b>${free}</b> free now</span>
                 <span class="oc-stat-chip"><b>${soon}</b> soon</span>
             </div>
+            ${renderViewerCard(viewer, eligible, skipped, availableCrimes)}
             ${renderScopeStrip(scopeProjection)}
             ${banner}
             <h3>Spawn Recommendations — High Priority First</h3>
@@ -1042,9 +1106,9 @@
 
             // Fetch OC data from server
             setStatus('Fetching OC data…');
-            let members, availableCrimes, rawCprCache;
+            let members, availableCrimes, rawCprCache, viewer;
             try {
-                ({ members, availableCrimes, cprCache: rawCprCache } = await fetchServerOcData(apiKey));
+                ({ members, availableCrimes, cprCache: rawCprCache, viewer } = await fetchServerOcData(apiKey));
             } catch (err) {
                 if (err.status === 403) {
                     document.getElementById('oc-spawn-body').innerHTML =
@@ -1072,7 +1136,7 @@
             lastScopeProjection         = scopeProjection; // cache for tooltip
             const recs                  = buildRecommendations(eligible, slotMap, scopeProjection);
 
-            renderBody(recs, eligible, skipped, scopeProjection);
+            renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes);
             setStatus(`Last updated: ${new Date().toLocaleTimeString()} · ${normArr(members).length} members`);
 
         } catch (err) {
