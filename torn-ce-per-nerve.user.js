@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Torn – CE per Nerve Tracker
 // @namespace    https://torn.com
-// @version      1.0.0
-// @description  Tracks skill (CE) gain per nerve spent for every crime type and ranks them so you know which crime grows your nerve bar fastest.
+// @version      1.1.0
+// @description  Tracks CE (skill) gain per nerve spent for every crime type and ranks them so you know which crime grows your nerve bar fastest.
 // @author       Custom
 // @match        https://www.torn.com/loader.php?sid=crimes*
 // @match        https://torn.com/loader.php?sid=crimes*
@@ -79,9 +79,11 @@
         '8':  'Disposal',
         '9':  'Cracking',
         '10': 'Graffiti',
-        '11': 'Murder',
+        '11': 'Forgery',   // was incorrectly 'Murder'
         '12': 'Scamming',
         '13': 'Arson',
+        '14': 'Murder',
+        '15': 'Vandalism',
     };
 
     // ── Persisted maps ─────────────────────────────────────────────────────
@@ -272,7 +274,19 @@
 
                     // ── Skill after ──────────────────────────────────────
                     const statsArr = data.DB.currentUserStatistics || [];
-                    // Try to find the Skill stat by name; fall back to index 0
+
+                    if (DEBUG) {
+                        console.log('[CE Tracker] Full currentUserStatistics:', JSON.stringify(statsArr));
+                        console.log('[CE Tracker] Full outcome obj:', JSON.stringify(data.DB.outcome));
+                        // Log any field that might be CE/exp related
+                        const ceKeys = Object.keys(data.DB).filter(k =>
+                            /exp|xp|ce|skill|gain|score|bonus|progression/i.test(k)
+                        );
+                        if (ceKeys.length) console.log('[CE Tracker] CE-related DB keys:', ceKeys,
+                            ceKeys.reduce((o,k) => ({...o,[k]:data.DB[k]}), {}));
+                    }
+
+                    // Try to find skill stat: by name match first, then index 0
                     const skillStat = statsArr.find(s =>
                         (s.name  || '').toLowerCase().includes('skill') ||
                         (s.type  || '').toLowerCase().includes('skill') ||
@@ -282,6 +296,21 @@
                     const skillAfter = (rawSkillAfter != null)
                         ? parseFloat(String(rawSkillAfter).replace(/[^\d.]/g, ''))
                         : null;
+
+                    // Also check for a direct crimeExp / CE gain field in the outcome
+                    // (used when skill is capped at 100 — raw CE may still change)
+                    const rawCEGain =
+                        data.DB.outcome?.crimeExp    ??
+                        data.DB.outcome?.exp         ??
+                        data.DB.outcome?.skillGain   ??
+                        data.DB.outcome?.ceGain      ??
+                        data.DB.outcome?.score       ??
+                        data.DB.crimeExp             ??
+                        data.DB.exp                  ??
+                        null;
+                    if (DEBUG && rawCEGain != null) {
+                        console.log('[CE Tracker] Found raw CE gain field:', rawCEGain);
+                    }
 
                     // ── Nerve cost ───────────────────────────────────────
                     // Priority: cached map → outcome fields → DB root → DOM
@@ -325,13 +354,21 @@
                     }
 
                     // Record only when we have all required data
+                    // If we have a direct CE gain value, use it even when skill=100
+                    const ceGainDirect = (rawCEGain != null) ? parseFloat(String(rawCEGain)) : null;
+
                     if (typeID && skillBefore != null && skillAfter != null && nerveCost) {
                         recordAttempt(typeID, crimeID, skillBefore, skillAfter,
-                                      Number(nerveCost), outcome);
+                                      Number(nerveCost), outcome, ceGainDirect);
+                        setTimeout(renderPanel, 150);
+                    } else if (typeID && nerveCost && ceGainDirect != null) {
+                        // Fallback: use direct CE gain if skill read failed but we have raw CE
+                        recordAttempt(typeID, crimeID, 0, ceGainDirect,
+                                      Number(nerveCost), outcome, ceGainDirect);
                         setTimeout(renderPanel, 150);
                     } else {
                         if (DEBUG) console.warn('[CE Tracker] Skipped recording — missing:',
-                            { typeID, skillBefore, skillAfter, nerveCost });
+                            { typeID, skillBefore, skillAfter, nerveCost, ceGainDirect });
                     }
 
                 } catch (err) {
@@ -345,7 +382,7 @@
 
     // ── Record attempt ─────────────────────────────────────────────────────
 
-    function recordAttempt(typeID, crimeID, skillBefore, skillAfter, nerveCost, outcome) {
+    function recordAttempt(typeID, crimeID, skillBefore, skillAfter, nerveCost, outcome, ceGainDirect) {
         const stats = loadStats();
         const key   = typeID; // Track per type (covers all sub-crimes in the type)
 
@@ -364,7 +401,10 @@
         }
 
         const s     = stats[key];
-        const delta = skillAfter - skillBefore;
+        // Use direct CE gain when available (handles skill-capped-at-100 crimes)
+        const delta = (ceGainDirect != null && !isNaN(ceGainDirect))
+            ? ceGainDirect
+            : (skillAfter - skillBefore);
 
         s.attempts++;
         s.totalNerveSpent += nerveCost;
@@ -623,14 +663,15 @@
         for (let i = 0; i < rows.length; i++) {
             const r      = rows[i];
             const lowN   = r.attempts < 10;
-            const effStr = (r.eff * 10).toFixed(3);
+            const skillMaxed = r.eff === 0 && r.sr >= 90 && r.attempts >= 3;
+            const effStr = skillMaxed ? 'maxed' : (r.eff * 10).toFixed(3);
             const tooltip = lowN ? ' title="Low sample — fewer than 10 attempts"' : '';
 
             html += `
                 <div class="ce-row">
                     <span class="ce-rank">${i + 1}</span>
                     <span class="ce-name"${tooltip}>${r.name}${lowN ? ' ⚠' : ''}</span>
-                    <span class="ce-val ${colorClass(r.eff)}">${effStr}</span>
+                    <span class="ce-val ${skillMaxed ? 'g5' : colorClass(r.eff)}" title="${skillMaxed ? 'Skill at 100 — CE not visible through display stat' : ''}">${effStr}</span>
                     <span class="ce-sr">${r.sr.toFixed(0)}%</span>
                     <span class="ce-n">${r.attempts}</span>
                 </div>`;
