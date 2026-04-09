@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn – CE per Nerve Tracker
 // @namespace    https://torn.com
-// @version      3.1.0
+// @version      3.1.1
 // @description  Tracks CE per nerve for every crime type. Live crime chain, progression bonus, NNB tracking via API key with faction offset so the panel shows your real base NNB.
 // @author       Custom
 // @match        https://www.torn.com/loader.php?sid=crimes*
@@ -65,7 +65,7 @@
     const TYPE_NAMES = {
         '1':'Search for Cash', '2':'Bootlegging',   '3':'Shoplifting',
         '4':'Card Skimming',   '5':'Burglary',       '6':'Pickpocketing',
-        '7':'Hustling',        '8':'Disposal',        '9':'Cracking',
+        '7':'Hustling',        '8':'Cracking',         '9':'Disposal',
         '10':'Graffiti',       '11':'Forgery',        '12':'Scamming',
         '13':'Arson',          '14':'Murder',         '15':'Vandalism',
     };
