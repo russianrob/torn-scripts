@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.6.8
+// @version      1.6.9
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -196,13 +196,15 @@
                     onload(r) {
                         try {
                             const data = JSON.parse(r.responseText);
-                            resolve({ ok: r.status < 400, status: r.status, data });
+                            resolve({ ok: r.status >= 200 && r.status < 300, status: r.status, data });
                         } catch (e) {
-                            const snippet = (r.responseText || '').substring(0, 100).replace(/<[^>]*>/g, '');
-                            reject(new Error(`Bad JSON (${r.status}): ${snippet}...`));
+                            const msg = r.status === 502 || r.status === 503
+                                ? 'Server temporarily unavailable — wait a moment and try again'
+                                : `Unexpected server response (${r.status})`;
+                            resolve({ ok: false, status: r.status, data: { error: msg } });
                         }
                     },
-                    onerror(err) { reject(new Error('Network error: ' + (err.statusText || 'check console'))); },
+                    onerror() { reject(new Error('Network error — could not reach tornwar.com')); },
                 });
             });
         }
@@ -210,8 +212,10 @@
             const text = await r.text();
             try { return { ok: r.ok, status: r.status, data: JSON.parse(text) }; }
             catch (e) {
-                const snippet = text.substring(0, 100).replace(/<[^>]*>/g, '');
-                throw new Error(`Bad JSON (${r.status}): ${snippet}...`);
+                const msg = r.status === 502 || r.status === 503
+                    ? 'Server temporarily unavailable — wait a moment and try again'
+                    : `Unexpected server response (${r.status})`;
+                return { ok: false, status: r.status, data: { error: msg } };
             }
         });
     }
@@ -542,7 +546,12 @@
     makeDraggable(panel, {
         handle: panel.querySelector('h2'),
     });
-    document.getElementById('oc-spawn-refresh').addEventListener('click', runAnalysis);
+    let _lastRefresh = 0;
+    document.getElementById('oc-spawn-refresh').addEventListener('click', () => {
+        if (Date.now() - _lastRefresh < 3000) return; // 3s cooldown between refreshes
+        _lastRefresh = Date.now();
+        runAnalysis();
+    });
     document.getElementById('oc-spawn-close').addEventListener('click', () => { panelVisible = false; panel.style.display = 'none'; });
     document.getElementById('oc-spawn-settings').addEventListener('click', () => {
         const sp = document.getElementById('oc-settings-panel');
