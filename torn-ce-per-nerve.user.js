@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn – CE per Nerve Tracker
 // @namespace    https://torn.com
-// @version      3.2.1
+// @version      3.2.2
 // @description  Tracks CE per nerve for every crime type. Live crime chain, progression bonus, NNB tracking via API key with faction offset so the panel shows your real base NNB.
 // @author       Custom
 // @match        https://www.torn.com/loader.php?sid=crimes*
@@ -145,6 +145,8 @@
             typeID, name: TYPE_NAMES[typeID] || `Type ${typeID}`,
             attempts:0, successes:0, failures:0, criticals:0, totalNerveSpent:0,
         };
+        // Always sync name in case the mapping was corrected after data was first recorded
+        if (TYPE_NAMES[typeID]) stats[typeID].name = TYPE_NAMES[typeID];
         const s = stats[typeID];
         s.attempts++;
         s.totalNerveSpent += nerveCost;
