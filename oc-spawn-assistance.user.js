@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.8.0
+// @version      1.7.7
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -1259,7 +1259,7 @@
 
     if (window.location.href.includes('tab=crimes') || window.location.hash.includes('crimes')) {
         panelVisible = true; panel.style.display = 'block';
-        if (getApiKey() !== 'YOUR_API_KEY_HERE') setTimeout(runAnalysis, 500);
+        if (getApiKey()) setTimeout(runAnalysis, 500);
     }
 
     // Start DOM scope reader (runs whenever recruiting tab is visible)
