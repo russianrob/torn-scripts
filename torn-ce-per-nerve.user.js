@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn – CE per Nerve Tracker
 // @namespace    https://torn.com
-// @version      3.4.0
+// @version      3.4.1
 // @description  Tracks CE per nerve for every crime type. Live crime chain, progression bonus, NNB tracking via API key with faction offset so the panel shows your real base NNB.
 // @author       Custom
 // @match        https://www.torn.com/loader.php?sid=crimes*
@@ -384,6 +384,10 @@ gap:3px;padding:3px 4px;border-radius:4px;align-items:center;}
 .g1{color:#34d399;}.g2{color:#86efac;}.g3{color:#fbbf24;}.g4{color:#f97316;}.g5{color:#f87171;}
 .fire{color:#f97316;}
 #ce-p.col #ce-body,#ce-p.col #ce-foot,#ce-p.col #ce-api-bar{display:none;}
+        #ce-p.minimized{display:none;}
+        #ce-icon{position:fixed;width:38px;height:38px;background:#1e293b;border:2px solid #3b82f6;border-radius:50%;display:none;align-items:center;justify-content:center;cursor:pointer;z-index:99999;box-shadow:0 4px 14px rgba(0,0,0,.7);font-size:18px;user-select:none;}
+        #ce-icon.vis{display:flex;}
+        #ce-icon:hover{background:#2d3f57;}
         `;
         document.head.appendChild(s);
     }
@@ -402,6 +406,7 @@ gap:3px;padding:3px 4px;border-radius:4px;align-items:center;}
     <button class="cbt" id="ce-api-refresh" title="Refresh NNB + chain from API">↻</button>
     <button class="cbt" id="ce-tog">▼</button>
     <button class="cbt" id="ce-rst">Reset</button>
+    <button class="cbt" id="ce-min" style="margin-left:4px" title="Minimize">✕</button>
   </div>
 </div>
 <div id="ce-status">
@@ -434,6 +439,17 @@ gap:3px;padding:3px 4px;border-radius:4px;align-items:center;}
 </div>`;
         document.body.appendChild(p);
 
+        // Floating icon — shown when minimized
+        const icon = document.createElement('div');
+        icon.id = 'ce-icon'; icon.title = 'Open CE Tracker'; icon.textContent = '⚡';
+        document.body.appendChild(icon);
+        const iconPos = JSON.parse(localStorage.getItem(KEY+'_ipos') || 'null');
+        if (iconPos) { icon.style.top = iconPos.top; icon.style.left = iconPos.left; }
+        else { icon.style.top = '75px'; icon.style.right = '8px'; }
+        if (localStorage.getItem(KEY+'_min') === '1') {
+            p.classList.add('minimized'); icon.classList.add('vis');
+        }
+
         // Restore position
         const pos = JSON.parse(localStorage.getItem(KEY + '_pos') || 'null');
         if (pos) { p.style.top = pos.top; p.style.left = pos.left; p.style.right = 'auto'; }
@@ -449,9 +465,19 @@ gap:3px;padding:3px 4px;border-radius:4px;align-items:center;}
         };
 
         // Reset
+        document.getElementById('ce-min').onclick = () => {
+            p.classList.add('minimized'); icon.classList.add('vis');
+            localStorage.setItem(KEY+'_min', '1');
+        };
+        icon.onclick = () => {
+            p.classList.remove('minimized'); icon.classList.remove('vis');
+            localStorage.removeItem(KEY+'_min');
+        };
+        makeDraggable(icon, icon, KEY+'_ipos');
+
         document.getElementById('ce-rst').onclick = () => {
             if (!confirm('Clear all CE tracking data? Chain and NNB history will also reset.')) return;
-            [KEY+'_stats', KEY+'_ncm', KEY+'_pos', KEY+'_meta'].forEach(k => localStorage.removeItem(k));
+            [KEY+'_stats', KEY+'_ncm', KEY+'_pos', KEY+'_meta', KEY+'_min', KEY+'_ipos'].forEach(k => localStorage.removeItem(k));
             crimeChain = 0; nnbCurrent = null; nnbPrev = null; factionOffset = 0; meta = {};
             nerveCostMap = {};
             sessionCount = 0;
@@ -492,11 +518,12 @@ gap:3px;padding:3px 4px;border-radius:4px;align-items:center;}
     }
 
     // ── Draggable (mouse + touch) ──────────────────────────────────────────
-    function makeDraggable(el, handle) {
+    function makeDraggable(el, handle, posKey) {
+        const pk = posKey || (KEY+'_pos');
         let ox, oy, on = false;
         const start = (cx, cy) => { on=true; const r=el.getBoundingClientRect(); ox=cx-r.left; oy=cy-r.top; };
         const move  = (cx, cy) => { if(!on) return; el.style.left=(cx-ox)+'px'; el.style.top=(cy-oy)+'px'; el.style.right='auto'; };
-        const end   = () => { if(on){ localStorage.setItem(KEY+'_pos', JSON.stringify({left:el.style.left,top:el.style.top})); on=false; } };
+        const end   = () => { if(on){ localStorage.setItem(pk, JSON.stringify({left:el.style.left,top:el.style.top})); on=false; } };
         handle.addEventListener('mousedown',  e=>{start(e.clientX,e.clientY);e.preventDefault();});
         document.addEventListener('mousemove', e=>move(e.clientX,e.clientY));
         document.addEventListener('mouseup',   end);
