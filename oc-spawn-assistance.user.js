@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.1
+// @version      1.7.3
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -760,6 +760,7 @@
                 noCrimeHistory: cprValue === null,
                 cprEstimated:  cpr?.estimated || false,
                 cprEntries:    cpr?.entries ?? [],
+                byPosition:    cpr?.byPosition ?? {},
             });
         }
         return { eligible, skipped };
@@ -1005,7 +1006,8 @@
             statusHtml = `<span class="oc-badge oc-badge-free">Free now</span>`;
         }
 
-        // Find recruiting OCs the viewer can join (at their joinable level, with open slots)
+        // Find recruiting OCs with best-fit position recommendation
+        const byPos = me?.byPosition || {};
         const myOcs = normArr(availableCrimes).filter(c => {
             if (c.status !== 'Recruiting') return false;
             if (c.difficulty !== joinable) return false;
@@ -1019,8 +1021,17 @@
             recsHtml = `<div class="oc-viewer-none">No open Lvl ${joinable} OCs recruiting right now.</div>`;
         } else {
             const chips = myOcs.map(c => {
-                const open = (c.slots || []).filter(s => !s.user_id && !s.user?.id).length;
-                return `<span class="oc-viewer-crime">${c.name} (${open} slot${open > 1 ? 's' : ''})</span>`;
+                const openSlots = (c.slots || []).filter(s => !s.user_id && !s.user?.id);
+                let bestPos = null, bestCPR = -1;
+                for (const slot of openSlots) {
+                    const key = slot.position_id || slot.position;
+                    const pd  = byPos[key];
+                    if (pd && pd.cpr > bestCPR) { bestCPR = pd.cpr; bestPos = pd.position; }
+                }
+                const posTag = bestPos
+                    ? ` <span style="color:#9ca3af;font-size:9px;">as ${bestPos}${bestCPR > 0 ? ' ' + bestCPR + '%' : ''}</span>`
+                    : ` <span style="color:#6b7280;font-size:9px;">${openSlots.length} slot${openSlots.length > 1 ? 's' : ''}</span>`;
+                return `<span class="oc-viewer-crime">${c.name}${posTag}</span>`;
             }).join('');
             recsHtml = `<div class="oc-viewer-crimes">${chips}</div>`;
         }
