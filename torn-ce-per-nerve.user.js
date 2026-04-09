@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         Torn – CE per Nerve Tracker
 // @namespace    https://torn.com
-// @version      3.3.1
+// @version      3.3.2
 // @description  Tracks CE per nerve for every crime type. Live crime chain, progression bonus, NNB tracking via API key with faction offset so the panel shows your real base NNB.
 // @author       Custom
 // @match        https://www.torn.com/loader.php?sid=crimes*
 // @match        https://torn.com/loader.php?sid=crimes*
 // @match        https://www.torn.com/page.php?sid=crimes*
 // @match        https://torn.com/page.php?sid=crimes*
-// @grant        none
+// @grant        GM_xmlhttpRequest
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -240,8 +240,21 @@
 
     function getApiKey() { return meta.apiKey || null; }  // kept for config POST only
 
-    // Fetch from server with a hard 10s timeout so it never hangs on PDA
+    // GM_xmlhttpRequest (TornPDA) or fetch (desktop) — mirrors OC Spawn Assistance approach
     function serverFetch(url) {
+        if (typeof GM_xmlhttpRequest === 'function') {
+            return new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'GET', url,
+                    onload(r) {
+                        try { resolve(JSON.parse(r.responseText)); }
+                        catch (e) { reject(new Error(`Bad JSON (${r.status})`)); }
+                    },
+                    onerror(e) { reject(new Error('Network error: ' + (e.statusText || 'unknown'))); },
+                });
+            });
+        }
+        // Desktop fallback with 10s timeout
         const ctrl  = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), 10_000);
         return fetch(url, { cache: 'no-store', signal: ctrl.signal })
