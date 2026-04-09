@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.16
+// @version      1.7.17
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -1366,7 +1366,7 @@
                 // Replace admin content with locked message
                 document.getElementById('oc-tab-admin').innerHTML =
                     `<p class="oc-error" style="margin-top:8px;">🔒 Admin access requires Leader or Co-leader rank.</p>
-                     <p style="color:#6b7280;font-size:11px;">Your current rank: <b style="color:#9ca3af;">${viewer?.position || 'Unknown'}</b></p>`;
+                     <p style="color:#6b7280;font-size:11px;">Rank: <b style="color:#9ca3af;">${viewer?.position || 'Unknown'}</b> &nbsp;·&nbsp; ID: <b style="color:#9ca3af;">${viewer?.playerId || '?'}</b></p>`;
                 switchTab('profile');
             }
 
