@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.5.6
+// @version      1.5.7
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -369,28 +369,36 @@
             const saved = GM_getValue(storageKey, null);
             if (saved) {
                 el.style.bottom = 'auto'; el.style.right = 'auto';
-                el.style.top    = saved.top  + 'px';
-                el.style.left   = saved.left + 'px';
+                el.style.top  = saved.top  + 'px';
+                el.style.left = saved.left + 'px';
             }
         }
 
-        let sx, sy, sl, st, moved;
+        let sx, sy, sl, st, moved, suppressClick = false;
 
         function evtPos(e) {
             return e.touches ? [e.touches[0].clientX, e.touches[0].clientY]
                              : [e.clientX, e.clientY];
         }
 
+        // Click is handled via a dedicated listener so it works reliably after drags
+        if (onClickFn) {
+            handle.addEventListener('click', e => {
+                if (suppressClick) { suppressClick = false; return; }
+                // Only fire if no drag happened (mousedown case — touch fires click natively)
+                onClickFn();
+            });
+        }
+
         function onStart(e) {
-            // Skip only interactive elements INSIDE the handle, not the handle itself
+            // Skip interactive children (but not the handle element itself)
             const interactive = e.target.closest('button, input, select, a');
-            if (interactive && interactive !== e.currentTarget) return;
+            if (interactive && interactive !== handle) return;
             const [x, y] = evtPos(e);
             sx = x; sy = y;
             const r = el.getBoundingClientRect();
             sl = r.left; st = r.top;
             moved = false;
-            // Switch to absolute top/left so dragging works from any starting position
             el.style.bottom = 'auto'; el.style.right = 'auto';
             el.style.top  = st + 'px';
             el.style.left = sl + 'px';
@@ -398,7 +406,6 @@
             document.addEventListener('touchmove', onMove, { passive: false });
             document.addEventListener('mouseup',   onEnd);
             document.addEventListener('touchend',  onEnd);
-            e.preventDefault();
         }
 
         function onMove(e) {
@@ -417,9 +424,9 @@
             document.removeEventListener('touchmove', onMove);
             document.removeEventListener('mouseup',   onEnd);
             document.removeEventListener('touchend',  onEnd);
-            if (!moved && onClickFn) onClickFn();
-            if (moved && storageKey) {
-                GM_setValue(storageKey, {
+            if (moved) {
+                suppressClick = true; // prevent the browser-synthesized click after drag
+                if (storageKey) GM_setValue(storageKey, {
                     top:  parseInt(el.style.top),
                     left: parseInt(el.style.left),
                 });
@@ -428,7 +435,7 @@
 
         handle.style.cursor = 'grab';
         handle.addEventListener('mousedown',  onStart);
-        handle.addEventListener('touchstart', onStart, { passive: false });
+        handle.addEventListener('touchstart', onStart, { passive: true });
     }
 
     //  DOM SETUP
