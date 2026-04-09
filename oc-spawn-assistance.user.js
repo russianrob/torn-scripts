@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.13
+// @version      1.7.14
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -1309,6 +1309,11 @@
             const recs                  = buildRecommendations(eligible, slotMap, scopeProjection);
 
             renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes, weights);
+
+            // Hide settings gear for non-owner-faction members (partner factions, Xanax subs)
+            const settingsGear = document.getElementById('oc-spawn-settings');
+            if (settingsGear) settingsGear.style.display = viewer?.isOwnerFaction ? '' : 'none';
+
             setStatus(`Last updated: ${new Date().toLocaleTimeString()} · ${normArr(members).length} members`);
 
         } catch (err) {
