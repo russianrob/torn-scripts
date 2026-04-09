@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.7
+// @version      1.7.10
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -1062,12 +1062,14 @@
     }
 
     function renderViewerCard(viewer, eligible, skipped, availableCrimes) {
-        if (!viewer || !viewer.playerId) return '';
-        const vid = String(viewer.playerId);
+        // Always show card if we have at least a name
+        if (!viewer || (!viewer.playerId && !viewer.playerName)) return '';
+        const vid   = viewer.playerId ? String(viewer.playerId) : null;
+        const vname = viewer.playerName || '';
 
-        // Find viewer — match on ID (string or number) or name as fallback
-        const idMatch  = m => String(m.id) === vid || Number(m.id) === Number(vid);
-        const nameMatch = m => m.name === viewer.playerName;
+        // Find viewer — ID match (string or number) with name fallback
+        const idMatch   = m => vid && (String(m.id) === vid || Number(m.id) === Number(vid));
+        const nameMatch = m => vname && m.name === vname;
         const me = eligible.find(m => idMatch(m) || nameMatch(m))
                 || skipped.find(m => idMatch(m) || nameMatch(m));
 
