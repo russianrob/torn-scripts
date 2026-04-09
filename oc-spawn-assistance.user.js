@@ -757,7 +757,9 @@
                 ocCrimeName: inOC ? ocInfo.crimeName : null, ocStatus: inOC ? ocInfo.crimeStatus : null,
                 currentCrimeDiff: inOC ? ocInfo.crimeDifficulty : null,
                 cpr: cprValue, highestLevel: highestLvl, joinable,
-                noCrimeHistory: cprValue === null, cprEntries: cpr?.entries ?? [],
+                noCrimeHistory: cprValue === null,
+                cprEstimated:  cpr?.estimated || false,
+                cprEntries:    cpr?.entries ?? [],
             });
         }
         return { eligible, skipped };
@@ -958,9 +960,11 @@
             if (m.cpr !== null && m.cpr >= 80)                cc = 'oc-cpr-high';
             else if (m.cpr !== null && m.cpr >= CONFIG.MINCPR) cc = 'oc-cpr-mid';
             let cs;
-            if (m.cpr !== null) {
+            if (m.cpr !== null && !m.cprEstimated) {
                 cprBreakdownMap[m.id] = { name: m.name, cpr: m.cpr, entries: m.cprEntries };
                 cs = `<span class="oc-cpr-click ${cc}" data-uid="${m.id}">${m.cpr}%</span>`;
+            } else if (m.cprEstimated) {
+                cs = `<span class="oc-cpr-est" title="Estimated from level — no faction crime history yet">~${m.cpr}%</span>`;
             } else { cs = '<span class="oc-cpr-low">—</span>'; }
             return `<tr>
                 <td><span class="oc-member-name">${m.name}</span> <span class="oc-member-id">[${m.id}]</span></td>
@@ -985,8 +989,11 @@
         const me = eligible.find(m => idMatch(m) || nameMatch(m))
                 || skipped.find(m => idMatch(m) || nameMatch(m));
 
-        const cprText  = me?.cpr != null ? `${me.cpr}% CPR` : 'No CPR data';
-        const cprColor = me?.cpr >= 80 ? '#74c69d' : me?.cpr >= 60 ? '#f4a261' : '#9ca3af';
+        const cprText  = me?.cpr != null
+            ? (me.cprEstimated ? `~${me.cpr}% est.` : `${me.cpr}% CPR`)
+            : 'No CPR data';
+        const cprColor = me?.cprEstimated ? '#6b7280'
+            : me?.cpr >= 80 ? '#74c69d' : me?.cpr >= 60 ? '#f4a261' : '#9ca3af';
         const joinable = me?.joinable || 1;
 
         let statusHtml;
