@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Torn – CE per Nerve Tracker
 // @namespace    https://torn.com
-// @version      1.1.0
-// @description  Tracks CE (skill) gain per nerve spent for every crime type and ranks them so you know which crime grows your nerve bar fastest.
+// @version      2.0.0
+// @description  Tracks Crime Experience (CE) efficiency per nerve for each crime type. CE is a global hidden stat — unrelated to per-crime skill levels (0-100). Ranks crimes by expected CE yield per nerve spent.
 // @author       Custom
 // @match        https://www.torn.com/loader.php?sid=crimes*
 // @match        https://torn.com/loader.php?sid=crimes*
@@ -13,61 +13,55 @@
 // ==/UserScript==
 
 /*
- * HOW IT WORKS
+ * HOW CE WORKS IN TORN (Crimes 2.0)
  * ─────────────────────────────────────────────────────────────────────────
- * 1. Intercepts the Torn crimes page's own internal fetch calls.
- * 2. When you commit a crime (step=attempt):
- *    - Reads your current "Skill" stat from the DOM (before the crime resolves).
- *    - Reads the updated "Skill" from the API response (after).
- *    - Determines the nerve cost from cached crimesByType data or DOM fallback.
- *    - Stores: totalSkillGain / totalNerveSpent per crime type.
- * 3. Displays a draggable ranked panel: "Skill/10 nerve" = efficiency metric.
- *    Higher = that crime type grows your NNB (Natural Nerve Bar) faster per nerve.
+ * CE (Criminal Experience) is a hidden global stat that determines your
+ * Natural Nerve Bar (NNB). It has NOTHING to do with per-crime skill (0–100).
+ * - Every successful crime increases your CE by an amount ≈ proportional
+ *   to its nerve cost. Higher-nerve crimes give slightly more CE per nerve.
+ * - Failures give 0 CE but still cost nerve.
+ * - Critical failures REDUCE your CE and reset your crime chain.
+ * - NNB increases in +5 increments each time CE crosses a hidden threshold.
  *
- * NERVE COST DETECTION
+ * WHAT THIS SCRIPT TRACKS
  * ─────────────────────────────────────────────────────────────────────────
- * Nerve cost is pulled (in order of priority):
- *   1. Cached from the crimesList or attempt response's crimesByType data.
- *   2. From `data.DB.outcome.*` or `data.DB.*` fields in the attempt response.
- *   3. DOM fallback – looks for nerve-labelled stat elements.
- * If none work on the first attempt, DEBUG=true logs will show the full
- * data.DB structure so the correct path can be identified and hardcoded.
+ * Since the raw CE value isn't exposed by the crimes page API, we approximate
+ * CE efficiency using the formula:
+ *
+ *   CE Score = success_rate × avg_nerve_cost
+ *
+ * This works because:
+ *   CE gained per attempt ≈ success_rate × (k × nerve_cost)
+ *   CE gained per nerve   ≈ success_rate × k
+ *
+ * So success_rate is the dominant driver of CE per nerve.
+ * The "CE Score" column shows the absolute CE yield per attempt
+ * (success_rate × nerve), which tells you how much CE you get per crime commit
+ * factoring in failures. Higher = better for NNB growth.
  *
  * PANEL COLUMNS
  * ─────────────────────────────────────────────────────────────────────────
- *   #          Rank (1 = best for NNB growth)
- *   Crime      Crime type name
- *   Skill/10n  Average skill gained per 10 nerve spent (efficiency)
- *   Succ%      Success rate across all recorded attempts
- *   n          Total attempts recorded
- *
- * ⚠ Low sample warning shown when n < 10 (rankings may be unreliable).
+ *   Rank        1 = best for NNB growth
+ *   Crime       Crime type name
+ *   CE Score    success_rate × avg_nerve (higher = more CE per commit)
+ *   Succ%       Success rate
+ *   Nerve       Average nerve cost per attempt
+ *   n           Total attempts recorded
  *
  * DATA STORAGE
  * ─────────────────────────────────────────────────────────────────────────
- * All data is stored in localStorage under keys prefixed with "ce_nrv_v1".
- * Nothing is sent anywhere. Use the Reset button to clear all data.
+ * All data stored in localStorage. Nothing sent anywhere. Reset button clears all.
  */
 
 (function () {
     'use strict';
 
-    // ── Config ────────────────────────────────────────────────────────────
-    const STORAGE_KEY = 'ce_nrv_v1';
+    const STORAGE_KEY = 'ce_nrv_v2';
+    const DEBUG = true; // Set false after confirming nerve detection works
 
-    /**
-     * Set DEBUG = true to see detailed console logs on every crime attempt.
-     * This is useful for the first few runs to verify nerve cost detection is
-     * working. The logs will show the full data.DB key list if nerve cost
-     * cannot be found, so you can identify the correct field path.
-     */
-    const DEBUG = true;
-
-    // ── Environment ────────────────────────────────────────────────────────
-    // unsafeWindow is required to intercept the page's actual fetch (not sandbox)
     const win = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
 
-    // ── Crime type name lookup (Crimes 2.0 typeIDs) ───────────────────────
+    // Crime type names (Crimes 2.0 typeIDs)
     const TYPE_NAMES = {
         '1':  'Search for Cash',
         '2':  'Bootlegging',
@@ -79,172 +73,124 @@
         '8':  'Disposal',
         '9':  'Cracking',
         '10': 'Graffiti',
-        '11': 'Forgery',   // was incorrectly 'Murder'
+        '11': 'Forgery',
         '12': 'Scamming',
         '13': 'Arson',
         '14': 'Murder',
         '15': 'Vandalism',
     };
 
-    // ── Persisted maps ─────────────────────────────────────────────────────
-    // nerveCostMap: { crimeID|typeID -> nerveRequired }
-    let nerveCostMap  = JSON.parse(localStorage.getItem(STORAGE_KEY + '_ncm') || '{}');
-    // crimeNameMap:  { crimeID -> displayName }
-    let crimeNameMap  = JSON.parse(localStorage.getItem(STORAGE_KEY + '_cnm') || '{}');
-
-    const saveMaps = () => {
-        localStorage.setItem(STORAGE_KEY + '_ncm', JSON.stringify(nerveCostMap));
-        localStorage.setItem(STORAGE_KEY + '_cnm', JSON.stringify(crimeNameMap));
-    };
-
-    // ── Stats storage ──────────────────────────────────────────────────────
+    // ── Storage ────────────────────────────────────────────────────────────
     const loadStats = () => {
         try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
         catch { return {}; }
     };
     const saveStats = (d) => localStorage.setItem(STORAGE_KEY, JSON.stringify(d));
 
-    // ── DOM helpers ─────────────────────────────────────────────────────────
+    // Nerve cost cache: { crimeID|typeID -> nerve }
+    let nerveCostMap = JSON.parse(localStorage.getItem(STORAGE_KEY + '_ncm') || '{}');
+    const saveNerveMap = () => localStorage.setItem(STORAGE_KEY + '_ncm', JSON.stringify(nerveCostMap));
 
-    /**
-     * Reads a named stat value from the crimes page stats bar.
-     * The stats bar uses React-generated class names like "statistic___abc123"
-     * and "value___abc123", so we match with startsWith selectors.
-     */
-    function readDOMStat(label) {
-        const items = document.querySelectorAll(
-            'li[class^="statistic"], li[class*=" statistic"]'
-        );
-        for (const li of items) {
+    // ── Extract nerve costs from crimesByType ──────────────────────────────
+    function extractNerveCosts(ctd) {
+        if (!ctd) return;
+        const tryItem = (item) => {
+            if (!item || typeof item !== 'object') return;
+            const id = String(item.id ?? item.crimeID ?? item.crime_id ?? item.subID ?? '');
+            const nerve = item.nerve ?? item.nerveCost ?? item.nerve_cost ??
+                          item.nerveRequired ?? item.nerve_required ?? null;
+            if (id && nerve != null) nerveCostMap[id] = Number(nerve);
+        };
+
+        const walk = (obj) => {
+            tryItem(obj);
+            for (const key of ['crimes', 'targets', 'crimeList', 'list']) {
+                if (Array.isArray(obj[key])) obj[key].forEach(tryItem);
+            }
+        };
+
+        if (Array.isArray(ctd)) ctd.forEach(walk);
+        else if (typeof ctd === 'object') walk(ctd);
+
+        if (DEBUG) console.log('[CE Tracker] nerveCostMap:', JSON.stringify(nerveCostMap));
+        saveNerveMap();
+    }
+
+    // ── DOM fallback for nerve cost ────────────────────────────────────────
+    function readNerveCostFromDOM() {
+        // Look in stat elements for "Nerve" label
+        for (const li of document.querySelectorAll('li[class^="statistic"], li[class*=" statistic"]')) {
             for (const sp of li.querySelectorAll('span')) {
-                if (sp.textContent.trim() === label) {
-                    const val = li.querySelector(
-                        'span[class^="value"], span[class*=" value"]'
-                    );
-                    if (val) return val.textContent.trim();
+                if (sp.textContent.trim().toLowerCase() === 'nerve') {
+                    const val = li.querySelector('span[class^="value"], span[class*=" value"]');
+                    if (val) {
+                        const n = parseInt(val.textContent.trim());
+                        if (n >= 1 && n <= 50) return n;
+                    }
                 }
             }
         }
-        return null;
-    }
-
-    /** Reads the current crime's skill value from the DOM (before the attempt). */
-    function readSkillFromDOM() {
-        const raw = readDOMStat('Skill');
-        if (raw == null) return null;
-        const n = parseFloat(raw.replace(/[^\d.]/g, ''));
-        return isNaN(n) ? null : n;
-    }
-
-    /** Fallback DOM search for nerve cost if crimesByType cache misses. */
-    function readNerveCostFromDOM() {
-        // 1. Stats bar "Nerve" label
-        const raw = readDOMStat('Nerve');
-        if (raw != null) {
-            const n = parseInt(raw);
-            if (n >= 1 && n <= 50) return n;
-        }
-
-        // 2. Elements with "nerve" in class names
+        // Elements with "nerve" in class name
         for (const el of document.querySelectorAll('[class*="nerve"]')) {
             const n = parseInt(el.textContent.trim());
             if (!isNaN(n) && n >= 1 && n <= 30) return n;
         }
-
-        // 3. Text pattern "X nerve" anywhere visible on page (last resort)
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-        let node;
-        while ((node = walker.nextNode())) {
-            const m = node.textContent.trim().match(/^(\d{1,2})\s*nerve$/i);
-            if (m) {
-                const n = parseInt(m[1]);
-                if (n >= 1 && n <= 30) return n;
-            }
-        }
-
         return null;
     }
 
-    // ── Parse crimesByType for nerve costs & names ──────────────────────────
-
-    /**
-     * Attempts to extract nerve costs and sub-crime names from crimesByType data.
-     * The exact structure is unknown until the first crimesList response is logged
-     * (DEBUG=true). Multiple candidate field names are tried.
-     */
-    function extractFromCrimesByType(ctd, contextUrl) {
-        if (!ctd) return;
-
-        const processItem = (item) => {
-            if (!item || typeof item !== 'object') return;
-            const id = String(
-                item.id ?? item.crimeID ?? item.crime_id ?? item.subID ?? ''
-            );
-            if (!id) return;
-
-            const nerve = item.nerve ?? item.nerveCost ?? item.nerve_cost ??
-                          item.nerveRequired ?? item.nerve_required ??
-                          item.nerveUsed ?? null;
-            if (nerve != null) nerveCostMap[id] = Number(nerve);
-
-            const name = item.name ?? item.crimeName ?? item.crime_name ??
-                         item.title ?? item.label ?? null;
-            if (name) crimeNameMap[id] = String(name);
-        };
-
-        // Handle various possible structures
-        if (Array.isArray(ctd)) {
-            for (const type of ctd) {
-                processItem(type);
-                for (const key of ['crimes', 'targets', 'crimeList', 'list']) {
-                    if (Array.isArray(type[key])) type[key].forEach(processItem);
-                }
-            }
-        } else if (typeof ctd === 'object') {
-            processItem(ctd);
-            for (const key of ['crimes', 'targets', 'crimeList', 'list']) {
-                if (Array.isArray(ctd[key])) ctd[key].forEach(processItem);
-            }
+    // ── Record an attempt ──────────────────────────────────────────────────
+    function record(typeID, nerveCost, outcome) {
+        const stats = loadStats();
+        if (!stats[typeID]) {
+            stats[typeID] = {
+                typeID,
+                name:            TYPE_NAMES[typeID] || `Type ${typeID}`,
+                attempts:        0,
+                successes:       0,
+                failures:        0,
+                criticals:       0,
+                totalNerveSpent: 0,
+            };
         }
+        const s = stats[typeID];
+        s.attempts++;
+        s.totalNerveSpent += nerveCost;
+
+        switch (outcome) {
+            case 'success':          s.successes++; break;
+            case 'failure':          s.failures++;  break;
+            case 'critical failure': s.criticals++; break;
+        }
+
+        saveStats(stats);
 
         if (DEBUG) {
-            console.log('[CE Tracker] crimesByType keys:', Object.keys(ctd));
-            console.log('[CE Tracker] crimesByType sample:', JSON.stringify(ctd).substring(0, 700));
-            console.log('[CE Tracker] nerveCostMap now:', nerveCostMap);
+            const sr = (s.successes / s.attempts * 100).toFixed(1);
+            console.log(`[CE Tracker] ${s.name} | outcome=${outcome} nerve=${nerveCost} | ${s.attempts} attempts ${sr}% success`);
         }
-
-        saveMaps();
     }
 
     // ── Fetch intercept ────────────────────────────────────────────────────
-
     const origFetch = win.fetch;
 
     win.fetch = async function (...args) {
         const response = await origFetch.apply(this, args);
         const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url ?? '');
 
-        // Only care about the crimes data endpoint
         if (!url.includes('sid=crimesData')) return response;
 
-        // ── crimesList: build nerve cost / name maps ──────────────────────
+        // Build nerve cost map from crimesList
         if (url.includes('step=crimesList')) {
             response.clone().text().then(body => {
                 try {
                     const data = JSON.parse(body);
-                    if (data?.DB?.crimesByType) {
-                        extractFromCrimesByType(data.DB.crimesByType, url);
-                    }
-                } catch { /* ignore parse errors */ }
+                    if (data?.DB?.crimesByType) extractNerveCosts(data.DB.crimesByType);
+                } catch {}
             });
         }
 
-        // ── attempt: record skill gain & nerve cost ───────────────────────
+        // Record crime attempt
         if (url.includes('step=attempt')) {
-            // Read skill BEFORE from DOM — must happen synchronously here,
-            // before the DOM updates with the result.
-            const skillBefore = readSkillFromDOM();
-
             const typeID  = (url.match(/typeID=([^&\s]+)/)  || [])[1];
             const crimeID = (url.match(/crimeID=([^&\s]+)/) || [])[1];
 
@@ -254,125 +200,41 @@
                     if (!data?.DB?.outcome) return;
                     if (data.DB.outcome.result === 'error') return;
 
-                    if (DEBUG) {
-                        console.log('[CE Tracker] ── New attempt ──');
-                        console.log('[CE Tracker] typeID:', typeID, '| crimeID:', crimeID);
-                        console.log('[CE Tracker] DB keys:', Object.keys(data.DB));
-                        console.log('[CE Tracker] outcome:', JSON.stringify(data.DB.outcome).substring(0, 300));
-                        if (data.DB.currentUserStatistics) {
-                            console.log('[CE Tracker] currentUserStatistics:',
-                                JSON.stringify(data.DB.currentUserStatistics).substring(0, 400));
-                        }
-                    }
-
-                    // Also try to extract nerve costs from the attempt response
-                    if (data.DB.crimesByType) {
-                        extractFromCrimesByType(data.DB.crimesByType, url);
-                    }
-
                     const outcome = data.DB.outcome.result; // 'success' | 'failure' | 'critical failure'
 
-                    // ── Skill after ──────────────────────────────────────
-                    const statsArr = data.DB.currentUserStatistics || [];
+                    // Also try to extract nerve costs from the attempt response
+                    if (data.DB.crimesByType) extractNerveCosts(data.DB.crimesByType);
 
                     if (DEBUG) {
-                        console.log('[CE Tracker] Full currentUserStatistics:', JSON.stringify(statsArr));
-                        console.log('[CE Tracker] Full outcome obj:', JSON.stringify(data.DB.outcome));
-                        // Log any field that might be CE/exp related
-                        const ceKeys = Object.keys(data.DB).filter(k =>
-                            /exp|xp|ce|skill|gain|score|bonus|progression/i.test(k)
-                        );
-                        if (ceKeys.length) console.log('[CE Tracker] CE-related DB keys:', ceKeys,
-                            ceKeys.reduce((o,k) => ({...o,[k]:data.DB[k]}), {}));
+                        console.log('[CE Tracker] DB keys:', Object.keys(data.DB));
+                        console.log('[CE Tracker] outcome:', JSON.stringify(data.DB.outcome).substring(0, 400));
                     }
 
-                    // Try to find skill stat: by name match first, then index 0
-                    const skillStat = statsArr.find(s =>
-                        (s.name  || '').toLowerCase().includes('skill') ||
-                        (s.type  || '').toLowerCase().includes('skill') ||
-                        (s.label || '').toLowerCase().includes('skill')
-                    );
-                    const rawSkillAfter = skillStat?.value ?? statsArr[0]?.value;
-                    const skillAfter = (rawSkillAfter != null)
-                        ? parseFloat(String(rawSkillAfter).replace(/[^\d.]/g, ''))
-                        : null;
-
-                    // Also check for a direct crimeExp / CE gain field in the outcome
-                    // (used when skill is capped at 100 — raw CE may still change)
-                    const rawCEGain =
-                        data.DB.outcome?.crimeExp    ??
-                        data.DB.outcome?.exp         ??
-                        data.DB.outcome?.skillGain   ??
-                        data.DB.outcome?.ceGain      ??
-                        data.DB.outcome?.score       ??
-                        data.DB.crimeExp             ??
-                        data.DB.exp                  ??
-                        null;
-                    if (DEBUG && rawCEGain != null) {
-                        console.log('[CE Tracker] Found raw CE gain field:', rawCEGain);
-                    }
-
-                    // ── Nerve cost ───────────────────────────────────────
-                    // Priority: cached map → outcome fields → DB root → DOM
+                    // Nerve cost: cache → outcome fields → DB root → DOM
                     let nerveCost =
                         nerveCostMap[crimeID] ??
                         nerveCostMap[typeID]  ??
+                        data.DB.outcome?.nerve      ??
+                        data.DB.outcome?.nerveCost  ??
+                        data.DB.outcome?.nerveUsed  ??
+                        data.DB.nerveCost           ??
+                        data.DB.nerveUsed           ??
+                        data.DB.nerve               ??
+                        readNerveCostFromDOM()       ??
                         null;
 
-                    if (!nerveCost) {
-                        // Look inside outcome object
-                        nerveCost =
-                            data.DB.outcome?.nerve        ??
-                            data.DB.outcome?.nerveCost    ??
-                            data.DB.outcome?.nerveUsed    ??
-                            data.DB.outcome?.nerve_cost   ??
-                            null;
-                    }
-                    if (!nerveCost) {
-                        // Look at DB root level
-                        nerveCost =
-                            data.DB.nerveCost  ??
-                            data.DB.nerveUsed  ??
-                            data.DB.nerve      ??
-                            null;
-                    }
-                    if (!nerveCost) {
-                        // DOM fallback
-                        nerveCost = readNerveCostFromDOM();
-                    }
+                    if (DEBUG) console.log(`[CE Tracker] typeID=${typeID} crimeID=${crimeID} outcome=${outcome} nerve=${nerveCost}`);
 
-                    if (DEBUG) {
-                        console.log('[CE Tracker] skillBefore:', skillBefore,
-                            '| skillAfter:', skillAfter,
-                            '| nerveCost:', nerveCost,
-                            '| outcome:', outcome);
-                        if (!nerveCost) {
-                            console.warn('[CE Tracker] ⚠ Nerve cost NOT found. ' +
-                                'Check data.DB keys above or add a nerve-detection rule. ' +
-                                'Full outcome:', JSON.stringify(data.DB.outcome));
-                        }
-                    }
-
-                    // Record only when we have all required data
-                    // If we have a direct CE gain value, use it even when skill=100
-                    const ceGainDirect = (rawCEGain != null) ? parseFloat(String(rawCEGain)) : null;
-
-                    if (typeID && skillBefore != null && skillAfter != null && nerveCost) {
-                        recordAttempt(typeID, crimeID, skillBefore, skillAfter,
-                                      Number(nerveCost), outcome, ceGainDirect);
-                        setTimeout(renderPanel, 150);
-                    } else if (typeID && nerveCost && ceGainDirect != null) {
-                        // Fallback: use direct CE gain if skill read failed but we have raw CE
-                        recordAttempt(typeID, crimeID, 0, ceGainDirect,
-                                      Number(nerveCost), outcome, ceGainDirect);
+                    if (typeID && nerveCost) {
+                        record(typeID, Number(nerveCost), outcome);
                         setTimeout(renderPanel, 150);
                     } else {
-                        if (DEBUG) console.warn('[CE Tracker] Skipped recording — missing:',
-                            { typeID, skillBefore, skillAfter, nerveCost, ceGainDirect });
+                        console.warn('[CE Tracker] Missing typeID or nerveCost — not recorded.',
+                            { typeID, nerveCost });
                     }
 
-                } catch (err) {
-                    if (DEBUG) console.error('[CE Tracker] Error processing attempt:', err);
+                } catch (e) {
+                    if (DEBUG) console.error('[CE Tracker]', e);
                 }
             });
         }
@@ -380,337 +242,161 @@
         return response;
     };
 
-    // ── Record attempt ─────────────────────────────────────────────────────
-
-    function recordAttempt(typeID, crimeID, skillBefore, skillAfter, nerveCost, outcome, ceGainDirect) {
-        const stats = loadStats();
-        const key   = typeID; // Track per type (covers all sub-crimes in the type)
-
-        if (!stats[key]) {
-            stats[key] = {
-                typeID,
-                name:             TYPE_NAMES[typeID] || `Type ${typeID}`,
-                attempts:         0,
-                successes:        0,
-                failures:         0,
-                criticals:        0,
-                totalSkillGain:   0,
-                totalNerveSpent:  0,
-                lastUpdated:      0,
-            };
-        }
-
-        const s     = stats[key];
-        // Use direct CE gain when available (handles skill-capped-at-100 crimes)
-        const delta = (ceGainDirect != null && !isNaN(ceGainDirect))
-            ? ceGainDirect
-            : (skillAfter - skillBefore);
-
-        s.attempts++;
-        s.totalNerveSpent += nerveCost;
-        s.lastUpdated      = Date.now();
-
-        switch (outcome) {
-            case 'success':
-                s.successes++;
-                // Only count positive gain on success (floating-point guard)
-                s.totalSkillGain += Math.max(0, delta);
-                break;
-            case 'failure':
-                s.failures++;
-                // Failures cost nerve but grant no skill; total is unaffected
-                break;
-            case 'critical failure':
-                s.criticals++;
-                // Critical failures can reduce skill (delta will be negative)
-                s.totalSkillGain += delta;
-                break;
-        }
-
-        saveStats(stats);
-
-        if (DEBUG) console.log(
-            `[CE Tracker] Recorded | type=${typeID} outcome=${outcome}` +
-            ` delta=${delta.toFixed(4)} nerve=${nerveCost}` +
-            ` running eff=${(s.totalSkillGain / s.totalNerveSpent).toFixed(4)}`
-        );
-    }
-
     // ── Panel CSS ──────────────────────────────────────────────────────────
-
     function injectCSS() {
         if (document.getElementById('ce-nrv-css')) return;
-        const style = document.createElement('style');
-        style.id = 'ce-nrv-css';
-        style.textContent = `
-            #ce-nrv {
-                position: fixed;
-                top: 75px;
-                right: 8px;
-                width: 300px;
-                background: #111827;
-                border: 1px solid #374151;
-                border-radius: 8px;
-                color: #d1d5db;
-                font: 12px/1.45 Arial, sans-serif;
-                z-index: 99999;
-                box-shadow: 0 6px 24px rgba(0,0,0,.7);
-                user-select: none;
-            }
-            #ce-nrv-hd {
-                padding: 7px 10px;
-                background: #1f2937;
-                border-radius: 8px 8px 0 0;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                cursor: move;
-                border-bottom: 1px solid #374151;
-            }
-            #ce-nrv-hd b { font-size: 12px; color: #93c5fd; }
-            .ce-btn {
-                background: #374151;
-                border: none;
-                color: #d1d5db;
-                padding: 2px 7px;
-                border-radius: 4px;
-                cursor: pointer;
-                font-size: 10px;
-                margin-left: 4px;
-            }
-            .ce-btn:hover { background: #4b5563; }
-            #ce-nrv-body {
-                padding: 6px 8px;
-                max-height: 360px;
-                overflow-y: auto;
-            }
-            #ce-nrv-foot {
-                padding: 4px 8px;
-                border-top: 1px solid #374151;
-                color: #6b7280;
-                font-size: 10px;
-                border-radius: 0 0 8px 8px;
-            }
-            .ce-th {
-                display: grid;
-                grid-template-columns: 18px 1fr 62px 48px 34px;
-                gap: 3px;
-                padding: 2px 4px 5px;
-                border-bottom: 1px solid #374151;
-                color: #6b7280;
-                font-size: 10px;
-                margin-bottom: 3px;
-            }
-            .ce-row {
-                display: grid;
-                grid-template-columns: 18px 1fr 62px 48px 34px;
-                gap: 3px;
-                padding: 3px 4px;
-                border-radius: 4px;
-                align-items: center;
-            }
-            .ce-row:hover { background: rgba(255,255,255,.04); }
-            .ce-rank { color: #6b7280; font-size: 10px; text-align: center; }
-            .ce-name { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            .ce-val  { font-weight: 700; text-align: right; font-size: 12px; }
-            .ce-sr   { text-align: right; color: #9ca3af; font-size: 10px; }
-            .ce-n    { text-align: right; color: #6b7280; font-size: 10px; }
-            .ce-none { padding: 14px 8px; color: #6b7280; text-align: center; font-size: 11px; line-height: 1.8; }
-            /* Rank colors */
-            .g1 { color: #34d399; }
-            .g2 { color: #86efac; }
-            .g3 { color: #fbbf24; }
-            .g4 { color: #f97316; }
-            .g5 { color: #f87171; }
-            /* Collapsed state */
-            #ce-nrv.collapsed #ce-nrv-body,
-            #ce-nrv.collapsed #ce-nrv-foot { display: none; }
+        const s = document.createElement('style');
+        s.id = 'ce-nrv-css';
+        s.textContent = `
+#ce-nrv{position:fixed;top:75px;right:8px;width:310px;background:#111827;border:1px solid #374151;
+border-radius:8px;color:#d1d5db;font:12px/1.45 Arial,sans-serif;z-index:99999;
+box-shadow:0 6px 24px rgba(0,0,0,.7);user-select:none;}
+#ce-nrv-hd{padding:7px 10px;background:#1f2937;border-radius:8px 8px 0 0;
+display:flex;justify-content:space-between;align-items:center;cursor:move;
+border-bottom:1px solid #374151;}
+#ce-nrv-hd b{font-size:12px;color:#93c5fd;}
+.ce-btn{background:#374151;border:none;color:#d1d5db;padding:2px 7px;
+border-radius:4px;cursor:pointer;font-size:10px;margin-left:4px;}
+.ce-btn:hover{background:#4b5563;}
+#ce-nrv-body{padding:6px 8px;max-height:380px;overflow-y:auto;}
+#ce-nrv-foot{padding:4px 8px;border-top:1px solid #374151;color:#6b7280;
+font-size:10px;border-radius:0 0 8px 8px;}
+.ce-th{display:grid;grid-template-columns:16px 1fr 52px 42px 38px 30px;
+gap:3px;padding:2px 4px 5px;border-bottom:1px solid #374151;
+color:#6b7280;font-size:10px;margin-bottom:3px;}
+.ce-row{display:grid;grid-template-columns:16px 1fr 52px 42px 38px 30px;
+gap:3px;padding:3px 4px;border-radius:4px;align-items:center;}
+.ce-row:hover{background:rgba(255,255,255,.04);}
+.ce-rk{color:#6b7280;font-size:10px;text-align:center;}
+.ce-nm{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ce-vl{font-weight:700;text-align:right;font-size:12px;}
+.ce-sr{text-align:right;color:#9ca3af;font-size:10px;}
+.ce-nv{text-align:right;color:#9ca3af;font-size:10px;}
+.ce-nn{text-align:right;color:#6b7280;font-size:10px;}
+.ce-none{padding:14px 8px;color:#6b7280;text-align:center;font-size:11px;line-height:1.8;}
+.g1{color:#34d399;}.g2{color:#86efac;}.g3{color:#fbbf24;}.g4{color:#f97316;}.g5{color:#f87171;}
+#ce-nrv.col #ce-nrv-body,#ce-nrv.col #ce-nrv-foot{display:none;}
         `;
-        document.head.appendChild(style);
+        document.head.appendChild(s);
     }
 
     // ── Panel build ────────────────────────────────────────────────────────
-
     function buildPanel() {
         if (document.getElementById('ce-nrv')) return;
         injectCSS();
+        const p = document.createElement('div');
+        p.id = 'ce-nrv';
+        p.innerHTML = `
+<div id="ce-nrv-hd"><b>⚡ CE / Nerve Tracker</b>
+  <div><button class="ce-btn" id="ce-tog">▼</button>
+       <button class="ce-btn" id="ce-rst">Reset</button></div></div>
+<div id="ce-nrv-body">
+  <div class="ce-none">Commit crimes to start tracking CE.<br>Rankings persist across sessions.</div>
+</div>
+<div id="ce-nrv-foot">CE Score = succ% × nerve/crime &nbsp;·&nbsp; green = best NNB growth</div>`;
+        document.body.appendChild(p);
 
-        const panel = document.createElement('div');
-        panel.id = 'ce-nrv';
-        panel.innerHTML = `
-            <div id="ce-nrv-hd">
-                <b>⚡ CE / Nerve Tracker</b>
-                <div>
-                    <button class="ce-btn" id="ce-tog">▼</button>
-                    <button class="ce-btn" id="ce-rst">Reset</button>
-                </div>
-            </div>
-            <div id="ce-nrv-body">
-                <div class="ce-none">
-                    Commit crimes to begin tracking.<br>
-                    Rankings persist across sessions.
-                </div>
-            </div>
-            <div id="ce-nrv-foot">Skill gain per 10 nerve &nbsp;·&nbsp; green = best NNB growth</div>
-        `;
-        document.body.appendChild(panel);
-
-        // Restore saved position
         const pos = JSON.parse(localStorage.getItem(STORAGE_KEY + '_pos') || 'null');
-        if (pos) {
-            panel.style.top   = pos.top;
-            panel.style.left  = pos.left;
-            panel.style.right = 'auto';
-        }
+        if (pos) { p.style.top = pos.top; p.style.left = pos.left; p.style.right = 'auto'; }
 
-        // Toggle collapse
-        document.getElementById('ce-tog').addEventListener('click', () => {
-            panel.classList.toggle('collapsed');
-            document.getElementById('ce-tog').textContent =
-                panel.classList.contains('collapsed') ? '▶' : '▼';
-        });
-
-        // Reset with confirmation
-        document.getElementById('ce-rst').addEventListener('click', () => {
-            if (!confirm('Clear all CE tracking data? This cannot be undone.')) return;
-            [STORAGE_KEY, STORAGE_KEY + '_ncm', STORAGE_KEY + '_cnm', STORAGE_KEY + '_pos']
-                .forEach(k => localStorage.removeItem(k));
+        document.getElementById('ce-tog').onclick = () => {
+            p.classList.toggle('col');
+            document.getElementById('ce-tog').textContent = p.classList.contains('col') ? '▶' : '▼';
+        };
+        document.getElementById('ce-rst').onclick = () => {
+            if (!confirm('Clear all CE tracking data?')) return;
+            [STORAGE_KEY, STORAGE_KEY + '_ncm', STORAGE_KEY + '_pos'].forEach(k => localStorage.removeItem(k));
             nerveCostMap = {};
-            crimeNameMap = {};
             renderPanel();
-        });
+        };
 
-        makeDraggable(panel, document.getElementById('ce-nrv-hd'));
+        makeDraggable(p, document.getElementById('ce-nrv-hd'));
         renderPanel();
     }
 
-    // ── Draggable (mouse + touch) ──────────────────────────────────────────
-
     function makeDraggable(el, handle) {
-        let ox, oy, active = false;
-
-        const onStart = (cx, cy) => {
-            active = true;
-            const r = el.getBoundingClientRect();
-            ox = cx - r.left;
-            oy = cy - r.top;
-        };
-        const onMove = (cx, cy) => {
-            if (!active) return;
-            el.style.left  = (cx - ox) + 'px';
-            el.style.top   = (cy - oy) + 'px';
-            el.style.right = 'auto';
-        };
-        const onEnd = () => {
-            if (!active) return;
-            active = false;
-            localStorage.setItem(STORAGE_KEY + '_pos',
-                JSON.stringify({ left: el.style.left, top: el.style.top }));
-        };
-
-        handle.addEventListener('mousedown',  e => { onStart(e.clientX, e.clientY); e.preventDefault(); });
-        document.addEventListener('mousemove', e => onMove(e.clientX, e.clientY));
-        document.addEventListener('mouseup',   onEnd);
-
-        handle.addEventListener('touchstart',  e => { onStart(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
-        document.addEventListener('touchmove', e => onMove(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
-        document.addEventListener('touchend',  onEnd);
+        let ox, oy, on = false;
+        const start = (cx, cy) => { on = true; const r = el.getBoundingClientRect(); ox = cx - r.left; oy = cy - r.top; };
+        const move  = (cx, cy) => { if (!on) return; el.style.left = (cx-ox)+'px'; el.style.top = (cy-oy)+'px'; el.style.right = 'auto'; };
+        const end   = () => { if (on) { localStorage.setItem(STORAGE_KEY+'_pos', JSON.stringify({left:el.style.left,top:el.style.top})); on=false; } };
+        handle.addEventListener('mousedown',  e => { start(e.clientX,e.clientY); e.preventDefault(); });
+        document.addEventListener('mousemove', e => move(e.clientX,e.clientY));
+        document.addEventListener('mouseup',   end);
+        handle.addEventListener('touchstart',  e => { start(e.touches[0].clientX,e.touches[0].clientY); }, {passive:false});
+        document.addEventListener('touchmove', e => move(e.touches[0].clientX,e.touches[0].clientY), {passive:true});
+        document.addEventListener('touchend',  end);
     }
 
     // ── Panel render ───────────────────────────────────────────────────────
-
     function renderPanel() {
         const body = document.getElementById('ce-nrv-body');
         if (!body) return;
-
         const stats = loadStats();
-        const rows  = Object.values(stats)
-            .filter(s => s.totalNerveSpent > 0)
-            .map(s => ({
-                ...s,
-                eff: s.totalSkillGain / s.totalNerveSpent,
-                sr:  s.attempts ? (s.successes / s.attempts * 100) : 0,
-            }))
-            .sort((a, b) => b.eff - a.eff);
+
+        const rows = Object.values(stats)
+            .filter(s => s.attempts > 0)
+            .map(s => {
+                const sr       = s.successes / s.attempts;   // success rate 0-1
+                const avgNerve = s.totalNerveSpent / s.attempts;
+                return {
+                    ...s,
+                    sr,
+                    avgNerve,
+                    // CE Score: expected CE per attempt = succ_rate × nerve_cost
+                    // (CE scales with nerve, so this estimates absolute CE yield)
+                    ceScore: sr * avgNerve,
+                };
+            })
+            .sort((a, b) => b.ceScore - a.ceScore);
 
         if (!rows.length) {
-            body.innerHTML = `<div class="ce-none">
-                Commit crimes to begin tracking.<br>
-                Rankings persist across sessions.
-            </div>`;
+            body.innerHTML = '<div class="ce-none">Commit crimes to start tracking CE.<br>Rankings persist across sessions.</div>';
             return;
         }
 
-        const maxEff = rows[0].eff || 1;
-        const colorClass = (eff) => {
-            const r = eff / maxEff;
-            if (r >= 0.85) return 'g1';
-            if (r >= 0.65) return 'g2';
-            if (r >= 0.45) return 'g3';
-            if (r >= 0.25) return 'g4';
-            return 'g5';
+        const maxScore = rows[0].ceScore || 1;
+        const gc = (v) => {
+            const r = v / maxScore;
+            return r >= .85 ? 'g1' : r >= .65 ? 'g2' : r >= .45 ? 'g3' : r >= .25 ? 'g4' : 'g5';
         };
 
-        let html = `
-            <div class="ce-th">
-                <span>#</span>
-                <span>Crime</span>
-                <span style="text-align:right">Skill/10n</span>
-                <span style="text-align:right">Succ%</span>
-                <span style="text-align:right">n</span>
-            </div>`;
+        let html = `<div class="ce-th">
+            <span>#</span><span>Crime</span>
+            <span style="text-align:right">CE Score</span>
+            <span style="text-align:right">Succ%</span>
+            <span style="text-align:right">Nerve</span>
+            <span style="text-align:right">n</span></div>`;
 
         for (let i = 0; i < rows.length; i++) {
-            const r      = rows[i];
-            const lowN   = r.attempts < 10;
-            const skillMaxed = r.eff === 0 && r.sr >= 90 && r.attempts >= 3;
-            const effStr = skillMaxed ? 'maxed' : (r.eff * 10).toFixed(3);
-            const tooltip = lowN ? ' title="Low sample — fewer than 10 attempts"' : '';
-
-            html += `
-                <div class="ce-row">
-                    <span class="ce-rank">${i + 1}</span>
-                    <span class="ce-name"${tooltip}>${r.name}${lowN ? ' ⚠' : ''}</span>
-                    <span class="ce-val ${skillMaxed ? 'g5' : colorClass(r.eff)}" title="${skillMaxed ? 'Skill at 100 — CE not visible through display stat' : ''}">${effStr}</span>
-                    <span class="ce-sr">${r.sr.toFixed(0)}%</span>
-                    <span class="ce-n">${r.attempts}</span>
-                </div>`;
+            const r    = rows[i];
+            const lowN = r.attempts < 20;
+            const tip  = `title="${r.name}: ${r.successes}/${r.attempts} success, ${r.criticals} crits, avg ${r.avgNerve.toFixed(1)} nerve${lowN ? ' ⚠ low sample' : ''}"`;
+            html += `<div class="ce-row" ${tip}>
+                <span class="ce-rk">${i+1}</span>
+                <span class="ce-nm">${r.name}${lowN ? ' ⚠' : ''}</span>
+                <span class="ce-vl ${gc(r.ceScore)}">${r.ceScore.toFixed(2)}</span>
+                <span class="ce-sr">${(r.sr*100).toFixed(0)}%</span>
+                <span class="ce-nv">${r.avgNerve.toFixed(1)}</span>
+                <span class="ce-nn">${r.attempts}</span>
+            </div>`;
         }
 
         body.innerHTML = html;
     }
 
     // ── Init ───────────────────────────────────────────────────────────────
-
     function init() {
-        // Wait for the crimes React app container to appear
         const obs = new MutationObserver(() => {
-            if (document.querySelector(
-                '[class*="crimes-app"], [class*="crimesApp"], .crimes-app'
-            )) {
-                obs.disconnect();
-                buildPanel();
+            if (document.querySelector('[class*="crimes-app"], [class*="crimesApp"], .crimes-app')) {
+                obs.disconnect(); buildPanel();
             }
         });
         obs.observe(document.body, { childList: true, subtree: true });
-
-        // Also try immediately (in case app is already rendered)
-        if (document.querySelector(
-            '[class*="crimes-app"], [class*="crimesApp"], .crimes-app'
-        )) {
-            buildPanel();
-        }
-
-        // Final fallback after 3 seconds
-        setTimeout(() => {
-            if (!document.getElementById('ce-nrv')) buildPanel();
-        }, 3000);
+        if (document.querySelector('[class*="crimes-app"], [class*="crimesApp"], .crimes-app')) buildPanel();
+        setTimeout(() => { if (!document.getElementById('ce-nrv')) buildPanel(); }, 3000);
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
-        init();
-    }
-
+    document.readyState === 'loading'
+        ? document.addEventListener('DOMContentLoaded', init)
+        : init();
 })();
