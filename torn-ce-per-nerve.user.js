@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn – CE per Nerve Tracker
 // @namespace    https://torn.com
-// @version      3.2.2
+// @version      3.2.3
 // @description  Tracks CE per nerve for every crime type. Live crime chain, progression bonus, NNB tracking via API key with faction offset so the panel shows your real base NNB.
 // @author       Custom
 // @match        https://www.torn.com/loader.php?sid=crimes*
@@ -244,15 +244,20 @@
             const data = await res.json();
 
             if (data.baseNNB != null) {
-                const prevNNB = toNNB(nnbCurrent);  // still use local for delta display
+                const prevNNB = toNNB(nnbCurrent);
                 const newNNB  = data.baseNNB;
 
                 if (prevNNB !== null && newNNB - prevNNB === 5) flashNNBIncrease(prevNNB, newNNB);
 
-                // Sync local state from server
-                nnbCurrent   = data.nerveMax;
+                nnbCurrent    = data.nerveMax;
                 factionOffset = data.factionOffset ?? factionOffset;
                 if (data.nerveMax > (meta.nnb ?? 0)) nnbPrev = meta.nnb;
+
+                // Update faction offset input to reflect server value
+                const factionInput = document.getElementById('ce-faction-in');
+                if (factionInput && !factionInput.matches(':focus')) {
+                    factionInput.value = factionOffset;
+                }
             }
 
             // Sync chain from server if it has one (computed from logs on startup)
@@ -403,6 +408,7 @@ gap:3px;padding:3px 4px;border-radius:4px;align-items:center;}
             nerveCostMap = {};
             sessionCount = 0;
             renderPanel();
+            refreshFromAPI(); // re-sync NNB + faction offset from server immediately
         };
 
         // Pre-fill faction offset
@@ -485,7 +491,7 @@ gap:3px;padding:3px 4px;border-radius:4px;align-items:center;}
                     ? `NNB increased! (raw max: ${nnbCurrent}, faction offset: ${factionOffset})`
                     : `Next NNB: ${next} · raw max: ${nnbCurrent} · faction: ${factionOffset}`;
             } else {
-                nnbEl.textContent = getApiKey() ? 'Loading…' : 'Set API key ↓';
+                nnbEl.textContent = 'Syncing…';
                 nnbEl.className   = 'ce-stat-val';
             }
         }
