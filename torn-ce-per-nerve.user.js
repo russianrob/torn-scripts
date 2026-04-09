@@ -282,9 +282,9 @@
         }
         // Also show a browser notification if permitted
         if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-            new Notification('NNB Increased!', { body: \`Your NNB went from \${from} → \${to}\`, icon: '' });
+            new Notification('NNB Increased!', { body: `Your NNB went from ${from} → ${to}`, icon: '' });
         }
-        console.log(\`[CE] 🎉 NNB INCREASED: \${from} → \${to}\`);
+        console.log(`[CE] 🎉 NNB INCREASED: ${from} → ${to}`);
     }
 
     // ── Panel CSS ──────────────────────────────────────────────────────────
