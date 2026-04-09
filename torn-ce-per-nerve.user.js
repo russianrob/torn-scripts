@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Torn – CE per Nerve Tracker
 // @namespace    https://torn.com
-// @version      3.0.0
-// @description  Tracks Crime Experience (CE) per nerve for every crime type. Includes live crime chain, progression bonus estimate, and optional NNB tracking via API key.
+// @version      3.1.0
+// @description  Tracks CE per nerve for every crime type. Live crime chain, progression bonus, NNB tracking via API key with faction offset so the panel shows your real base NNB.
 // @author       Custom
 // @match        https://www.torn.com/loader.php?sid=crimes*
 // @match        https://torn.com/loader.php?sid=crimes*
@@ -79,12 +79,13 @@
     // ── Chain state ────────────────────────────────────────────────────────
     // chain is a float (halved on failure): 0 = reset, high = long streak
     let meta = loadMeta();
-    let crimeChain   = meta.chain   ?? 0;
-    let nnbCurrent   = meta.nnb     ?? null;  // last known NNB max
-    let nnbPrev      = meta.nnbPrev ?? null;  // NNB before this session
+    let crimeChain      = meta.chain        ?? 0;
+    let nnbCurrent      = meta.nnb          ?? null;  // last known raw nerve max
+    let nnbPrev         = meta.nnbPrev      ?? null;  // previous raw nerve max
+    let factionOffset   = meta.factionOffset ?? 0;    // faction nerve bonus to subtract
     let lastFetchHit = 0; // dedup flag for fetch vs DOM double-fire
 
-    const saveChain = () => { meta.chain = crimeChain; saveMeta(meta); };
+    const saveChain = () => { meta.chain = crimeChain; meta.factionOffset = factionOffset; saveMeta(meta); };
 
     function updateChain(outcome) {
         if      (outcome === 'success')                                    crimeChain++;
@@ -95,6 +96,9 @@
 
     // Estimated progression bonus: Torn says "up to 20%" — saturates around chain ~100
     const chainBonus = () => Math.min(0.20, crimeChain * 0.002);
+
+    // Convert raw nerve max to base NNB by subtracting faction bonus
+    const toNNB = (rawMax) => (rawMax != null ? rawMax - factionOffset : null);
 
     // ── Nerve cost cache ───────────────────────────────────────────────────
     let nerveCostMap = JSON.parse(localStorage.getItem(KEY + '_ncm') || '{}');
@@ -274,17 +278,42 @@
         const btn = document.getElementById('ce-api-refresh');
         if (btn) btn.textContent = '⟳';
 
-        const [nnb, chain] = await Promise.all([fetchNNB(apiKey), calcChainFromLogs(apiKey)]);
+        const [rawMax, chain] = await Promise.all([fetchNNB(apiKey), calcChainFromLogs(apiKey)]);
 
-        if (nnb !== null) {
-            if (nnbCurrent !== null && nnb > nnbCurrent) nnbPrev = nnbCurrent;
-            nnbCurrent = nnb;
+        if (rawMax !== null) {
+            const prevNNB = toNNB(nnbCurrent);
+            const newNNB  = toNNB(rawMax);
+
+            // Check for a real NNB increase: base jumped by exactly 5
+            if (prevNNB !== null && newNNB !== null && (newNNB - prevNNB) === 5) {
+                flashNNBIncrease(prevNNB, newNNB);
+            }
+
+            if (nnbCurrent !== null && rawMax > nnbCurrent) nnbPrev = nnbCurrent;
+            nnbCurrent = rawMax;
         }
         if (chain !== null) crimeChain = chain;
-        meta = { ...meta, nnb: nnbCurrent, nnbPrev, chain: crimeChain };
+        meta = { ...meta, nnb: nnbCurrent, nnbPrev, chain: crimeChain, factionOffset };
         saveMeta(meta);
         renderPanel();
         if (btn) btn.textContent = '↻';
+    }
+
+    function flashNNBIncrease(from, to) {
+        // Show a prominent in-panel alert
+        const el = document.getElementById('ce-nnb-val');
+        if (el) {
+            el.style.transition = 'background 0.3s';
+            el.style.background = '#065f46';
+            el.style.borderRadius = '4px';
+            el.style.padding = '1px 4px';
+            setTimeout(() => { if (el) el.style.background = ''; }, 4000);
+        }
+        // Also show a browser notification if permitted
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            new Notification('NNB Increased!', { body: \`Your NNB went from \${from} → \${to}\`, icon: '' });
+        }
+        console.log(\`[CE] 🎉 NNB INCREASED: \${from} → \${to}\`);
     }
 
     // ── Panel CSS ──────────────────────────────────────────────────────────
@@ -371,8 +400,9 @@ gap:3px;padding:3px 4px;border-radius:4px;align-items:center;}
   <div class="ce-none">Commit crimes to start tracking CE.<br>Rankings persist across sessions.</div>
 </div>
 <div id="ce-foot">CE Score = succ% × nerve &nbsp;·&nbsp; chain bonus adds up to +20% on top</div>
-<div id="ce-api-bar">
-  <input id="ce-api-in" type="password" placeholder="Torn API key (Limited access) for NNB tracking" />
+<div id="ce-api-bar" style="flex-wrap:wrap;gap:4px">
+  <input id="ce-api-in" type="password" placeholder="Torn API key (Limited access)" style="flex:1;min-width:120px" />
+  <input id="ce-faction-in" type="number" min="0" max="50" placeholder="Faction nerve" title="How much nerve your faction adds (e.g. 7)" style="width:70px" />
   <button class="cbt" id="ce-api-save">Save</button>
 </div>`;
         document.body.appendChild(p);
@@ -395,17 +425,23 @@ gap:3px;padding:3px 4px;border-radius:4px;align-items:center;}
         document.getElementById('ce-rst').onclick = () => {
             if (!confirm('Clear all CE tracking data? Chain and NNB history will also reset.')) return;
             [KEY+'_stats', KEY+'_ncm', KEY+'_pos', KEY+'_meta'].forEach(k => localStorage.removeItem(k));
-            crimeChain = 0; nnbCurrent = null; nnbPrev = null; meta = {};
+            crimeChain = 0; nnbCurrent = null; nnbPrev = null; factionOffset = 0; meta = {};
             nerveCostMap = {};
             sessionCount = 0;
             renderPanel();
         };
 
-        // API key save
+        // Pre-fill faction offset
+        document.getElementById('ce-faction-in').value = factionOffset || '';
+
+        // API key + faction offset save
         document.getElementById('ce-api-save').onclick = () => {
-            const key = document.getElementById('ce-api-in').value.trim();
-            if (key.length < 10) return;
-            meta.apiKey = key;
+            const key     = document.getElementById('ce-api-in').value.trim();
+            const faction = parseInt(document.getElementById('ce-faction-in').value) || 0;
+            if (key.length < 10 && !getApiKey()) return;
+            if (key.length >= 10) meta.apiKey = key;
+            factionOffset        = faction;
+            meta.factionOffset   = faction;
             saveMeta(meta);
             refreshFromAPI();
         };
@@ -460,13 +496,17 @@ gap:3px;padding:3px 4px;border-radius:4px;align-items:center;}
             bonusEl.style.color = parseFloat(pct) > 10 ? '#34d399' : '#94a3b8';
         }
         if (nnbEl) {
-            if (nnbCurrent !== null) {
-                const delta = (nnbPrev !== null && nnbCurrent > nnbPrev)
-                    ? ` ↑${nnbCurrent - nnbPrev}` : '';
-                nnbEl.textContent = nnbCurrent + (delta ? delta : '');
+            const baseNNB     = toNNB(nnbCurrent);
+            const basePrevNNB = toNNB(nnbPrev);
+            if (baseNNB !== null) {
+                const delta = (basePrevNNB !== null && baseNNB > basePrevNNB)
+                    ? ` ↑${baseNNB - basePrevNNB}` : '';
+                nnbEl.textContent = baseNNB + (delta ? delta : '');
                 nnbEl.className   = 'ce-stat-val' + (delta ? ' up' : '');
-                const next = Math.ceil((nnbCurrent + 1) / 5) * 5;
-                if (!delta) nnbEl.title = `Next threshold: ${next}`;
+                const next = Math.floor(baseNNB / 5) * 5 + 5;
+                nnbEl.title = delta
+                    ? `NNB increased! (raw max: ${nnbCurrent}, faction offset: ${factionOffset})`
+                    : `Next NNB: ${next} · raw max: ${nnbCurrent} · faction: ${factionOffset}`;
             } else {
                 nnbEl.textContent = getApiKey() ? 'Loading…' : 'Set API key ↓';
                 nnbEl.className   = 'ce-stat-val';
