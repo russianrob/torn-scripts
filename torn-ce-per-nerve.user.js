@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn – CE per Nerve Tracker
 // @namespace    https://torn.com
-// @version      3.2.4
+// @version      3.3.0
 // @description  Tracks CE per nerve for every crime type. Live crime chain, progression bonus, NNB tracking via API key with faction offset so the panel shows your real base NNB.
 // @author       Custom
 // @match        https://www.torn.com/loader.php?sid=crimes*
@@ -139,14 +139,17 @@
     }
 
     // ── Record a crime attempt ─────────────────────────────────────────────
-    function record(typeID, nerveCost, outcome) {
+    function record(typeID, nerveCost, outcome, hashSlug) {
         const stats = loadStats();
+        const resolvedName = hashSlug
+            ? hashSlug.charAt(0).toUpperCase() + hashSlug.slice(1)
+            : (TYPE_NAMES[typeID] || `Type ${typeID}`);
         if (!stats[typeID]) stats[typeID] = {
-            typeID, name: TYPE_NAMES[typeID] || `Type ${typeID}`,
+            typeID, name: resolvedName,
             attempts:0, successes:0, failures:0, criticals:0, totalNerveSpent:0,
         };
-        // Always sync name in case the mapping was corrected after data was first recorded
-        if (TYPE_NAMES[typeID]) stats[typeID].name = TYPE_NAMES[typeID];
+        // Always update from hash slug when available — overrides any stale stored name
+        if (hashSlug) stats[typeID].name = resolvedName;
         const s = stats[typeID];
         s.attempts++;
         s.totalNerveSpent += nerveCost;
@@ -173,6 +176,8 @@
         if (url.includes('step=attempt')) {
             const typeID  = (url.match(/typeID=([^&\s]+)/)  || [])[1];
             const crimeID = (url.match(/crimeID=([^&\s]+)/) || [])[1];
+            // Hash like #/graffiti → 'Graffiti' — much more reliable than typeID guessing
+            const hashSlug = win.location?.hash?.replace(/^#\//, '').split('?')[0].split('/')[0] || '';
 
             response.clone().text().then(body => {
                 try {
@@ -193,7 +198,7 @@
 
                     lastFetchHit = Date.now();
                     updateChain(outcome);
-                    if (typeID && nerveCost) record(typeID, Number(nerveCost), outcome);
+                    if (typeID && nerveCost) record(typeID, Number(nerveCost), outcome, hashSlug);
                     setTimeout(renderPanel, 150);
 
                 } catch (e) { if (DEBUG) console.error('[CE]', e); }
@@ -235,19 +240,13 @@
 
     function getApiKey() { return meta.apiKey || null; }  // kept for config POST only
 
-    // Fetch from server — supports both regular fetch and TornPDA's flutter handler
-    async function serverFetch(url) {
-        // TornPDA exposes flutter_inappwebview for cross-origin GET requests
-        if (typeof window !== 'undefined' && window.flutter_inappwebview?.callHandler) {
-            try {
-                const resp = await window.flutter_inappwebview.callHandler('PDA_httpGet', url);
-                if (resp?.responseText) return JSON.parse(resp.responseText);
-            } catch {}
-        }
-        // Standard fetch (desktop / TornPDA with CORS allowed)
-        const res = await fetch(url, { cache: 'no-store' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
+    // Fetch from server with a hard 10s timeout so it never hangs on PDA
+    function serverFetch(url) {
+        const ctrl  = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 10_000);
+        return fetch(url, { cache: 'no-store', signal: ctrl.signal })
+            .then(r => { clearTimeout(timer); if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+            .catch(e => { clearTimeout(timer); throw e; });
     }
 
     async function refreshFromAPI(silent = false) {
