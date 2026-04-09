@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn – CE per Nerve Tracker
 // @namespace    https://torn.com
-// @version      3.3.0
+// @version      3.3.1
 // @description  Tracks CE per nerve for every crime type. Live crime chain, progression bonus, NNB tracking via API key with faction offset so the panel shows your real base NNB.
 // @author       Custom
 // @match        https://www.torn.com/loader.php?sid=crimes*
@@ -268,6 +268,11 @@
 
                 const factionInput = document.getElementById('ce-faction-in');
                 if (factionInput && !factionInput.matches(':focus')) factionInput.value = factionOffset;
+            }
+
+            // Sync chain from server — authoritative calculation from crime logs
+            if (data.crimeChain != null) {
+                crimeChain = data.crimeChain;
             }
 
             meta = { ...meta, nnb: nnbCurrent, nnbPrev, chain: crimeChain, factionOffset };
