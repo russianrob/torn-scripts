@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.4.2
+// @version      1.5.5
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
-// @author       You
+// @author       RussianRob
 // @match        https://www.torn.com/factions.php*
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -28,6 +28,7 @@
     ];
     const SCOPE_REGEN_PER_DAY = 1;
     const SCOPE_MAX           = 100;
+    const DEFAULT_SLOTS_PER_OC = { 1: 2, 2: 4, 3: 3, 4: 6, 5: 8 };
 
     function diffToScopeRange(diff) {
         return SCOPE_RANGES.find(r => diff >= r.minDiff && diff <= r.maxDiff) || SCOPE_RANGES[0];
@@ -39,31 +40,107 @@
     function loadConfig() {
         return {
             API_KEY:           'YOUR_API_KEY_HERE',
-            FACTION_ID:        42055,
+            FACTION_ID:        0, // Set by server
             ACTIVE_DAYS:       Number(GM_getValue('cfg_active_days',    7)),
             FORECAST_HOURS:    Number(GM_getValue('cfg_forecast_hours', 24)),
             MINCPR:            Number(GM_getValue('cfg_mincpr',         60)),
             CPR_BOOST:         Number(GM_getValue('cfg_cpr_boost',      15)),
             CPR_LOOKBACK_DAYS: Number(GM_getValue('cfg_lookback_days',  90)),
             SCOPE:             GM_getValue('cfg_scope', null),  // null = not configured
+            VERSION:           '1.5.4',
         };
     }
     let CONFIG = loadConfig();
 
     let cprBreakdownMap = {};
+    let lastScopeProjection = null;
     let scopePushTimer  = null;
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
-    //  DOM SCOPE READER  — auto-reads scope from the recruiting tab
+    //  SCOPE SYNC  — push detected scope to server ASAP
+    // ═══════════════════════════════════════════════════════════════════════
+    function handleDetectedScope(scope, source) {
+        if (scope === null || scope === CONFIG.SCOPE) return;
+
+        console.log(`[OC Spawn] Detected scope ${scope} from ${source}`);
+        CONFIG.SCOPE = scope;
+        CONFIG._scopeAutoDetected = true;
+
+        // Update settings panel if open
+        const scopeEl = document.getElementById('cfg-scope');
+        if (scopeEl) scopeEl.value = scope;
+
+        // Update local storage
+        GM_setValue('cfg_scope', scope);
+
+        // Push to server ASAP (short 1s debounce to catch rapid updates)
+        clearTimeout(scopePushTimer);
+        scopePushTimer = setTimeout(async () => {
+            const apiKey = getApiKey();
+            if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') {
+                try {
+                    await pushFactionSettings(apiKey, CONFIG);
+                    console.log('[OC Spawn] Scope pushed to server:', scope);
+                } catch (e) {
+                    console.warn('[OC Spawn] Failed to push scope:', e.message);
+                }
+            }
+        }, 1000);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  AJAX INTERCEPTOR  — Catches internal Torn data (ASAP detection)
+    // ═══════════════════════════════════════════════════════════════════════
+    function setupAjaxInterceptor() {
+        // Intercept XMLHttpRequest
+        const oldOpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function() {
+            this.addEventListener('load', function() {
+                if (this.responseURL.includes('step=getCrimesData')) {
+                    try {
+                        const data = JSON.parse(this.responseText);
+                        const s = data?.scope_balance ?? data?.scope;
+                        if (typeof s === 'number') handleDetectedScope(s, 'AJAX (XHR)');
+                    } catch (e) {}
+                }
+            });
+            return oldOpen.apply(this, arguments);
+        };
+
+        // Intercept Fetch
+        const oldFetch = window.fetch;
+        window.fetch = async function() {
+            const res = await oldFetch.apply(this, arguments);
+            const url = arguments[0] instanceof Request ? arguments[0].url : arguments[0];
+            if (url && url.includes('step=getCrimesData')) {
+                try {
+                    const cloned = res.clone();
+                    const data = await cloned.json();
+                    const s = data?.scope_balance ?? data?.scope;
+                    if (typeof s === 'number') handleDetectedScope(s, 'AJAX (Fetch)');
+                } catch (e) {}
+            }
+            return res;
+        };
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  DOM SCOPE READER  — fallback / secondary detection
     // ═══════════════════════════════════════════════════════════════════════
     function readScopeFromDom() {
-        // Strategy 1: any element whose class contains 'scope' (case-insensitive)
-        const byClass = document.querySelector('[class*="scope" i]');
+        // Strategy 0: Check internal page state
+        const win = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
+        if (win.torn && win.torn.faction) {
+             const s = win.torn.faction.scope_balance ?? win.torn.faction.scope;
+             if (typeof s === 'number' && s >= 0 && s <= SCOPE_MAX) return s;
+        }
+
+        // Strategy 1: any element whose class contains 'scope' (exclude our panel)
+        const byClass = document.querySelector('[class*="scope" i]:not(#oc-spawn-panel *)');
         if (byClass) {
             const num = parseInt(byClass.textContent.trim());
             if (!isNaN(num) && num >= 0 && num <= SCOPE_MAX) return num;
-            // maybe the number is a child
             const numChild = byClass.querySelector('span, b, strong');
             if (numChild) {
                 const n2 = parseInt(numChild.textContent.trim());
@@ -71,13 +148,13 @@
             }
         }
 
-        // Strategy 2: leaf elements whose text matches "Scope: NN" or just "NN/100"
+        // Strategy 2: elements matching "Scope balance: NN" (exclude our panel)
         const candidates = document.querySelectorAll('span, div, p, li');
         for (const el of candidates) {
-            if (el.children.length > 2) continue; // skip containers
+            if (el.closest('#oc-spawn-panel')) continue;
+            if (el.children.length > 2) continue;
             const text = el.textContent.trim();
-            // "Scope: 42" or "Scope 42" or "42/100"
-            const m = text.match(/scope[\s:]*?(\d+)/i);
+            const m = text.match(/scope[\s\w:]*?(\d+)/i);
             if (m) {
                 const val = parseInt(m[1]);
                 if (val >= 0 && val <= SCOPE_MAX) return val;
@@ -87,33 +164,10 @@
     }
 
     function setupScopeDomReader() {
-        let lastScope = null;
-
         function check() {
-            const scope = readScopeFromDom();
-            if (scope === null || scope === lastScope) return;
-            lastScope = scope;
-
-            if (scope !== CONFIG.SCOPE) {
-                CONFIG.SCOPE = scope;
-                CONFIG._scopeAutoDetected = true;
-                console.log('[OC Spawn] Auto-detected scope from DOM:', scope);
-                // Update settings panel if open
-                const scopeEl = document.getElementById('cfg-scope');
-                if (scopeEl) scopeEl.value = scope;
-                // Push to server, debounced 5s
-                clearTimeout(scopePushTimer);
-                scopePushTimer = setTimeout(async () => {
-                    const apiKey = getApiKey();
-                    if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') {
-                        await pushFactionSettings(apiKey, CONFIG);
-                        console.log('[OC Spawn] Scope auto-pushed to server:', scope);
-                    }
-                }, 5000);
-            }
+            const s = readScopeFromDom();
+            if (s !== null) handleDetectedScope(s, 'DOM/State');
         }
-
-        // Run immediately and watch for DOM changes
         check();
         const observer = new MutationObserver(check);
         observer.observe(document.body, { childList: true, subtree: true });
@@ -140,14 +194,26 @@
                 GM_xmlhttpRequest({
                     method: 'GET', url,
                     onload(r) {
-                        try { resolve({ ok: r.status < 400, status: r.status, data: JSON.parse(r.responseText) }); }
-                        catch (e) { reject(new Error('Bad JSON from server')); }
+                        try {
+                            const data = JSON.parse(r.responseText);
+                            resolve({ ok: r.status < 400, status: r.status, data });
+                        } catch (e) {
+                            const snippet = (r.responseText || '').substring(0, 100).replace(/<[^>]*>/g, '');
+                            reject(new Error(`Bad JSON (${r.status}): ${snippet}...`));
+                        }
                     },
-                    onerror() { reject(new Error('Network error')); },
+                    onerror(err) { reject(new Error('Network error: ' + (err.statusText || 'check console'))); },
                 });
             });
         }
-        return fetch(url).then(async r => ({ ok: r.ok, status: r.status, data: await r.json() }));
+        return fetch(url).then(async r => {
+            const text = await r.text();
+            try { return { ok: r.ok, status: r.status, data: JSON.parse(text) }; }
+            catch (e) {
+                const snippet = text.substring(0, 100).replace(/<[^>]*>/g, '');
+                throw new Error(`Bad JSON (${r.status}): ${snippet}...`);
+            }
+        });
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -209,13 +275,14 @@
             position: fixed; bottom: 115px; right: 16px; z-index: 9998;
             width: min(560px, calc(100vw - 48px)); max-height: 72vh; overflow-y: auto;
             background: #0f1a14; color: #d1d5db; border: 1px solid #2a3f30;
-            border-radius: 10px; padding: 14px 16px; font-size: 12px;
+            border-radius: 10px; font-size: 12px; display: none;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            box-shadow: 0 4px 24px rgba(0,0,0,.7); display: none;
+            box-shadow: 0 4px 24px rgba(0,0,0,.7); padding: 14px 16px;
         }
         #oc-spawn-panel h2 {
             margin: 0 0 10px; font-size: 15px; font-weight: 700; color: #74c69d;
             display: flex; justify-content: space-between; align-items: center;
+            cursor: move; user-select: none;
         }
         #oc-spawn-panel h3 {
             margin: 14px 0 6px; font-size: 10px; font-weight: 600; color: #6b7280;
@@ -272,18 +339,18 @@
         .oc-cpr-high { color: #74c69d; } .oc-cpr-mid { color: #f4a261; } .oc-cpr-low { color: #9ca3af; }
         .oc-member-name { color: #f3f4f6; font-weight: 500; }
         .oc-member-id   { color: #6b7280; font-size: 10px; }
-        .oc-cpr-click { cursor: pointer; border-bottom: 1px dotted currentColor; }
-        .oc-cpr-click:hover { opacity: 0.75; }
-        /* CPR tooltip */
-        #oc-cpr-tooltip { position: fixed; z-index: 10001; background: #131f18; border: 1px solid #2d4a3e; border-radius: 8px; padding: 10px 12px; font-size: 11px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #d1d5db; box-shadow: 0 4px 20px rgba(0,0,0,.7); min-width: 200px; max-width: 240px; display: none; pointer-events: none; }
-        #oc-cpr-tooltip .oc-tt-title { font-weight: 600; color: #f3f4f6; margin-bottom: 5px; font-size: 12px; }
-        #oc-cpr-tooltip .oc-tt-avg   { color: #9ca3af; font-size: 10px; margin-bottom: 7px; }
-        #oc-cpr-tooltip table { width: 100%; border-collapse: collapse; }
-        #oc-cpr-tooltip th { color: #6b7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; padding: 2px 4px; border-bottom: 1px solid #1a2e20; text-align: left; }
-        #oc-cpr-tooltip td { padding: 3px 4px; font-size: 11px; color: #f3f4f6; }
-        #oc-cpr-tooltip .oc-tt-note { color: #6b7280; font-size: 10px; margin-top: 7px; border-top: 1px solid #1a2e20; padding-top: 5px; }
+        .oc-cpr-click, .oc-proj-click { cursor: pointer; border-bottom: 1px dotted currentColor; }
+        .oc-cpr-click:hover, .oc-proj-click:hover { opacity: 0.75; }
+        /* Tooltips */
+        #oc-cpr-tooltip, #oc-scope-tooltip { position: fixed; z-index: 10001; background: #131f18; border: 1px solid #2d4a3e; border-radius: 8px; padding: 10px 12px; font-size: 11px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #d1d5db; box-shadow: 0 4px 20px rgba(0,0,0,.7); min-width: 220px; max-width: 300px; display: none; pointer-events: none; }
+        #oc-cpr-tooltip .oc-tt-title, #oc-scope-tooltip .oc-tt-title { font-weight: 600; color: #f3f4f6; margin-bottom: 5px; font-size: 12px; }
+        #oc-cpr-tooltip .oc-tt-avg, #oc-scope-tooltip .oc-tt-avg   { color: #9ca3af; font-size: 10px; margin-bottom: 7px; }
+        #oc-cpr-tooltip table, #oc-scope-tooltip table { width: 100%; border-collapse: collapse; }
+        #oc-cpr-tooltip th, #oc-scope-tooltip th { color: #6b7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; padding: 2px 4px; border-bottom: 1px solid #1a2e20; text-align: left; }
+        #oc-cpr-tooltip td, #oc-scope-tooltip td { padding: 3px 4px; font-size: 11px; color: #f3f4f6; }
+        #oc-cpr-tooltip .oc-tt-note, #oc-scope-tooltip .oc-tt-note { color: #6b7280; font-size: 10px; margin-top: 7px; border-top: 1px solid #1a2e20; padding-top: 5px; }
         /* Misc */
-        #oc-spawn-status { color: #6b7280; font-style: italic; margin: 4px 0 10px; font-size: 10px; }
+        #oc-spawn-status { color: #6b7280; font-style: italic; margin: -6px 0 10px; font-size: 10px; }
         #oc-spawn-refresh { background: #152018; color: #74c69d; border: 1px solid #2d4a3e; border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 11px; font-family: inherit; font-weight: 600; }
         #oc-spawn-refresh:hover { background: #2d6a4f; color: #fff; }
         #oc-spawn-refresh:disabled { opacity: .4; cursor: default; }
@@ -293,6 +360,75 @@
     `);
 
     // ═══════════════════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════════════
+    //  DRAGGABLE HELPER  — works for both mouse and touch (TornPDA)
+    // ═══════════════════════════════════════════════════════════════════════
+    function makeDraggable(el, { handle = el, onClickFn = null, storageKey = null } = {}) {
+        // Restore saved position
+        if (storageKey) {
+            const saved = GM_getValue(storageKey, null);
+            if (saved) {
+                el.style.bottom = 'auto'; el.style.right = 'auto';
+                el.style.top    = saved.top  + 'px';
+                el.style.left   = saved.left + 'px';
+            }
+        }
+
+        let sx, sy, sl, st, moved;
+
+        function evtPos(e) {
+            return e.touches ? [e.touches[0].clientX, e.touches[0].clientY]
+                             : [e.clientX, e.clientY];
+        }
+
+        function onStart(e) {
+            if (e.target.closest('button, input, select, a')) return;
+            const [x, y] = evtPos(e);
+            sx = x; sy = y;
+            const r = el.getBoundingClientRect();
+            sl = r.left; st = r.top;
+            moved = false;
+            // Switch to absolute top/left so dragging works from any starting position
+            el.style.bottom = 'auto'; el.style.right = 'auto';
+            el.style.top  = st + 'px';
+            el.style.left = sl + 'px';
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('touchmove', onMove, { passive: false });
+            document.addEventListener('mouseup',   onEnd);
+            document.addEventListener('touchend',  onEnd);
+            e.preventDefault();
+        }
+
+        function onMove(e) {
+            const [x, y] = evtPos(e);
+            const dx = x - sx, dy = y - sy;
+            if (!moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) moved = true;
+            if (!moved) return;
+            const w = el.offsetWidth, h = el.offsetHeight;
+            el.style.left = Math.max(0, Math.min(window.innerWidth  - w, sl + dx)) + 'px';
+            el.style.top  = Math.max(0, Math.min(window.innerHeight - h, st + dy)) + 'px';
+            if (e.cancelable) e.preventDefault();
+        }
+
+        function onEnd() {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('touchmove', onMove);
+            document.removeEventListener('mouseup',   onEnd);
+            document.removeEventListener('touchend',  onEnd);
+            if (!moved && onClickFn) onClickFn();
+            if (moved && storageKey) {
+                GM_setValue(storageKey, {
+                    top:  parseInt(el.style.top),
+                    left: parseInt(el.style.left),
+                });
+            }
+        }
+
+        handle.style.cursor = 'grab';
+        handle.addEventListener('mousedown',  onStart);
+        handle.addEventListener('touchstart', onStart, { passive: false });
+    }
+
     //  DOM SETUP
     // ═══════════════════════════════════════════════════════════════════════
     const toggleBtn = document.createElement('button');
@@ -380,9 +516,23 @@
     cprTooltipEl.id = 'oc-cpr-tooltip';
     document.body.appendChild(cprTooltipEl);
 
-    let panelVisible = false, cprTipOpen = false;
+    const scopeTooltipEl = document.createElement('div');
+    scopeTooltipEl.id = 'oc-scope-tooltip';
+    document.body.appendChild(scopeTooltipEl);
 
-    toggleBtn.addEventListener('click', () => { panelVisible = !panelVisible; panel.style.display = panelVisible ? 'block' : 'none'; });
+    let panelVisible = false, cprTipOpen = false, scopeTipOpen = false;
+
+    // Draggable toggle button — tap to open/close, drag to reposition
+    makeDraggable(toggleBtn, {
+        onClickFn:  () => { panelVisible = !panelVisible; panel.style.display = panelVisible ? 'block' : 'none'; },
+        storageKey: 'oc_btn_pos',
+    });
+
+    // Draggable panel — drag the header to reposition
+    makeDraggable(panel, {
+        handle:     panel.querySelector('h2'),
+        storageKey: 'oc_panel_pos',
+    });
     document.getElementById('oc-spawn-refresh').addEventListener('click', runAnalysis);
     document.getElementById('oc-spawn-close').addEventListener('click', () => { panelVisible = false; panel.style.display = 'none'; });
     document.getElementById('oc-spawn-settings').addEventListener('click', () => {
@@ -435,6 +585,15 @@
         CONFIG.MINCPR         = get('cfg-mincpr');
         CONFIG.CPR_BOOST      = get('cfg-cpr-boost');
         CONFIG.CPR_LOOKBACK_DAYS = get('cfg-lookback-days');
+
+        // Local persistence
+        GM_setValue('cfg_active_days',    CONFIG.ACTIVE_DAYS);
+        GM_setValue('cfg_forecast_hours', CONFIG.FORECAST_HOURS);
+        GM_setValue('cfg_mincpr',         CONFIG.MINCPR);
+        GM_setValue('cfg_cpr_boost',      CONFIG.CPR_BOOST);
+        GM_setValue('cfg_lookback_days',  CONFIG.CPR_LOOKBACK_DAYS);
+        GM_setValue('cfg_scope',          CONFIG.SCOPE);
+
         document.getElementById('oc-settings-panel').style.display = 'none';
         setStatus('Saving settings for all faction members…');
         const apiKey = getApiKey();
@@ -477,11 +636,52 @@
         cprTipOpen = true;
     }
     function hideCprTooltip() { cprTooltipEl.style.display = 'none'; cprTipOpen = false; }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  SCOPE TOOLTIP
+    // ═══════════════════════════════════════════════════════════════════════
+    function showScopeTooltip(el) {
+        if (!lastScopeProjection || !lastScopeProjection.details.length) {
+            if (lastScopeProjection) {
+                scopeTooltipEl.innerHTML = `<div class="oc-tt-title">Scope Projection</div><div class="oc-tt-avg">No in-flight crimes found in ${CONFIG.FORECAST_HOURS}h window. Only daily regen (+${lastScopeProjection.regen}) applied.</div>`;
+                scopeTooltipEl.style.display = 'block';
+                const r = el.getBoundingClientRect();
+                scopeTooltipEl.style.top = (r.bottom + 6) + 'px'; scopeTooltipEl.style.left = r.left + 'px';
+                scopeTipOpen = true;
+            }
+            return;
+        }
+        const p = lastScopeProjection;
+        const rows = p.details.map(d => {
+            return `<tr><td>${d.name}</td><td>${d.avgCpr}%</td><td>+${d.expectedGain}</td></tr>`;
+        }).join('');
+
+        scopeTooltipEl.innerHTML = `
+            <div class="oc-tt-title">Scope Calculation</div>
+            <div class="oc-tt-avg">Base: <b>${p.current}</b> + ${p.regen} daily</div>
+            <table><thead><tr><th>Crime</th><th>Prob.</th><th>Gain</th></tr></thead><tbody>${rows}</tbody></table>
+            <div class="oc-tt-note">Gain = Success payout × Average member CPR</div>`;
+        scopeTooltipEl.style.display = 'block';
+        const rect = el.getBoundingClientRect();
+        scopeTooltipEl.style.top = (rect.bottom + 6) + 'px';
+        scopeTooltipEl.style.left = rect.left + 'px';
+        requestAnimationFrame(() => {
+            const tr = scopeTooltipEl.getBoundingClientRect();
+            if (tr.right  > window.innerWidth  - 8) scopeTooltipEl.style.left = (window.innerWidth  - tr.width  - 8) + 'px';
+            if (tr.bottom > window.innerHeight - 8) scopeTooltipEl.style.top  = (rect.top - tr.height - 6) + 'px';
+        });
+        scopeTipOpen = true;
+    }
+    function hideScopeTooltip() { scopeTooltipEl.style.display = 'none'; scopeTipOpen = false; }
+
     panel.addEventListener('click', e => {
         const t = e.target.closest('.oc-cpr-click');
-        if (t) { e.stopPropagation(); showCprTooltip(t); } else hideCprTooltip();
+        if (t) { e.stopPropagation(); hideScopeTooltip(); showCprTooltip(t); return; }
+        const ps = e.target.closest('.oc-proj-click');
+        if (ps) { e.stopPropagation(); hideCprTooltip(); showScopeTooltip(ps); return; }
+        hideCprTooltip(); hideScopeTooltip();
     });
-    document.addEventListener('click', () => { if (cprTipOpen) hideCprTooltip(); });
+    document.addEventListener('click', () => { if (cprTipOpen) hideCprTooltip(); if (scopeTipOpen) hideScopeTooltip(); });
 
     // ═══════════════════════════════════════════════════════════════════════
     //  UTILITY
@@ -546,20 +746,23 @@
         const crimeGroups = {};
         for (const m of completingSoon) {
             const key = `${m.ocReadyAt}_${m.currentCrimeDiff}`;
-            if (!crimeGroups[key]) crimeGroups[key] = { diff: m.currentCrimeDiff, members: [] };
+            if (!crimeGroups[key]) crimeGroups[key] = { diff: m.currentCrimeDiff, name: m.ocCrimeName, members: [] };
             crimeGroups[key].members.push(m);
         }
 
-        let expectedGain = 0;
+        let totalExpectedGain = 0;
+        const details = [];
         for (const group of Object.values(crimeGroups)) {
             if (!group.diff) continue;
             const range   = diffToScopeRange(group.diff);
-            const avgCPR  = group.members.reduce((s, m) => s + (m.cpr ?? 0), 0) / group.members.length / 100;
-            expectedGain += range.payout * avgCPR;
+            const avgCPR  = group.members.reduce((s, m) => s + (m.cpr ?? 0), 0) / group.members.length;
+            const gain    = Math.round((range.payout * (avgCPR / 100)) * 10) / 10;
+            totalExpectedGain += gain;
+            details.push({ name: group.name || `Lvl ${group.diff} OC`, avgCpr: Math.round(avgCPR), payout: range.payout, expectedGain: gain });
         }
 
-        const projected = Math.min(SCOPE_MAX, currentScope + regen + expectedGain);
-        return { current: currentScope, regen: Math.round(regen * 10) / 10, expectedGain: Math.round(expectedGain * 10) / 10, projected: Math.round(projected * 10) / 10 };
+        const projected = Math.min(SCOPE_MAX, currentScope + regen + totalExpectedGain);
+        return { current: currentScope, regen: Math.round(regen * 10) / 10, expectedGain: Math.round(totalExpectedGain * 10) / 10, projected: Math.round(projected * 10) / 10, details };
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -596,37 +799,45 @@
             const deficit = totalNeeded - info.openSlots;
             const sr      = diffToScopeRange(lvl);
 
-            let action, spawnCount = 0;
+            const slotsPerOc = info.crimes.length > 0 ? (info.totalSlots / info.crimes.length) : DEFAULT_SLOTS_PER_OC[sr.range];
+            // Only recommend spawning if we have enough people to FILL an OC
+            const numOcsNeeded = Math.floor(deficit / slotsPerOc);
 
-            if (totalNeeded === 0) {
+            let action, numOcsToSpawn = 0;
+
+            if (totalNeeded === 0 || (info.openSlots === 0 && numOcsNeeded === 0)) {
                 action = 'none';
             } else if (deficit <= 0) {
                 action = deficit === 0 ? 'ok' : 'surplus';
-                spawnCount = 0;
+                numOcsToSpawn = 0;
+            } else if (numOcsNeeded === 0) {
+                // Deficit > 0 but not enough for a full OC. Open slots exist and are being filled.
+                action = 'waiting';
+                numOcsToSpawn = 0;
             } else if (scopeBudget === null) {
                 // No scope configured — fall back to simple deficit
                 action = 'spawn';
-                spawnCount = deficit;
+                numOcsToSpawn = numOcsNeeded;
             } else {
                 const canAfford = Math.floor(scopeBudget / sr.cost);
                 if (canAfford <= 0) {
                     action = 'deferred';
-                    spawnCount = 0;
-                } else if (canAfford < deficit) {
+                    numOcsToSpawn = 0;
+                } else if (canAfford < numOcsNeeded) {
                     action = 'spawn_partial';
-                    spawnCount = canAfford;
+                    numOcsToSpawn = canAfford;
                     scopeBudget -= canAfford * sr.cost;
                 } else {
                     action = 'spawn';
-                    spawnCount = deficit;
-                    scopeBudget -= deficit * sr.cost;
+                    numOcsToSpawn = numOcsNeeded;
+                    scopeBudget -= numOcsNeeded * sr.cost;
                 }
             }
 
             recs.push({
                 level: lvl, freeMembers: freeNow.length, soonMembers: soonFree.length,
                 openSlots: info.openSlots, totalSlots: info.totalSlots,
-                recruitingOCs: info.crimes.length, deficit, spawnCount, action,
+                recruitingOCs: info.crimes.length, deficit, numOcsToSpawn, action,
                 scopeCost: sr.cost, scopeRange: sr.range,
                 names: membersForLevel.map(m => m.name),
             });
@@ -661,8 +872,8 @@
             <div style="white-space:nowrap;color:#9ca3af;font-size:10px;">Scope${autoTag}</div>
             <div style="font-weight:600;color:#f3f4f6;white-space:nowrap;">${current}</div>
             <div class="oc-scope-bar-wrap"><div class="oc-scope-bar ${barClass}" style="width:${Math.round(current/SCOPE_MAX*100)}%"></div></div>
-            <div style="color:#6b7280;font-size:10px;white-space:nowrap;">→ <b style="color:#74c69d">${projected}</b> projected
-                <span style="color:#374151">(+${regen}d +${expectedGain}c)</span>
+            <div style="color:#6b7280;font-size:10px;white-space:nowrap;">→ <span class="oc-proj-click"><b style="color:#74c69d">${projected}</b> projected</span>
+                <span style="color:#374151">(+${regen} daily, +${expectedGain} from crimes)</span>
             </div>
         </div>`;
     }
@@ -674,13 +885,15 @@
         const rows = visible.map(r => {
             let actionHtml;
             if (r.action === 'spawn') {
-                actionHtml = `<span class="oc-tag-spawn">SPAWN +${r.spawnCount}</span>`;
+                actionHtml = `<span class="oc-tag-spawn">Spawn ${r.numOcsToSpawn} OC${r.numOcsToSpawn > 1 ? 's' : ''}</span>`;
             } else if (r.action === 'spawn_partial') {
-                actionHtml = `<span class="oc-tag-spawn-partial">SPAWN +${r.spawnCount} <span style="font-size:9px;opacity:.8">(of ${r.deficit})</span></span>`;
+                actionHtml = `<span class="oc-tag-spawn-partial">Spawn ${r.numOcsToSpawn} OC${r.numOcsToSpawn > 1 ? 's' : ''} <span style="font-size:9px;opacity:.8">(need +${r.deficit} roles)</span></span>`;
             } else if (r.action === 'deferred') {
                 actionHtml = `<span class="oc-tag-deferred">Deferred — no scope</span>`;
             } else if (r.action === 'ok') {
                 actionHtml = `<span class="oc-tag-ok">✓ Covered</span>`;
+            } else if (r.action === 'waiting') {
+                actionHtml = `<span class="oc-tag-deferred">${r.deficit} waiting</span>`;
             } else {
                 actionHtml = `<span class="oc-tag-surplus">+${Math.abs(r.deficit)} extra</span>`;
             }
@@ -797,6 +1010,15 @@
                 CONFIG.CPR_BOOST         = srvSettings.cpr_boost;
                 CONFIG.CPR_LOOKBACK_DAYS = srvSettings.lookback_days;
                 CONFIG.SCOPE             = srvSettings.scope;
+
+                // Sync local storage with server values
+                GM_setValue('cfg_active_days',    CONFIG.ACTIVE_DAYS);
+                GM_setValue('cfg_forecast_hours', CONFIG.FORECAST_HOURS);
+                GM_setValue('cfg_mincpr',         CONFIG.MINCPR);
+                GM_setValue('cfg_cpr_boost',      CONFIG.CPR_BOOST);
+                GM_setValue('cfg_lookback_days',  CONFIG.CPR_LOOKBACK_DAYS);
+                GM_setValue('cfg_scope',          CONFIG.SCOPE);
+
                 populateSettings();
             }
 
@@ -829,6 +1051,7 @@
             const slotMap               = countOpenSlots(availableCrimes);
             const { eligible, skipped } = processMembers(members, availableCrimes, cprCache);
             const scopeProjection        = projectScope(CONFIG.SCOPE, eligible);
+            lastScopeProjection         = scopeProjection; // cache for tooltip
             const recs                  = buildRecommendations(eligible, slotMap, scopeProjection);
 
             renderBody(recs, eligible, skipped, scopeProjection);
@@ -845,11 +1068,16 @@
         }
     }
 
+    // Start ASAP interception
+    setupAjaxInterceptor();
+
     if (window.location.href.includes('tab=crimes') || window.location.hash.includes('crimes')) {
         panelVisible = true; panel.style.display = 'block';
+        if (getApiKey()) setTimeout(runAnalysis, 500);
     }
 
     // Start DOM scope reader (runs whenever recruiting tab is visible)
     setupScopeDomReader();
 
 })();
+
