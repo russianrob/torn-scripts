@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.10
+// @version      1.7.11
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -997,30 +997,68 @@
         </table>`;
     }
 
-    function buildMemberRec(m, availableCrimes) {
+    const HIGH_WEIGHT_THRESHOLD = 25;   // slots above this % need CPR >= HIGH_WEIGHT_MIN_CPR
+    const HIGH_WEIGHT_MIN_CPR    = 75;   // min CPR for high-weight slots
+
+    function _wKey(str) { return (str || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+    function getSlotWeight(weights, ocName, roleName) {
+        if (!weights) return null;
+        const oc   = weights[_wKey(ocName)] || {};
+        const role = oc[_wKey(roleName)];
+        return typeof role === 'number' ? role : null;
+    }
+
+    function buildMemberRec(m, availableCrimes, weights) {
         if (m.inOC) {
             const readyLabel = (m.ocReadyAt && m.ocReadyAt > now()) ? fmtTs(m.ocReadyAt) : 'active (paused)';
             return { type: 'inoc', text: `In OC — free ${readyLabel}` };
         }
-        const byPos = m.byPosition || {};
-        const openOCs = normArr(availableCrimes).filter(c =>
+        const byPos    = m.byPosition || {};
+        const memberCPR = m.cpr ?? 0;
+        const openOCs  = normArr(availableCrimes).filter(c =>
             c.status === 'Recruiting' &&
             c.difficulty === m.joinable &&
             (c.slots || []).some(s => !s.user_id && !s.user?.id)
         );
         if (!openOCs.length) return { type: 'none', text: `No Lvl ${m.joinable} OCs open` };
-        let bestCrime = openOCs[0], bestPos = null, bestCPR = -1;
+
+        let bestCrime = null, bestPos = null, bestPosCPR = -1, bestWeight = -1;
+
         for (const c of openOCs) {
             for (const slot of (c.slots || []).filter(s => !s.user_id && !s.user?.id)) {
+                const roleName   = slot.position || '';
+                const slotWeight = getSlotWeight(weights, c.name, roleName);
+                // High-weight slots need higher CPR
+                const minCPR = (slotWeight !== null && slotWeight >= HIGH_WEIGHT_THRESHOLD)
+                    ? HIGH_WEIGHT_MIN_CPR : CONFIG.MINCPR;
+                if (memberCPR < minCPR) continue; // CPR too low for this slot
+
                 const key = slot.position_id || slot.position;
                 const pd  = byPos[key];
-                if (pd && pd.cpr > bestCPR) { bestCPR = pd.cpr; bestPos = pd.position; bestCrime = c; }
+                const posCPR = pd?.cpr || 0;
+                if (posCPR > bestPosCPR) {
+                    bestPosCPR = posCPR; bestPos = pd?.position || roleName;
+                    bestCrime = c; bestWeight = slotWeight;
+                }
             }
         }
-        return { type: 'rec', crime: bestCrime.name, position: bestPos, cpr: bestCPR > 0 ? bestCPR : null, level: m.joinable, count: openOCs.length };
+
+        // Fallback: if no qualifying slot (CPR too low), show best available anyway with a warning
+        if (!bestCrime) {
+            const c = openOCs[0];
+            const openSlot = (c.slots || []).find(s => !s.user_id && !s.user?.id);
+            const key = openSlot?.position_id || openSlot?.position;
+            const pd  = byPos[key];
+            return { type: 'rec', crime: c.name, position: pd?.position || openSlot?.position || null,
+                cpr: pd?.cpr || null, level: m.joinable, count: openOCs.length, lowCpr: true };
+        }
+
+        return { type: 'rec', crime: bestCrime.name, position: bestPos,
+            cpr: bestPosCPR > 0 ? bestPosCPR : null, level: m.joinable, count: openOCs.length,
+            weight: bestWeight };
     }
 
-    function renderEligibleMembers(eligible, availableCrimes) {
+    function renderEligibleMembers(eligible, availableCrimes, weights) {
         cprBreakdownMap = {};
         recMap = {};
         // Sort by joinable level desc, then name
@@ -1042,7 +1080,7 @@
                 cs = `<span class="oc-cpr-est" title="Estimated from level — no faction crime history yet">~${m.cpr}%</span>`;
             } else { cs = '<span class="oc-cpr-low">—</span>'; }
             // Build rec for this member
-            const rec = buildMemberRec(m, availableCrimes);
+            const rec = buildMemberRec(m, availableCrimes, weights);
             recMap[m.id] = rec;
             const recBtn = rec.type === 'rec'
                 ? `<span class="oc-rec-btn" data-uid="${m.id}">→ ${rec.crime.length > 14 ? rec.crime.slice(0,13) + '…' : rec.crime}</span>`
@@ -1129,7 +1167,7 @@
         </div>`;
     }
 
-    function renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes) {
+    function renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes, weights) {
         const total = eligible.length + skipped.length;
         const eli   = eligible.length;
         const free  = eligible.filter(m => !m.inOC).length;
@@ -1161,7 +1199,7 @@
             <h3>Spawn Recommendations — High Priority First</h3>
             ${renderRecommendations(recs, scopeProjection)}
             <h3>Eligible Members</h3>
-            ${renderEligibleMembers(eligible, availableCrimes)}
+            ${renderEligibleMembers(eligible, availableCrimes, weights)}
             ${skippedHtml}
             <p style="color:#374151;font-size:10px;margin-top:10px;">
                 Active=${CONFIG.ACTIVE_DAYS}d · Forecast=${CONFIG.FORECAST_HOURS}h · MinCPR=${CONFIG.MINCPR}% · Boost=${CONFIG.CPR_BOOST}%
@@ -1212,9 +1250,9 @@
 
             // Fetch OC data from server
             setStatus('Fetching OC data…');
-            let members, availableCrimes, rawCprCache, viewer;
+            let members, availableCrimes, rawCprCache, viewer, weights;
             try {
-                ({ members, availableCrimes, cprCache: rawCprCache, viewer } = await fetchServerOcData(apiKey));
+                ({ members, availableCrimes, cprCache: rawCprCache, viewer, weights } = await fetchServerOcData(apiKey));
             } catch (err) {
                 if (err.status === 403) {
                     document.getElementById('oc-spawn-body').innerHTML =
@@ -1242,7 +1280,7 @@
             lastScopeProjection         = scopeProjection; // cache for tooltip
             const recs                  = buildRecommendations(eligible, slotMap, scopeProjection);
 
-            renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes);
+            renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes, weights);
             setStatus(`Last updated: ${new Date().toLocaleTimeString()} · ${normArr(members).length} members`);
 
         } catch (err) {
