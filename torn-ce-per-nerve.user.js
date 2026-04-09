@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn – CE per Nerve Tracker
 // @namespace    https://torn.com
-// @version      3.2.3
+// @version      3.2.4
 // @description  Tracks CE per nerve for every crime type. Live crime chain, progression bonus, NNB tracking via API key with faction offset so the panel shows your real base NNB.
 // @author       Custom
 // @match        https://www.torn.com/loader.php?sid=crimes*
@@ -235,13 +235,27 @@
 
     function getApiKey() { return meta.apiKey || null; }  // kept for config POST only
 
+    // Fetch from server — supports both regular fetch and TornPDA's flutter handler
+    async function serverFetch(url) {
+        // TornPDA exposes flutter_inappwebview for cross-origin GET requests
+        if (typeof window !== 'undefined' && window.flutter_inappwebview?.callHandler) {
+            try {
+                const resp = await window.flutter_inappwebview.callHandler('PDA_httpGet', url);
+                if (resp?.responseText) return JSON.parse(resp.responseText);
+            } catch {}
+        }
+        // Standard fetch (desktop / TornPDA with CORS allowed)
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+    }
+
     async function refreshFromAPI(silent = false) {
         const btn = document.getElementById('ce-api-refresh');
         if (btn) btn.textContent = '⟳';
 
         try {
-            const res  = await fetch(SERVER_ENDPOINT);
-            const data = await res.json();
+            const data = await serverFetch(SERVER_ENDPOINT);
 
             if (data.baseNNB != null) {
                 const prevNNB = toNNB(nnbCurrent);
@@ -253,27 +267,21 @@
                 factionOffset = data.factionOffset ?? factionOffset;
                 if (data.nerveMax > (meta.nnb ?? 0)) nnbPrev = meta.nnb;
 
-                // Update faction offset input to reflect server value
                 const factionInput = document.getElementById('ce-faction-in');
-                if (factionInput && !factionInput.matches(':focus')) {
-                    factionInput.value = factionOffset;
-                }
-            }
-
-            // Sync chain from server if it has one (computed from logs on startup)
-            // Only override local chain if server value is meaningfully different
-            if (data.recentHistory?.length) {
-                // Server doesn't track chain — local chain is accurate from DOM/fetch intercept
+                if (factionInput && !factionInput.matches(':focus')) factionInput.value = factionOffset;
             }
 
             meta = { ...meta, nnb: nnbCurrent, nnbPrev, chain: crimeChain, factionOffset };
             saveMeta(meta);
-            renderPanel();
 
         } catch (e) {
             console.warn('[CE] Server fetch failed:', e.message);
+            // Show error state in NNB field so it doesn't stay stuck on "Syncing…"
+            const el = document.getElementById('ce-nnb-val');
+            if (el) { el.textContent = 'Sync failed ↻'; el.title = e.message; }
         }
 
+        renderPanel();
         if (btn) btn.textContent = '↻';
     }
 
