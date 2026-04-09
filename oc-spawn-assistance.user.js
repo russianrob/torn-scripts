@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.4
+// @version      1.7.5
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -67,26 +67,11 @@
         CONFIG.SCOPE = scope;
         CONFIG._scopeAutoDetected = true;
 
-        // Update settings panel if open
+        // Update settings panel input
         const scopeEl = document.getElementById('cfg-scope');
         if (scopeEl) scopeEl.value = scope;
-
-        // Update local storage
-        GM_setValue('cfg_scope', scope);
-
-        // Push to server ASAP (short 1s debounce to catch rapid updates)
-        clearTimeout(scopePushTimer);
-        scopePushTimer = setTimeout(async () => {
-            const apiKey = getApiKey();
-            if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') {
-                try {
-                    await pushFactionSettings(apiKey, CONFIG);
-                    console.log('[OC Spawn] Scope pushed to server:', scope);
-                } catch (e) {
-                    console.warn('[OC Spawn] Failed to push scope:', e.message);
-                }
-            }
-        }, 1000);
+        // Scope is sent to the server only when the user manually
+        // clicks Refresh or Save Settings — no automatic server calls
     }
 
     // ═══════════════════════════════════════════════════════════════════════
