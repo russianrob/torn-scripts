@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.6
+// @version      1.7.7
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -561,7 +561,11 @@
 
     // Draggable toggle button — tap to open/close, drag to reposition
     makeDraggable(toggleBtn, {
-        onClickFn:  () => { panelVisible = !panelVisible; panel.style.display = panelVisible ? 'block' : 'none'; },
+        onClickFn:  () => {
+            panelVisible = !panelVisible;
+            panel.style.display = panelVisible ? 'block' : 'none';
+            if (panelVisible) GM_setValue('oc_panel_closed', false); // clear the closed flag
+        },
         storageKey: 'oc_btn_pos',
     });
 
@@ -575,7 +579,10 @@
         _lastRefresh = Date.now();
         runAnalysis();
     });
-    document.getElementById('oc-spawn-close').addEventListener('click', () => { panelVisible = false; panel.style.display = 'none'; });
+    document.getElementById('oc-spawn-close').addEventListener('click', () => {
+        panelVisible = false; panel.style.display = 'none';
+        GM_setValue('oc_panel_closed', true); // stay closed until user taps button
+    });
     document.getElementById('oc-spawn-settings').addEventListener('click', () => {
         const sp = document.getElementById('oc-settings-panel');
         const opening = sp.style.display === 'none' || sp.style.display === '';
