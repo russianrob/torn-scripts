@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.0
+// @version      1.7.1
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -979,9 +979,11 @@
         if (!viewer || !viewer.playerId) return '';
         const vid = String(viewer.playerId);
 
-        // Find viewer in eligible or skipped
-        const me = eligible.find(m => String(m.id) === vid)
-                || skipped.find(m => String(m.id) === vid);
+        // Find viewer — match on ID (string or number) or name as fallback
+        const idMatch  = m => String(m.id) === vid || Number(m.id) === Number(vid);
+        const nameMatch = m => m.name === viewer.playerName;
+        const me = eligible.find(m => idMatch(m) || nameMatch(m))
+                || skipped.find(m => idMatch(m) || nameMatch(m));
 
         const cprText  = me?.cpr != null ? `${me.cpr}% CPR` : 'No CPR data';
         const cprColor = me?.cpr >= 80 ? '#74c69d' : me?.cpr >= 60 ? '#f4a261' : '#9ca3af';
