@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn – CE per Nerve Tracker
 // @namespace    https://torn.com
-// @version      3.1.1
+// @version      3.2.0
 // @description  Tracks CE per nerve for every crime type. Live crime chain, progression bonus, NNB tracking via API key with faction offset so the panel shows your real base NNB.
 // @author       Custom
 // @match        https://www.torn.com/loader.php?sid=crimes*
@@ -227,79 +227,50 @@
         observer.observe(document.body, { childList: true, subtree: true });
     }
 
-    // ── API: NNB + chain from logs ─────────────────────────────────────────
-    function getApiKey() { return meta.apiKey || null; }
+    // ── Server API (tornwar.com/api/nerve-tracker) ────────────────────────
+    // API key stays on the server — script just reads from the endpoint.
+    const SERVER_ENDPOINT = 'https://tornwar.com/api/nerve-tracker';
 
-    async function fetchNNB(apiKey) {
-        try {
-            const res  = await fetch(`https://api.torn.com/user/?selections=bars&key=${apiKey}`);
-            const data = await res.json();
-            if (data.error) { console.warn('[CE] API error:', data.error.error); return null; }
-            return data.nerve?.maximum ?? null;
-        } catch { return null; }
-    }
-
-    async function calcChainFromLogs(apiKey) {
-        const fetchPage = async (to) => {
-            const p = new URLSearchParams({ selections: 'log', cat: '136', key: apiKey });
-            if (to) p.set('to', String(to));
-            try {
-                const res  = await fetch(`https://api.torn.com/user/?${p}`);
-                const data = await res.json();
-                if (data.error || !data.log) return [];
-                return Object.values(data.log)
-                    .filter(e => /crime (success|fail|critical fail)/i.test(e.title));
-            } catch { return []; }
-        };
-
-        let collected = [];
-        let toTs = null;
-        for (let i = 0; i < 15; i++) {
-            const batch = await fetchPage(toTs);
-            if (!batch.length) break;
-            collected = [...batch, ...collected];
-            if (collected.some(e => /crime critical fail/i.test(e.title))) break;
-            toTs = batch.reduce((min, e) => Math.min(min, e.timestamp), Infinity) - 1;
-        }
-
-        collected.sort((a, b) => a.timestamp - b.timestamp);
-        let chain = 0;
-        for (const e of collected) {
-            if      (/crime success/i.test(e.title))       chain++;
-            else if (/crime critical fail/i.test(e.title)) chain = 0;
-            else                                            chain /= 2;
-        }
-        return Math.round(chain * 100) / 100;
-    }
+    function getApiKey() { return meta.apiKey || null; }  // kept for config POST only
 
     async function refreshFromAPI(silent = false) {
-        const apiKey = getApiKey();
-        if (!apiKey) return;
         const btn = document.getElementById('ce-api-refresh');
         if (btn) btn.textContent = '⟳';
 
-        const [rawMax, chain] = await Promise.all([fetchNNB(apiKey), calcChainFromLogs(apiKey)]);
+        try {
+            const res  = await fetch(SERVER_ENDPOINT);
+            const data = await res.json();
 
-        if (rawMax !== null) {
-            const prevNNB = toNNB(nnbCurrent);
-            const newNNB  = toNNB(rawMax);
+            if (data.baseNNB != null) {
+                const prevNNB = toNNB(nnbCurrent);  // still use local for delta display
+                const newNNB  = data.baseNNB;
 
-            // Check for a real NNB increase: base jumped by exactly 5
-            if (prevNNB !== null && newNNB !== null && (newNNB - prevNNB) === 5) {
-                flashNNBIncrease(prevNNB, newNNB);
+                if (prevNNB !== null && newNNB - prevNNB === 5) flashNNBIncrease(prevNNB, newNNB);
+
+                // Sync local state from server
+                nnbCurrent   = data.nerveMax;
+                factionOffset = data.factionOffset ?? factionOffset;
+                if (data.nerveMax > (meta.nnb ?? 0)) nnbPrev = meta.nnb;
             }
 
-            if (nnbCurrent !== null && rawMax > nnbCurrent) nnbPrev = nnbCurrent;
-            nnbCurrent = rawMax;
+            // Sync chain from server if it has one (computed from logs on startup)
+            // Only override local chain if server value is meaningfully different
+            if (data.recentHistory?.length) {
+                // Server doesn't track chain — local chain is accurate from DOM/fetch intercept
+            }
+
+            meta = { ...meta, nnb: nnbCurrent, nnbPrev, chain: crimeChain, factionOffset };
+            saveMeta(meta);
+            renderPanel();
+
+        } catch (e) {
+            console.warn('[CE] Server fetch failed:', e.message);
         }
-        if (chain !== null) crimeChain = chain;
-        meta = { ...meta, nnb: nnbCurrent, nnbPrev, chain: crimeChain, factionOffset };
-        saveMeta(meta);
-        renderPanel();
+
         if (btn) btn.textContent = '↻';
     }
 
-    function flashNNBIncrease(from, to) {
+        function flashNNBIncrease(from, to) {
         // Show a prominent in-panel alert
         const el = document.getElementById('ce-nnb-val');
         if (el) {
@@ -400,9 +371,10 @@ gap:3px;padding:3px 4px;border-radius:4px;align-items:center;}
   <div class="ce-none">Commit crimes to start tracking CE.<br>Rankings persist across sessions.</div>
 </div>
 <div id="ce-foot">CE Score = succ% × nerve &nbsp;·&nbsp; chain bonus adds up to +20% on top</div>
-<div id="ce-api-bar" style="flex-wrap:wrap;gap:4px">
-  <input id="ce-api-in" type="password" placeholder="Torn API key (Limited access)" style="flex:1;min-width:120px" />
-  <input id="ce-faction-in" type="number" min="0" max="50" placeholder="Faction nerve" title="How much nerve your faction adds (e.g. 7)" style="width:70px" />
+<div id="ce-api-bar" style="align-items:center">
+  <span style="color:#64748b;font-size:10px;flex:1">Faction nerve offset:</span>
+  <input id="ce-api-in" type="hidden" />
+  <input id="ce-faction-in" type="number" min="0" max="50" placeholder="e.g. 7" title="How much nerve your faction adds — subtracted to show base NNB" style="width:60px;margin-right:4px" />
   <button class="cbt" id="ce-api-save">Save</button>
 </div>`;
         document.body.appendChild(p);
@@ -434,15 +406,20 @@ gap:3px;padding:3px 4px;border-radius:4px;align-items:center;}
         // Pre-fill faction offset
         document.getElementById('ce-faction-in').value = factionOffset || '';
 
-        // API key + faction offset save
-        document.getElementById('ce-api-save').onclick = () => {
-            const key     = document.getElementById('ce-api-in').value.trim();
+        // Faction offset save — POSTs to server so it recalculates NNB correctly
+        document.getElementById('ce-api-save').onclick = async () => {
             const faction = parseInt(document.getElementById('ce-faction-in').value) || 0;
-            if (key.length < 10 && !getApiKey()) return;
-            if (key.length >= 10) meta.apiKey = key;
-            factionOffset        = faction;
-            meta.factionOffset   = faction;
+            factionOffset      = faction;
+            meta.factionOffset = faction;
             saveMeta(meta);
+            // Also tell the server (requires JWT — skipped if not authed, server uses its own key)
+            try {
+                await fetch(SERVER_ENDPOINT + '/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ factionOffset: faction }),
+                });
+            } catch {}
             refreshFromAPI();
         };
 
@@ -451,11 +428,9 @@ gap:3px;padding:3px 4px;border-radius:4px;align-items:center;}
 
         makeDraggable(p, document.getElementById('ce-hd'));
 
-        // Auto-refresh NNB every 30 min if key is set
-        if (getApiKey()) {
-            refreshFromAPI(true);
-            setInterval(() => refreshFromAPI(true), 30 * 60 * 1000);
-        }
+        // Auto-refresh NNB from server every 30 min (no API key needed in browser)
+        refreshFromAPI(true);
+        setInterval(() => refreshFromAPI(true), 30 * 60 * 1000);
 
         renderPanel();
     }
