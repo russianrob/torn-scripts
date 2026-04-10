@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.30
+// @version      1.7.31
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -1194,7 +1194,7 @@
         </table>`;
     }
 
-    function renderViewerCard(viewer, eligible, skipped, availableCrimes) {
+    function renderViewerCard(viewer, eligible, skipped, availableCrimes, weights) {
         // Always show card if we have at least a name
         if (!viewer || (!viewer.playerId && !viewer.playerName)) return '';
         const vid   = viewer.playerId ? String(viewer.playerId) : null;
@@ -1285,7 +1285,7 @@
 
         // Profile tab — viewer card only
         document.getElementById('oc-tab-profile').innerHTML =
-            renderViewerCard(viewer, eligible, skipped, availableCrimes) ||
+            renderViewerCard(viewer, eligible, skipped, availableCrimes, weights) ||
             '<p style="color:#6b7280;font-size:11px;">No personal OC data yet — refresh to load.</p>';
 
         // Admin tab — everything else
