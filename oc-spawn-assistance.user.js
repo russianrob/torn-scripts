@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.39
+// @version      1.7.40
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -527,7 +527,7 @@
     panel.id = 'oc-spawn-panel';
     panel.innerHTML = `
         <h2>
-            OC Spawn Assistance
+            OC Spawn Assistance <span style="font-size:10px;font-weight:400;color:#6b7280;">v${GM_info?.script?.version || '?'}</span>
             <span style="display:flex;gap:6px;align-items:center;">
                 <button id="oc-spawn-refresh">↻ Refresh</button>
                 <button id="oc-spawn-settings" class="oc-hdr-btn" title="Settings">⚙</button>
