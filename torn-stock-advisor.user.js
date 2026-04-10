@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Torn Stock Advisor
 // @namespace    torn.stock.advisor
-// @version      3.1.0
-// @description  Real buy/sell signals + portfolio tracker for Torn stocks (Tornsy + Torn API)
+// @version      3.2.0
+// @description  Real buy/sell signals + portfolio tracker for Torn stocks (Tornsy + Torn API) — auto-imports your holdings
 // @match        https://www.torn.com/*
 // @updateURL    https://tornwar.com/scripts/torn-stock-advisor.meta.js
 // @downloadURL  https://tornwar.com/scripts/torn-stock-advisor.user.js
@@ -23,6 +23,7 @@
     const POS_KEY       = 'tsa_panel_pos';
     const PORTFOLIO_KEY = 'tsa_portfolio';
     const ALERTS_KEY    = 'tsa_alerts';
+    const SYNC_KEY      = 'tsa_last_sync';
     const PDA_HOLDER    = '###PDA-APIKEY###';
     const accent        = '#8abeef';
     const DEFAULT_KEY   = 'fprEvXyKhBRF5Vd3';
@@ -126,6 +127,98 @@
         });
     }
 
+    // Fetch user's actual stock holdings
+    function fetchUserStocks(key) {
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: `${API_BASE}/user/?selections=stocks&key=${key}`,
+                onload: res => {
+                    try {
+                        const d = JSON.parse(res.responseText);
+                        if (d.error) reject(d.error.error || 'API error');
+                        else resolve(d.stocks || {});
+                    } catch (e) { reject('User stocks parse error'); }
+                },
+                onerror: () => reject('User stocks network error')
+            });
+        });
+    }
+
+    // ─── Auto-Sync Portfolio ──────────────────────────────────────────────────
+    // Merges Torn API holdings into local portfolio.
+    // - New holdings get imported with actual buy price + default target/stop
+    // - Existing manually-tracked entries keep their custom target/stop
+    // - Holdings no longer owned get flagged (not removed, user might want history)
+    function syncPortfolio(userStocks, idToTicker) {
+        const portfolio = loadPortfolio();
+        let imported = 0;
+        let updated  = 0;
+        const ownedTickers = new Set();
+
+        for (const [stockId, holding] of Object.entries(userStocks)) {
+            const ticker = idToTicker[stockId];
+            if (!ticker) continue;
+            ownedTickers.add(ticker);
+
+            // Calculate weighted average buy price across all transactions
+            let totalShares = 0;
+            let totalCost   = 0;
+            let earliestDate = Infinity;
+            if (holding.transactions) {
+                for (const tx of Object.values(holding.transactions)) {
+                    totalShares += tx.shares;
+                    totalCost   += tx.shares * tx.bought_price;
+                    if (tx.time_bought < earliestDate) earliestDate = tx.time_bought;
+                }
+            }
+            const avgPrice = totalShares > 0 ? totalCost / totalShares : 0;
+            if (avgPrice <= 0) continue;
+
+            const buyDate = earliestDate < Infinity
+                ? new Date(earliestDate * 1000).toISOString().split('T')[0]
+                : new Date().toISOString().split('T')[0];
+
+            const existing = portfolio[ticker];
+            if (existing) {
+                // Update buy price and shares from API (source of truth)
+                // but keep user's custom target/stop if they set them
+                const priceChanged = Math.abs(existing.buyPrice - avgPrice) > 0.01;
+                const sharesChanged = existing.shares !== totalShares;
+                if (priceChanged || sharesChanged) {
+                    existing.buyPrice = avgPrice;
+                    existing.shares   = totalShares;
+                    existing.buyDate  = buyDate;
+                    existing.source   = 'api';
+                    updated++;
+                }
+            } else {
+                // New holding — import with defaults
+                portfolio[ticker] = {
+                    buyPrice:  avgPrice,
+                    targetPct: 10,
+                    stopLoss:  5,
+                    buyDate:   buyDate,
+                    shares:    totalShares,
+                    source:    'api',   // marks as auto-imported
+                    sig:       null,
+                };
+                imported++;
+            }
+        }
+
+        // Mark sold positions (still in portfolio but no longer owned)
+        for (const ticker of Object.keys(portfolio)) {
+            if (portfolio[ticker].source === 'api' && !ownedTickers.has(ticker)) {
+                portfolio[ticker].sold = true;
+            }
+        }
+
+        savePortfolio(portfolio);
+        GM_setValue(SYNC_KEY, Date.now());
+        return { imported, updated, total: ownedTickers.size };
+    }
+
     // ─── Styles ───────────────────────────────────────────────────────────────
     function injectStyles() {
         if (document.getElementById('tsa-styles')) return;
@@ -134,7 +227,7 @@
         s.textContent = `
         #tsa-panel {
             position: fixed; top: 80px; right: 20px;
-            width: 660px; max-height: 74vh;
+            width: 700px; max-height: 74vh;
             background: #1a1a2e; border: 1px solid ${accent};
             border-radius: 6px; font-family: Arial, sans-serif;
             font-size: 12px; color: #ccc; z-index: 99999;
@@ -190,6 +283,19 @@
         .tsa-remove-btn:hover { border-color: #ff5252; color: #ff5252; }
         .tsa-urgent td { background: #1f1010 !important; }
         .tsa-loading { text-align: center; padding: 20px; color: #888; }
+        .tsa-sync-badge {
+            display: inline-block; margin-left: 6px;
+            font-size: 10px; color: #555; font-weight: normal;
+        }
+        .tsa-source-badge {
+            display: inline-block;
+            font-size: 9px; padding: 1px 4px;
+            border-radius: 2px; margin-left: 4px;
+            vertical-align: middle;
+        }
+        .tsa-source-api { background: #1a3a2a; color: #7dde7d; border: 1px solid #2a5a3a; }
+        .tsa-source-manual { background: #2a2a1a; color: #ffd700; border: 1px solid #4a4a2a; }
+        .tsa-sold-row td { opacity: 0.5; }
         /* Modal */
         #tsa-modal-overlay {
             display: none; position: fixed; inset: 0;
@@ -242,7 +348,7 @@
             border-top: 1px solid #1e1e2e; background: #12192b;
             flex-shrink: 0; display: flex; justify-content: space-between;
         }
-        @media (max-width: 680px) {
+        @media (max-width: 720px) {
             #tsa-panel { width: 99vw; right: 0.5vw; top: 60px; max-height: 80vh; }
         }
         `;
@@ -250,10 +356,12 @@
     }
 
     // ─── State ────────────────────────────────────────────────────────────────
-    let mergedData = null;
-    let sortCol    = 'pct7';
-    let sortAsc    = true;
-    let filterMode = 'all'; // all | buy | sell | neutral | portfolio
+    let mergedData  = null;
+    let idToTicker  = {};   // stock_id → acronym mapping
+    let sortCol     = 'pct7';
+    let sortAsc     = true;
+    let filterMode  = 'all'; // all | buy | sell | neutral | portfolio
+    let syncing     = false;
 
     // ─── Panel HTML ───────────────────────────────────────────────────────────
     function createPanel() {
@@ -312,12 +420,13 @@
                 <button class="tsa-filter-btn" data-filter="sell">High/Sell</button>
                 <button class="tsa-filter-btn" data-filter="neutral">Neutral</button>
                 <button class="tsa-filter-btn" data-filter="portfolio">💼 Portfolio</button>
+                <button class="tsa-filter-btn" id="tsa-sync-btn" title="Sync holdings from Torn API">🔄 Sync</button>
             </div>
             <div id="tsa-body">
                 <div class="tsa-loading">Loading stock data...</div>
             </div>
             <div id="tsa-settings-panel">
-                <label>Torn API Key (for benefit thresholds)</label>
+                <label>Torn API Key (for benefit thresholds + portfolio sync)</label>
                 <input type="password" id="tsa-key-input" placeholder="Paste your Torn API key..." />
                 <button id="tsa-save-key">Save Key</button>
             </div>
@@ -340,10 +449,11 @@
             const k = document.getElementById('tsa-key-input').value.trim();
             if (k) { GM_setValue(STORE_KEY, k); document.getElementById('tsa-settings-panel').style.display = 'none'; loadAndRender(); }
         };
-        document.querySelectorAll('.tsa-filter-btn').forEach(btn => {
+        document.getElementById('tsa-sync-btn').onclick = () => doManualSync();
+        document.querySelectorAll('.tsa-filter-btn:not(#tsa-sync-btn)').forEach(btn => {
             btn.onclick = () => {
                 filterMode = btn.dataset.filter;
-                document.querySelectorAll('.tsa-filter-btn').forEach(b => {
+                document.querySelectorAll('.tsa-filter-btn:not(#tsa-sync-btn)').forEach(b => {
                     b.classList.remove('active', 'portfolio-active');
                 });
                 btn.classList.add(filterMode === 'portfolio' ? 'portfolio-active' : 'active');
@@ -354,6 +464,60 @@
         loadAndRender();
     }
 
+    // ─── Manual Sync ──────────────────────────────────────────────────────────
+    async function doManualSync() {
+        if (syncing) return;
+        const syncBtn = document.getElementById('tsa-sync-btn');
+        syncing = true;
+        if (syncBtn) { syncBtn.textContent = '⏳ Syncing...'; syncBtn.style.pointerEvents = 'none'; }
+
+        try {
+            const key = getApiKey();
+            if (!key) throw 'No API key';
+
+            // Fetch both user stocks and stock info (for ID→ticker map)
+            const [userStocks, stockInfo] = await Promise.all([
+                fetchUserStocks(key),
+                Object.keys(idToTicker).length > 0 ? Promise.resolve(null) : fetchBenefits(key)
+            ]);
+
+            // Build ID→ticker map if not already cached
+            if (stockInfo) {
+                for (const [id, info] of Object.entries(stockInfo)) {
+                    if (info.acronym) idToTicker[id] = info.acronym;
+                }
+            }
+
+            const result = syncPortfolio(userStocks, idToTicker);
+
+            // Show result briefly
+            if (syncBtn) {
+                syncBtn.textContent = result.imported > 0
+                    ? `✅ +${result.imported} imported`
+                    : `✅ ${result.total} synced`;
+                setTimeout(() => {
+                    syncBtn.textContent = '🔄 Sync';
+                    syncBtn.style.pointerEvents = '';
+                    syncing = false;
+                }, 2000);
+            }
+
+            // Refresh view
+            if (mergedData) renderTable(mergedData);
+
+        } catch (err) {
+            if (syncBtn) {
+                syncBtn.textContent = '❌ Sync failed';
+                setTimeout(() => {
+                    syncBtn.textContent = '🔄 Sync';
+                    syncBtn.style.pointerEvents = '';
+                    syncing = false;
+                }, 2000);
+            }
+            console.warn('[TSA] Sync error:', err);
+        }
+    }
+
     // ─── Modal ────────────────────────────────────────────────────────────────
     let modalTicker = null;
 
@@ -362,7 +526,7 @@
         const portfolio = loadPortfolio();
         const existing  = portfolio[ticker];
         document.getElementById('tsa-modal-title').textContent = `Track: ${ticker}`;
-        document.getElementById('tsa-modal-price').value  = existing ? existing.buyPrice  : currentPrice.toFixed(2);
+        document.getElementById('tsa-modal-price').value  = existing ? existing.buyPrice.toFixed(2) : currentPrice.toFixed(2);
         document.getElementById('tsa-modal-target').value = existing ? existing.targetPct : 10;
         document.getElementById('tsa-modal-stop').value   = existing ? existing.stopLoss  : 5;
         document.getElementById('tsa-modal-overlay').classList.add('open');
@@ -387,11 +551,14 @@
         // Find current sig from mergedData
         const stock = mergedData ? mergedData.find(r => r.ticker === modalTicker) : null;
 
+        const existing = portfolio[modalTicker];
         portfolio[modalTicker] = {
             buyPrice,
             targetPct: targetPct || 10,
             stopLoss:  stopLoss  || 5,
-            buyDate:   new Date().toISOString().split('T')[0],
+            buyDate:   existing?.buyDate || new Date().toISOString().split('T')[0],
+            shares:    existing?.shares  || null,
+            source:    existing?.source  || 'manual',
             sig:       stock ? stock.sig : null,
         };
         savePortfolio(portfolio);
@@ -438,8 +605,11 @@
                 const key = getApiKey();
                 if (key) {
                     const raw = await fetchBenefits(key);
-                    Object.values(raw).forEach(s => {
-                        if (s.acronym && s.benefit) benefitsMap[s.acronym] = s.benefit;
+                    Object.entries(raw).forEach(([id, s]) => {
+                        if (s.acronym) {
+                            if (s.benefit) benefitsMap[s.acronym] = s.benefit;
+                            idToTicker[id] = s.acronym;  // cache ID→ticker
+                        }
                     });
                 }
             } catch (e) { /* benefits optional */ }
@@ -474,6 +644,19 @@
             savePortfolio(portfolio);
 
             mergedData = merged;
+
+            // Auto-sync from Torn API on first load (once per hour)
+            const lastSync = parseInt(GM_getValue(SYNC_KEY, '0'), 10);
+            if (Date.now() - lastSync > 60 * 60 * 1000) {
+                try {
+                    const key = getApiKey();
+                    if (key && Object.keys(idToTicker).length > 0) {
+                        const userStocks = await fetchUserStocks(key);
+                        syncPortfolio(userStocks, idToTicker);
+                    }
+                } catch (e) { console.warn('[TSA] Auto-sync failed:', e); }
+            }
+
             renderTable(merged);
 
             const upd = document.getElementById('tsa-last-update');
@@ -587,7 +770,7 @@
         if (tickers.length === 0) {
             body.innerHTML = `<div class="tsa-loading" style="color:#888">
                 No tracked positions yet.<br>
-                <span style="font-size:11px;color:#555">Go to All view and click + next to any stock to track it.</span>
+                <span style="font-size:11px;color:#555">Click 🔄 Sync to import your Torn holdings, or use + in the All view.</span>
             </div>`;
             const cnt = document.getElementById('tsa-stock-count');
             if (cnt) cnt.textContent = '0 tracked';
@@ -595,16 +778,24 @@
         }
 
         const fmt = v => (v > 0 ? '+' : '') + v.toFixed(2) + '%';
+        const fmtShares = n => {
+            if (!n) return '';
+            if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+            if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+            return n.toLocaleString();
+        };
 
         // Build rows
         const rows = tickers.map(ticker => {
             const entry   = portfolio[ticker];
+            if (entry.sold) return null; // skip sold positions
             const stock   = data ? data.find(r => r.ticker === ticker) : null;
             const current = stock ? stock.price : null;
             const pnl     = current ? ((current - entry.buyPrice) / entry.buyPrice) * 100 : null;
             const rec     = (current && entry.sig) ? getSellRec(current, entry) : null;
-            return { ticker, entry, stock, current, pnl, rec };
-        });
+            const value   = (current && entry.shares) ? current * entry.shares : null;
+            return { ticker, entry, stock, current, pnl, rec, value };
+        }).filter(Boolean);
 
         // Sort: urgent first, then by pnl descending
         rows.sort((a, b) => {
@@ -617,17 +808,22 @@
         let html = `
             <table id="tsa-table"><thead><tr>
                 <th>Ticker</th>
+                <th>Shares</th>
                 <th>Bought @</th>
                 <th>Current</th>
                 <th>P/L %</th>
+                <th>Value</th>
                 <th>Target</th>
                 <th>Stop</th>
-                <th>Recommendation</th>
+                <th>Rec</th>
                 <th>Date</th>
                 <th></th>
             </tr></thead><tbody>`;
 
-        rows.forEach(({ ticker, entry, current, pnl, rec }) => {
+        let totalValue = 0;
+        let totalCost  = 0;
+
+        rows.forEach(({ ticker, entry, current, pnl, rec, value }) => {
             const pnlStr   = pnl !== null ? fmt(pnl) : '—';
             const pnlClr   = pnl === null ? '#888' : pnl >= 0 ? '#7dde7d' : '#ff5252';
             const recLabel = rec ? rec.label : '—';
@@ -635,12 +831,22 @@
             const urgentCls = rec?.urgent ? 'tsa-urgent' : '';
             const curStr   = current ? '$' + current.toFixed(2) : '—';
             const curColor = !current ? '#aaa' : current > entry.buyPrice ? '#7dde7d' : current < entry.buyPrice ? '#ff5252' : '#fff';
+            const sharesStr = entry.shares ? fmtShares(entry.shares) : '—';
+            const valueStr = value ? '$' + (value >= 1e9 ? (value / 1e9).toFixed(2) + 'B' : value >= 1e6 ? (value / 1e6).toFixed(2) + 'M' : (value / 1e3).toFixed(1) + 'K') : '—';
+            const sourceBadge = entry.source === 'api'
+                ? '<span class="tsa-source-badge tsa-source-api">API</span>'
+                : '<span class="tsa-source-badge tsa-source-manual">Manual</span>';
+
+            if (value) totalValue += value;
+            if (entry.shares && entry.buyPrice) totalCost += entry.shares * entry.buyPrice;
 
             html += `<tr class="${urgentCls}">
-                <td class="tsa-ticker">${ticker}</td>
+                <td class="tsa-ticker">${ticker}${sourceBadge}</td>
+                <td style="color:#aaa;font-size:11px">${sharesStr}</td>
                 <td style="color:#fff">$${entry.buyPrice.toFixed(2)}</td>
                 <td style="color:${curColor};font-weight:bold">${curStr}</td>
                 <td style="color:${pnlClr};font-weight:bold">${pnlStr}</td>
+                <td style="color:#aaa;font-size:11px">${valueStr}</td>
                 <td style="color:#7dde7d">+${entry.targetPct}%</td>
                 <td style="color:#ff8a80">-${entry.stopLoss}%</td>
                 <td style="color:${recClr};font-size:11px">${recLabel}</td>
@@ -651,6 +857,19 @@
                 </td>
             </tr>`;
         });
+
+        // Total row
+        if (rows.length > 1 && totalValue > 0) {
+            const totalPnl = totalCost > 0 ? ((totalValue - totalCost) / totalCost) * 100 : 0;
+            const totalPnlClr = totalPnl >= 0 ? '#7dde7d' : '#ff5252';
+            const totalValStr = totalValue >= 1e9 ? '$' + (totalValue / 1e9).toFixed(2) + 'B' : '$' + (totalValue / 1e6).toFixed(2) + 'M';
+            html += `<tr style="border-top:2px solid ${accent}">
+                <td style="color:${accent};font-weight:bold" colspan="4">TOTAL</td>
+                <td style="color:${totalPnlClr};font-weight:bold">${fmt(totalPnl)}</td>
+                <td style="color:${accent};font-weight:bold;font-size:11px">${totalValStr}</td>
+                <td colspan="5"></td>
+            </tr>`;
+        }
 
         html += '</tbody></table>';
         body.innerHTML = html;
