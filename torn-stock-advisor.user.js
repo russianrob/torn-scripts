@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Stock Advisor
 // @namespace    torn.stock.advisor
-// @version      3.2.1
+// @version      3.2.2
 // @description  Real buy/sell signals + portfolio tracker for Torn stocks (Tornsy + Torn API) — auto-imports your holdings
 // @match        https://www.torn.com/*
 // @updateURL    https://tornwar.com/scripts/torn-stock-advisor.meta.js
@@ -291,6 +291,25 @@
         .tsa-remove-btn:hover { border-color: #ff5252; color: #ff5252; }
         .tsa-urgent td { background: #1f1010 !important; }
         .tsa-loading { text-align: center; padding: 20px; color: #888; }
+        /* Custom tooltip for buy signals (click/tap friendly) */
+        .tsa-sig-tip {
+            cursor: pointer; position: relative;
+            border-bottom: 1px dotted rgba(255,255,255,0.25);
+        }
+        .tsa-tooltip {
+            position: fixed; z-index: 200000;
+            background: #16213e; border: 1px solid ${accent};
+            border-radius: 6px; padding: 8px 11px;
+            font-size: 11px; color: #ccc; line-height: 1.5;
+            max-width: 240px; white-space: normal;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+            pointer-events: auto;
+            animation: tsa-tipfade 0.15s ease;
+        }
+        @keyframes tsa-tipfade {
+            from { opacity: 0; transform: translateY(4px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
         .tsa-sync-badge {
             display: inline-block; margin-left: 6px;
             font-size: 10px; color: #555; font-weight: normal;
@@ -738,7 +757,9 @@
                 <td style="color:${clr(r.sig.pct7)};font-weight:bold">${r.d7  ? fmt(r.sig.pct7)  : '—'}</td>
                 <td style="color:${clr(r.pct14 ?? 0)}">${r.d14 ? fmt(r.pct14) : '—'}</td>
                 <td style="color:${clr(r.pct30 ?? 0)}">${r.d30 ? fmt(r.pct30) : '—'}</td>
-                <td style="color:${r.sig.color};font-size:11px;cursor:${sigTooltip(r.sig.label) ? 'help' : 'default'}" title="${sigTooltip(r.sig.label)}">${r.sig.label}</td>
+                <td style="color:${r.sig.color};font-size:11px">${sigTooltip(r.sig.label)
+                    ? `<span class="tsa-sig-tip" data-tip="${sigTooltip(r.sig.label)}">${r.sig.label}</span>`
+                    : r.sig.label}</td>
                 <td style="color:${trendClr};font-size:11px">${r.sig.trend}</td>
                 <td style="color:#666">${r.benefitStr}</td>
                 <td><button class="${trackClass}" data-ticker="${r.ticker}" data-price="${r.price}">${trackLabel}</button></td>
@@ -750,6 +771,9 @@
 
         const cnt = document.getElementById('tsa-stock-count');
         if (cnt) cnt.textContent = `${filtered.length} stocks`;
+
+        // Signal tooltips (click/tap to show)
+        wireTooltips(body);
 
         // Track buttons
         body.querySelectorAll('.tsa-track-btn').forEach(btn => {
@@ -899,6 +923,47 @@
             btn.addEventListener('click', () => removeFromPortfolio(btn.dataset.ticker));
         });
     }
+
+    // ─── Tooltip Handler ──────────────────────────────────────────────────
+    let activeTooltip = null;
+
+    function dismissTooltip() {
+        if (activeTooltip) { activeTooltip.remove(); activeTooltip = null; }
+    }
+
+    function wireTooltips(container) {
+        container.querySelectorAll('.tsa-sig-tip').forEach(el => {
+            el.addEventListener('click', e => {
+                e.stopPropagation();
+                dismissTooltip();
+
+                const tip = document.createElement('div');
+                tip.className = 'tsa-tooltip';
+                tip.textContent = el.dataset.tip;
+                document.body.appendChild(tip);
+
+                // Position near the element
+                const rect = el.getBoundingClientRect();
+                let top  = rect.bottom + 6;
+                let left = rect.left + rect.width / 2 - 120;
+
+                // Keep on screen
+                if (left < 8) left = 8;
+                if (left + 240 > window.innerWidth) left = window.innerWidth - 248;
+                if (top + 80 > window.innerHeight) top = rect.top - 50;
+
+                tip.style.top  = top + 'px';
+                tip.style.left = left + 'px';
+                activeTooltip  = tip;
+
+                // Auto-dismiss after 4s
+                setTimeout(() => { if (activeTooltip === tip) dismissTooltip(); }, 4000);
+            });
+        });
+    }
+
+    // Dismiss on tap/click anywhere else
+    document.addEventListener('click', dismissTooltip);
 
     // ─── Alerts Storage ───────────────────────────────────────────────────────
     function saveAlerts(items) {
