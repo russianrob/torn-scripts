@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.31
+// @version      1.7.33
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -855,25 +855,27 @@
         for (const m of normArr(members)) {
             const uid = m.id ?? m.player_id;
             const lastAction = m.last_action?.timestamp ?? 0;
-            if (lastAction < activeCutoff) { skipped.push({ ...m, id: uid, skipReason: `Inactive >${CONFIG.ACTIVE_DAYS}d` }); continue; }
             const ocInfo = memberOcMap[uid];
             const inOC   = !!ocInfo;
-            if (inOC && ocInfo.readyAt > forecastCutoff) { skipped.push({ ...m, id: uid, skipReason: `In OC (ready ${fmtTs(ocInfo.readyAt)})` }); continue; }
+            // Enrich ALL members with CPR data (needed even for skipped — viewer card uses it)
             const cpr = cprCache[uid] ?? null;
             const cprValue = cpr?.cpr ?? null;
             const highestLvl = cpr?.highestLevel ?? 0;
             const joinable = (cprValue === null || cprValue < CONFIG.MINCPR) ? 1 : (cpr?.joinable ?? 1);
-            eligible.push({
-                id: uid, name: m.name, lastAction, status: m.status?.state ?? 'Unknown',
-                inOC, ocReadyAt: inOC ? ocInfo.readyAt : null,
-                ocCrimeName: inOC ? ocInfo.crimeName : null, ocStatus: inOC ? ocInfo.crimeStatus : null,
-                currentCrimeDiff: inOC ? ocInfo.crimeDifficulty : null,
+            const enriched = {
+                ...m, id: uid, name: m.name, lastAction, status: m.status?.state ?? 'Unknown',
+                inOC, ocReadyAt: inOC ? ocInfo?.readyAt : null,
+                ocCrimeName: inOC ? ocInfo?.crimeName : null, ocStatus: inOC ? ocInfo?.crimeStatus : null,
+                currentCrimeDiff: inOC ? ocInfo?.crimeDifficulty : null,
                 cpr: cprValue, highestLevel: highestLvl, joinable,
                 noCrimeHistory: cprValue === null,
-                cprEstimated:  cpr?.estimated || false,
-                cprEntries:    cpr?.entries ?? [],
-                byPosition:    cpr?.byPosition ?? {},
-            });
+                cprEstimated: cpr?.estimated || false,
+                cprEntries: cpr?.entries ?? [],
+                byPosition: cpr?.byPosition ?? {},
+            };
+            if (lastAction < activeCutoff) { skipped.push({ ...enriched, skipReason: `Inactive >${CONFIG.ACTIVE_DAYS}d` }); continue; }
+            if (inOC && ocInfo.readyAt > forecastCutoff) { skipped.push({ ...enriched, skipReason: `In OC (ready ${fmtTs(ocInfo.readyAt)})` }); continue; }
+            eligible.push(enriched);
         }
         return { eligible, skipped };
     }
