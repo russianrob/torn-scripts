@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.38
+// @version      1.7.39
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -287,7 +287,8 @@
     //  SERVER DATA  — GET /api/oc/spawn-key
     // ═══════════════════════════════════════════════════════════════════════
     async function fetchServerOcData(apiKey) {
-        const r = await gmRequest(`${SERVER}/api/oc/spawn-key?key=${encodeURIComponent(apiKey)}`);
+        const scriptVer = GM_info?.script?.version || '0';
+        const r = await gmRequest(`${SERVER}/api/oc/spawn-key?key=${encodeURIComponent(apiKey)}&v=${scriptVer}`);
         if (r.status === 403) {
             const err = new Error(r.data?.error || 'Access restricted to faction members only.');
             err.status = 403; throw err;
