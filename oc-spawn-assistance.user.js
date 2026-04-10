@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.28
+// @version      1.7.29
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -1114,9 +1114,11 @@
 
                 const pd  = lookupPosCPR(byPos, c.name, slot.position);
                 const posCPR = pd?.cpr || 0;
-                if (posCPR > bestPosCPR) {
-                    bestPosCPR = posCPR; bestPos = pd?.position || roleName;
-                    bestCrime = c; bestWeight = slotWeight;
+                const w = slotWeight ?? 0;
+                // Prefer: highest weight first, then highest role CPR as tiebreaker
+                if (w > bestWeight || (w === bestWeight && posCPR > bestPosCPR)) {
+                    bestPosCPR = posCPR; bestPos = roleName; // always use actual slot name (e.g. THIEF #1)
+                    bestCrime = c; bestWeight = w;
                 }
             }
         }
@@ -1126,7 +1128,7 @@
             const c = openOCs[0];
             const openSlot = (c.slots || []).find(s => !s.user_id && !s.user?.id);
             const pd  = lookupPosCPR(byPos, c.name, openSlot?.position);
-            return { type: 'rec', crime: c.name, position: pd?.position || openSlot?.position || null,
+            return { type: 'rec', crime: c.name, position: openSlot?.position || pd?.position || null,
                 cpr: pd?.cpr || null, level: m.joinable, count: openOCs.length, lowCpr: true };
         }
 
