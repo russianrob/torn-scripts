@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.34
+// @version      1.7.35
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -861,7 +861,8 @@
             const cpr = cprCache[uid] ?? null;
             const cprValue = cpr?.cpr ?? null;
             const highestLvl = cpr?.highestLevel ?? 0;
-            const joinable = (cprValue === null || cprValue < CONFIG.MINCPR) ? 1 : (cpr?.joinable ?? 1);
+            // Trust server's per-level joinable (already accounts for per-level CPR vs MINCPR)
+            const joinable = cpr?.joinable ?? (cprValue !== null && cprValue >= CONFIG.MINCPR ? highestLvl : 1);
             const enriched = {
                 ...m, id: uid, name: m.name, lastAction, status: m.status?.state ?? 'Unknown',
                 inOC, ocReadyAt: inOC ? ocInfo?.readyAt : null,
