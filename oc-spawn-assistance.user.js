@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.27
+// @version      1.7.28
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -1073,12 +1073,13 @@
         return typeof role === 'number' ? role : null;
     }
 
-    // Look up byPosition CPR: exact crime::role first, then any crime with same role as fallback
-    function lookupPosCPR(byPos, crimeName, slotPosId, slotPos) {
-        const exactKey = `${crimeName}::${slotPosId || slotPos}`;
+    // Look up byPosition CPR by role NAME (not position_id which is a generic slot number)
+    function lookupPosCPR(byPos, crimeName, roleName) {
+        if (!roleName) return null;
+        const exactKey = `${crimeName}::${roleName}`;
         if (byPos[exactKey]) return byPos[exactKey];
-        // Fallback: find any entry ending with the same role
-        const roleKey = String(slotPosId || slotPos).toLowerCase();
+        // Fallback: same role name from any other crime type
+        const roleKey = roleName.toLowerCase();
         for (const [k, v] of Object.entries(byPos)) {
             const parts = k.split('::');
             if (parts.length === 2 && parts[1].toLowerCase() === roleKey) return v;
@@ -1111,7 +1112,7 @@
                     ? HIGH_WEIGHT_MIN_CPR : CONFIG.MINCPR;
                 if (memberCPR < minCPR) continue; // CPR too low for this slot
 
-                const pd  = lookupPosCPR(byPos, c.name, slot.position_id, slot.position);
+                const pd  = lookupPosCPR(byPos, c.name, slot.position);
                 const posCPR = pd?.cpr || 0;
                 if (posCPR > bestPosCPR) {
                     bestPosCPR = posCPR; bestPos = pd?.position || roleName;
@@ -1124,7 +1125,7 @@
         if (!bestCrime) {
             const c = openOCs[0];
             const openSlot = (c.slots || []).find(s => !s.user_id && !s.user?.id);
-            const pd  = lookupPosCPR(byPos, c.name, openSlot?.position_id, openSlot?.position);
+            const pd  = lookupPosCPR(byPos, c.name, openSlot?.position);
             return { type: 'rec', crime: c.name, position: pd?.position || openSlot?.position || null,
                 cpr: pd?.cpr || null, level: m.joinable, count: openOCs.length, lowCpr: true };
         }
@@ -1224,7 +1225,7 @@
                 const openSlots = (c.slots || []).filter(s => !s.user_id && !s.user?.id);
                 let bestPos = null, bestCPR = -1;
                 for (const slot of openSlots) {
-                    const pd  = lookupPosCPR(byPos, c.name, slot.position_id, slot.position);
+                    const pd  = lookupPosCPR(byPos, c.name, slot.position);
                     if (pd && pd.cpr > bestCPR) { bestCPR = pd.cpr; bestPos = pd.position; }
                 }
                 const posTag = bestPos
