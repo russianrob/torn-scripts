@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.23
+// @version      1.7.24
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -1025,7 +1025,8 @@
     }
 
     function renderRecommendations(recs, scopeProjection) {
-        const visible = recs.filter(r => r.action !== 'none');
+        // Show any level that has eligible members OR has OC slots — don't silently drop rows
+        const visible = recs.filter(r => r.action !== 'none' || r.freeMembers + r.soonMembers > 0 || r.totalSlots > 0);
         if (!visible.length) return '<p class="oc-tag-none">No eligible members found for any level.</p>';
 
         const rows = visible.map(r => {
