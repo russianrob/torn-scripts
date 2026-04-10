@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Stock Advisor
 // @namespace    torn.stock.advisor
-// @version      3.0.0
+// @version      3.0.1
 // @description  Real buy/sell signals + portfolio tracker for Torn stocks (Tornsy + Torn API)
 // @match        https://www.torn.com/*
 // @grant        GM_xmlhttpRequest
@@ -631,11 +631,12 @@
             const recClr   = rec ? rec.color : '#888';
             const urgentCls = rec?.urgent ? 'tsa-urgent' : '';
             const curStr   = current ? '$' + current.toFixed(2) : '—';
+            const curColor = !current ? '#aaa' : current > entry.buyPrice ? '#7dde7d' : current < entry.buyPrice ? '#ff5252' : '#fff';
 
             html += `<tr class="${urgentCls}">
                 <td class="tsa-ticker">${ticker}</td>
-                <td>$${entry.buyPrice.toFixed(2)}</td>
-                <td>${curStr}</td>
+                <td style="color:#fff">$${entry.buyPrice.toFixed(2)}</td>
+                <td style="color:${curColor};font-weight:bold">${curStr}</td>
                 <td style="color:${pnlClr};font-weight:bold">${pnlStr}</td>
                 <td style="color:#7dde7d">+${entry.targetPct}%</td>
                 <td style="color:#ff8a80">-${entry.stopLoss}%</td>
