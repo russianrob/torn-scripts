@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.35
+// @version      1.7.36
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -59,6 +59,7 @@
     let recMap = {}; // uid → { crime, position, cpr, count }
     let lastScopeProjection = null;
     let scopePushTimer  = null;
+    let settingsReady    = false;  // true after server settings loaded
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -74,8 +75,17 @@
         // Update settings panel input
         const scopeEl = document.getElementById('cfg-scope');
         if (scopeEl) scopeEl.value = scope;
-        // Scope is sent to the server only when the user manually
-        // clicks Refresh or Save Settings — no automatic server calls
+
+        // Auto-push scope to server (debounced, only after settings loaded)
+        clearTimeout(scopePushTimer);
+        scopePushTimer = setTimeout(() => {
+            if (!settingsReady) return;
+            const apiKey = getApiKey();
+            if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') {
+                pushFactionSettings(apiKey, CONFIG).catch(() => {});
+                console.log('[OC Spawn] Pushed scope', scope, 'to server');
+            }
+        }, 2000);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1374,6 +1384,7 @@
                 GM_setValue('cfg_scope',               CONFIG.SCOPE);
 
                 populateSettings();
+                settingsReady = true;
             }
 
             // Fetch OC data from server
