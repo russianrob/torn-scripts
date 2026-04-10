@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.17
+// @version      1.7.18
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -1373,9 +1373,12 @@
             setStatus(`Last updated: ${new Date().toLocaleTimeString()} · ${normArr(members).length} members`);
 
         } catch (err) {
+            const hint = /504|503|502|timeout/i.test(err.message)
+                ? 'Torn API timed out — try refreshing in a moment.'
+                : 'Check your API key has Limited (or higher) faction access.';
             document.getElementById('oc-tab-profile').innerHTML =
                 `<p class="oc-error">Error: ${err.message}</p>
-                 <p style="color:#6b7280;font-size:11px;">Check your API key has Limited (or higher) faction access.</p>`;
+                 <p style="color:#6b7280;font-size:11px;">${hint}</p>`;
             setStatus(`Error: ${err.message}`);
             console.error('[OC Spawn]', err);
         } finally {
