@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.40
+// @version      1.7.41
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -60,6 +60,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
+    const SCRIPT_VERSION = '1.7.41';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -67,7 +68,7 @@
     // ═══════════════════════════════════════════════════════════════════════
     (async function checkForUpdate() {
         try {
-            const localVer = GM_info?.script?.version || '0';
+            const localVer = SCRIPT_VERSION;
             const r = await gmRequest(`${SERVER}/api/oc/version`);
             const remoteVer = r?.version;
             if (!remoteVer || remoteVer === '0') return;
@@ -287,7 +288,7 @@
     //  SERVER DATA  — GET /api/oc/spawn-key
     // ═══════════════════════════════════════════════════════════════════════
     async function fetchServerOcData(apiKey) {
-        const scriptVer = GM_info?.script?.version || '0';
+        const scriptVer = SCRIPT_VERSION;
         const r = await gmRequest(`${SERVER}/api/oc/spawn-key?key=${encodeURIComponent(apiKey)}&v=${scriptVer}`);
         if (r.status === 403) {
             const err = new Error(r.data?.error || 'Access restricted to faction members only.');
@@ -527,7 +528,7 @@
     panel.id = 'oc-spawn-panel';
     panel.innerHTML = `
         <h2>
-            OC Spawn Assistance <span style="font-size:10px;font-weight:400;color:#6b7280;">v${GM_info?.script?.version || '?'}</span>
+            OC Spawn Assistance <span style="font-size:10px;font-weight:400;color:#6b7280;">v${SCRIPT_VERSION}</span>
             <span style="display:flex;gap:6px;align-items:center;">
                 <button id="oc-spawn-refresh">↻ Refresh</button>
                 <button id="oc-spawn-settings" class="oc-hdr-btn" title="Settings">⚙</button>
