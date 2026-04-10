@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.18
+// @version      1.7.19
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -1324,7 +1324,7 @@
             } catch (err) {
                 if (err.status === 403) {
                     document.getElementById('oc-tab-profile').innerHTML =
-                        `<p class="oc-error">⛔ Access restricted — your key is not in faction #${CONFIG.FACTION_ID}.</p>`;
+                        `<p class="oc-error">⛔ ${err.message}</p>`;
                     setStatus('Access denied.');
                     return;
                 }
