@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Stock Advisor
 // @namespace    torn.stock.advisor
-// @version      3.2.0
+// @version      3.2.1
 // @description  Real buy/sell signals + portfolio tracker for Torn stocks (Tornsy + Torn API) — auto-imports your holdings
 // @match        https://www.torn.com/*
 // @updateURL    https://tornwar.com/scripts/torn-stock-advisor.meta.js
@@ -77,6 +77,14 @@
 
         return { label, color, pct7: pct7 ?? 0, pct1: pct1 ?? 0, pct3: pct3 ?? 0, trend };
     }
+
+    // ─── Signal Tooltips (buy signals only) ───────────────────────────────────
+    const signalTips = {
+        '🔥 Strong Buy': 'Price is 8%+ below the 7-day average — a steep dip that often rebounds.',
+        '✅ Buy':         'Price is 4–8% below the 7-day average — solid entry point.',
+        '🟡 Slight Buy':  'Price is 1.5–4% below the 7-day average — small dip, could go lower.'
+    };
+    function sigTooltip(label) { return signalTips[label] || ''; }
 
     // ─── Sell Recommendation ──────────────────────────────────────────────────
     function getSellRec(current, entry) {
@@ -730,7 +738,7 @@
                 <td style="color:${clr(r.sig.pct7)};font-weight:bold">${r.d7  ? fmt(r.sig.pct7)  : '—'}</td>
                 <td style="color:${clr(r.pct14 ?? 0)}">${r.d14 ? fmt(r.pct14) : '—'}</td>
                 <td style="color:${clr(r.pct30 ?? 0)}">${r.d30 ? fmt(r.pct30) : '—'}</td>
-                <td style="color:${r.sig.color};font-size:11px">${r.sig.label}</td>
+                <td style="color:${r.sig.color};font-size:11px;cursor:${sigTooltip(r.sig.label) ? 'help' : 'default'}" title="${sigTooltip(r.sig.label)}">${r.sig.label}</td>
                 <td style="color:${trendClr};font-size:11px">${r.sig.trend}</td>
                 <td style="color:#666">${r.benefitStr}</td>
                 <td><button class="${trackClass}" data-ticker="${r.ticker}" data-price="${r.price}">${trackLabel}</button></td>
