@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.36
+// @version      1.7.37
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -76,14 +76,14 @@
         const scopeEl = document.getElementById('cfg-scope');
         if (scopeEl) scopeEl.value = scope;
 
-        // Auto-push scope to server (debounced, only after settings loaded)
+        // Auto-push scope ONLY (lightweight endpoint — doesn't touch admin_roles etc.)
         clearTimeout(scopePushTimer);
         scopePushTimer = setTimeout(() => {
             if (!settingsReady) return;
             const apiKey = getApiKey();
             if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') {
-                pushFactionSettings(apiKey, CONFIG).catch(() => {});
-                console.log('[OC Spawn] Pushed scope', scope, 'to server');
+                const p = new URLSearchParams({ key: apiKey, scope: scope });
+                gmRequest(`${SERVER}/api/oc/scope?${p}`).catch(() => {});
             }
         }, 2000);
     }
