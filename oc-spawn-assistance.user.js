@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.22
+// @version      1.7.23
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -1278,10 +1278,14 @@
     // ═══════════════════════════════════════════════════════════════════════
     //  MAIN
     // ═══════════════════════════════════════════════════════════════════════
-    // Admin access: dev (137558) OR any role in CONFIG.ADMIN_ROLES
+    // Dev always gets full access regardless of role
+    function isDev(viewer) {
+        return viewer && String(viewer.playerId) === '137558';
+    }
+    // Admin tab: dev OR any role in CONFIG.ADMIN_ROLES
     function canViewAdmin(viewer) {
         if (!viewer) return false;
-        if (String(viewer.playerId) === '137558') return true;
+        if (isDev(viewer)) return true;
         const pos = (viewer.position || '').toLowerCase().replace(/[^a-z]/g, '');
         const allowed = (CONFIG.ADMIN_ROLES || 'Leader,Co-leader')
             .split(',')
@@ -1376,11 +1380,11 @@
 
             // Lock admin tab content if viewer can't admin
             const settingsGear = document.getElementById('oc-spawn-settings');
+            // Gear always visible to dev; visible to others only if they can view admin
+            if (settingsGear) settingsGear.style.display = (isDev(viewer) || canViewAdmin(viewer)) ? '' : 'none';
             if (canViewAdmin(viewer)) {
-                if (settingsGear) settingsGear.style.display = '';
                 switchTab('admin');
             } else {
-                if (settingsGear) settingsGear.style.display = 'none';
                 // Replace admin content with locked message
                 document.getElementById('oc-tab-admin').innerHTML =
                     `<p class="oc-error" style="margin-top:8px;">🔒 Admin access requires Leader or Co-leader rank.</p>
