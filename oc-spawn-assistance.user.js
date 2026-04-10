@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.33
+// @version      1.7.34
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -1393,10 +1393,24 @@
             // Re-apply user's MINCPR/CPR_BOOST to joinable
             const cprCache = {};
             for (const [uid, d] of Object.entries(rawCprCache || {})) {
+                // Per-level CPR: find highest level where member actually performs well
+                const levelCprs = {};
+                for (const e of (d.entries || [])) {
+                    if (!levelCprs[e.diff]) levelCprs[e.diff] = { sum: 0, count: 0 };
+                    levelCprs[e.diff].sum += e.rate;
+                    levelCprs[e.diff].count += 1;
+                }
+                let effectiveTop = d.highestLevel || 0;
+                for (let lvl = effectiveTop; lvl >= 1; lvl--) {
+                    const lc = levelCprs[lvl];
+                    if (!lc) continue;
+                    if ((lc.sum / lc.count) >= CONFIG.MINCPR) { effectiveTop = lvl; break; }
+                }
                 cprCache[uid] = {
                     ...d,
+                    effectiveTop,
                     joinable: d.cpr >= CONFIG.MINCPR + CONFIG.CPR_BOOST
-                        ? Math.min(d.highestLevel + 1, 10) : d.highestLevel,
+                        ? Math.min(effectiveTop + 1, 10) : effectiveTop,
                 };
             }
 
