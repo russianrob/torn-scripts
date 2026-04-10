@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Stock Advisor
 // @namespace    torn.stock.advisor
-// @version      3.0.1
+// @version      3.1.0
 // @description  Real buy/sell signals + portfolio tracker for Torn stocks (Tornsy + Torn API)
 // @match        https://www.torn.com/*
 // @updateURL    https://tornwar.com/scripts/torn-stock-advisor.meta.js
@@ -22,6 +22,7 @@
     const STORE_KEY     = 'tsa_api_key';
     const POS_KEY       = 'tsa_panel_pos';
     const PORTFOLIO_KEY = 'tsa_portfolio';
+    const ALERTS_KEY    = 'tsa_alerts';
     const PDA_HOLDER    = '###PDA-APIKEY###';
     const accent        = '#8abeef';
     const DEFAULT_KEY   = 'fprEvXyKhBRF5Vd3';
@@ -541,7 +542,7 @@
 
             html += `<tr>
                 <td class="tsa-ticker" title="${r.name}">${r.ticker}</td>
-                <td>$${r.price.toFixed(2)}</td>
+                <td style="color:#fff">$${r.price.toFixed(2)}</td>
                 <td style="color:${pct1Clr}">${r.d1  ? fmt(r.sig.pct1)  : '—'}</td>
                 <td style="color:${clr(r.sig.pct7)};font-weight:bold">${r.d7  ? fmt(r.sig.pct7)  : '—'}</td>
                 <td style="color:${clr(r.pct14 ?? 0)}">${r.d14 ? fmt(r.pct14) : '—'}</td>
@@ -654,6 +655,12 @@
         html += '</tbody></table>';
         body.innerHTML = html;
 
+        // Save urgent alerts for toast on other pages
+        const urgentItems = rows
+            .filter(r => r.rec?.urgent)
+            .map(r => ({ ticker: r.ticker, label: r.rec.label, color: r.rec.color }));
+        saveAlerts(urgentItems);
+
         const cnt = document.getElementById('tsa-stock-count');
         if (cnt) cnt.textContent = `${rows.length} tracked`;
 
@@ -664,6 +671,144 @@
         body.querySelectorAll('.tsa-remove-btn').forEach(btn => {
             btn.addEventListener('click', () => removeFromPortfolio(btn.dataset.ticker));
         });
+    }
+
+    // ─── Alerts Storage ───────────────────────────────────────────────────────
+    function saveAlerts(items) {
+        GM_setValue(ALERTS_KEY, JSON.stringify({ items, timestamp: Date.now() }));
+    }
+    function loadAlerts() {
+        try { return JSON.parse(GM_getValue(ALERTS_KEY, 'null')); }
+        catch (e) { return null; }
+    }
+
+    // ─── Toast Notification ───────────────────────────────────────────────────
+    function injectToastStyles() {
+        if (document.getElementById('tsa-toast-styles')) return;
+        const s = document.createElement('style');
+        s.id = 'tsa-toast-styles';
+        s.textContent = `
+        #tsa-toast {
+            position: fixed;
+            bottom: 24px;
+            right: 20px;
+            min-width: 240px;
+            max-width: 320px;
+            background: #1a1a2e;
+            border: 1px solid #ff5252;
+            border-radius: 8px;
+            padding: 12px 14px 10px;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            color: #ccc;
+            z-index: 999999;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.7);
+            animation: tsa-slidein 0.3s ease;
+        }
+        @keyframes tsa-slidein {
+            from { transform: translateY(20px); opacity: 0; }
+            to   { transform: translateY(0);    opacity: 1; }
+        }
+        #tsa-toast-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        #tsa-toast-title {
+            color: #ff5252;
+            font-weight: bold;
+            font-size: 13px;
+        }
+        #tsa-toast-close {
+            background: none;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 0 2px;
+            line-height: 1;
+        }
+        #tsa-toast-close:hover { color: #fff; }
+        .tsa-toast-row {
+            padding: 3px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .tsa-toast-ticker { color: ${accent}; font-weight: bold; }
+        #tsa-toast-bar-wrap {
+            margin-top: 8px;
+            height: 3px;
+            background: #333;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        #tsa-toast-bar {
+            height: 100%;
+            background: #ff5252;
+            width: 100%;
+            transition: width linear;
+        }
+        #tsa-toast-footer {
+            margin-top: 6px;
+            font-size: 10px;
+            color: #555;
+            text-align: right;
+        }
+        `;
+        document.head.appendChild(s);
+    }
+
+    function showToast(items) {
+        if (document.getElementById('tsa-toast')) return;
+        injectToastStyles();
+
+        const toast = document.createElement('div');
+        toast.id = 'tsa-toast';
+
+        const rowsHtml = items.slice(0, 4).map(it =>
+            `<div class="tsa-toast-row">
+                <span class="tsa-toast-ticker">${it.ticker}</span>
+                <span style="color:${it.color};font-size:11px">${it.label}</span>
+            </div>`
+        ).join('');
+
+        toast.innerHTML = `
+            <div id="tsa-toast-header">
+                <span id="tsa-toast-title">⚠️ Portfolio Alert</span>
+                <button id="tsa-toast-close">✕</button>
+            </div>
+            ${rowsHtml}
+            <div id="tsa-toast-footer">Tap to view portfolio</div>
+            <div id="tsa-toast-bar-wrap"><div id="tsa-toast-bar"></div></div>
+        `;
+
+        document.body.appendChild(toast);
+
+        // Click anywhere on toast → go to stocks/portfolio
+        toast.addEventListener('click', e => {
+            if (e.target.id === 'tsa-toast-close') { toast.remove(); return; }
+            window.location.href = 'https://www.torn.com/page.php#/stocks';
+        });
+        document.getElementById('tsa-toast-close').onclick = e => { e.stopPropagation(); toast.remove(); };
+
+        // Countdown bar + auto-dismiss after 10s
+        const DURATION = 10000;
+        const bar = document.getElementById('tsa-toast-bar');
+        bar.style.transition = `width ${DURATION}ms linear`;
+        requestAnimationFrame(() => { bar.style.width = '0%'; });
+        setTimeout(() => toast.remove(), DURATION);
+    }
+
+    function checkAndShowToast() {
+        if (sessionStorage.getItem('tsa_toast_shown')) return;
+        const alerts = loadAlerts();
+        if (!alerts?.items?.length) return;
+        // Only fire if data is less than 12 hours old
+        if (Date.now() - alerts.timestamp > 12 * 60 * 60 * 1000) return;
+        sessionStorage.setItem('tsa_toast_shown', '1');
+        setTimeout(() => showToast(alerts.items), 1500);
     }
 
     // ─── Init & SPA Nav ───────────────────────────────────────────────────────
@@ -677,6 +822,7 @@
     }
 
     function init() {
+        checkAndShowToast();
         if (!onStocksPage()) return;
         injectStyles();
         createPanel();

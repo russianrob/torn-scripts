@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Stock Advisor
 // @namespace    torn.stock.advisor
-// @version      3.0.1
+// @version      3.1.0
 // @description  Real buy/sell signals + portfolio tracker for Torn stocks (Tornsy + Torn API)
 // @match        https://www.torn.com/*
 // @updateURL    https://tornwar.com/scripts/torn-stock-advisor.meta.js
