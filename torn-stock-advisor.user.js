@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Stock Advisor
 // @namespace    torn.stock.advisor
-// @version      3.2.2
+// @version      3.3.0
 // @description  Real buy/sell signals + portfolio tracker for Torn stocks (Tornsy + Torn API) — auto-imports your holdings
 // @match        https://www.torn.com/*
 // @updateURL    https://tornwar.com/scripts/torn-stock-advisor.meta.js
@@ -51,21 +51,13 @@
         GM_setValue(PORTFOLIO_KEY, JSON.stringify(p));
     }
 
-    // ─── Signal Engine ────────────────────────────────────────────────────────
+    // ─── Signal Engine (discount + momentum) ─────────────────────────────────
     function calcSignal(current, d1, d3, d7) {
         const pct7 = d7 ? ((current - d7) / d7) * 100 : null;
         const pct1 = d1 ? ((current - d1) / d1) * 100 : null;
         const pct3 = d3 ? ((current - d3) / d3) * 100 : null;
 
-        let label, color;
-        if (pct7 === null)  { label = '—';             color = '#888'; }
-        else if (pct7 <= -8)  { label = '🔥 Strong Buy'; color = '#00e676'; }
-        else if (pct7 <= -4)  { label = '✅ Buy';         color = '#7dde7d'; }
-        else if (pct7 <= -1.5){ label = '🟡 Slight Buy';  color = '#ffe066'; }
-        else if (pct7 >=  8)  { label = '🔴 Overbought';  color = '#ff5252'; }
-        else if (pct7 >=  4)  { label = '⚠️ High';        color = '#ff9800'; }
-        else                  { label = '⏸ Neutral';      color = '#999';    }
-
+        // Trend label from 1d change
         let trend = '—';
         if (pct1 !== null) {
             if      (pct1 >=  1)   trend = '↑ recovering';
@@ -75,16 +67,63 @@
             else                   trend = '→ flat';
         }
 
-        return { label, color, pct7: pct7 ?? 0, pct1: pct1 ?? 0, pct3: pct3 ?? 0, trend };
+        // Momentum direction for signal adjustment
+        const rising  = pct1 !== null && pct1 >= 0.3;   // recovering / rising
+        const falling = pct1 !== null && pct1 <= -0.3;   // falling / slipping
+
+        // Base signal from 7d discount, then adjust with momentum
+        let label, color, tip;
+        if (pct7 === null) {
+            label = '—'; color = '#888'; tip = '';
+        }
+        // ── BUY ZONE ──
+        else if (pct7 <= -8) {
+            if (rising) {
+                label = '🔥 Strong Buy'; color = '#00e676';
+                tip = `Down ${Math.abs(pct7).toFixed(1)}% from 7d ago and now recovering — steep dip + upward momentum.`;
+            } else if (falling) {
+                label = '✅ Buy'; color = '#7dde7d';
+                tip = `Down ${Math.abs(pct7).toFixed(1)}% from 7d ago but still falling — big discount, wait for a bottom or scale in.`;
+            } else {
+                label = '🔥 Strong Buy'; color = '#00e676';
+                tip = `Down ${Math.abs(pct7).toFixed(1)}% from 7d ago — steep dip that often rebounds.`;
+            }
+        }
+        else if (pct7 <= -4) {
+            if (rising) {
+                label = '✅ Buy'; color = '#7dde7d';
+                tip = `Down ${Math.abs(pct7).toFixed(1)}% from 7d ago and trending up — good entry, momentum is turning.`;
+            } else if (falling) {
+                label = '🟡 Slight Buy'; color = '#ffe066';
+                tip = `Down ${Math.abs(pct7).toFixed(1)}% from 7d ago but still dropping — might get cheaper before it turns.`;
+            } else {
+                label = '✅ Buy'; color = '#7dde7d';
+                tip = `Down ${Math.abs(pct7).toFixed(1)}% from 7d ago — solid entry point.`;
+            }
+        }
+        else if (pct7 <= -1.5) {
+            if (rising) {
+                label = '✅ Buy'; color = '#7dde7d';
+                tip = `Down ${Math.abs(pct7).toFixed(1)}% from 7d ago and recovering — small dip with positive momentum.`;
+            } else if (falling) {
+                label = '⏸ Neutral'; color = '#999';
+                tip = '';
+            } else {
+                label = '🟡 Slight Buy'; color = '#ffe066';
+                tip = `Down ${Math.abs(pct7).toFixed(1)}% from 7d ago — small dip, could go either way.`;
+            }
+        }
+        // ── SELL ZONE ──
+        else if (pct7 >= 8)  { label = '🔴 Overbought'; color = '#ff5252'; tip = ''; }
+        else if (pct7 >= 4)  { label = '⚠️ High';       color = '#ff9800'; tip = ''; }
+        // ── NEUTRAL ──
+        else { label = '⏸ Neutral'; color = '#999'; tip = ''; }
+
+        return { label, color, tip, pct7: pct7 ?? 0, pct1: pct1 ?? 0, pct3: pct3 ?? 0, trend };
     }
 
-    // ─── Signal Tooltips (buy signals only) ───────────────────────────────────
-    const signalTips = {
-        '🔥 Strong Buy': 'Price is 8%+ below the 7-day average — a steep dip that often rebounds.',
-        '✅ Buy':         'Price is 4–8% below the 7-day average — solid entry point.',
-        '🟡 Slight Buy':  'Price is 1.5–4% below the 7-day average — small dip, could go lower.'
-    };
-    function sigTooltip(label) { return signalTips[label] || ''; }
+    // ─── Signal Tooltip ───────────────────────────────────────────────────────
+    function sigTooltip(sig) { return sig.tip || ''; }
 
     // ─── Sell Recommendation ──────────────────────────────────────────────────
     function getSellRec(current, entry) {
@@ -757,8 +796,8 @@
                 <td style="color:${clr(r.sig.pct7)};font-weight:bold">${r.d7  ? fmt(r.sig.pct7)  : '—'}</td>
                 <td style="color:${clr(r.pct14 ?? 0)}">${r.d14 ? fmt(r.pct14) : '—'}</td>
                 <td style="color:${clr(r.pct30 ?? 0)}">${r.d30 ? fmt(r.pct30) : '—'}</td>
-                <td style="color:${r.sig.color};font-size:11px">${sigTooltip(r.sig.label)
-                    ? `<span class="tsa-sig-tip" data-tip="${sigTooltip(r.sig.label)}">${r.sig.label}</span>`
+                <td style="color:${r.sig.color};font-size:11px">${sigTooltip(r.sig)
+                    ? `<span class="tsa-sig-tip" data-tip="${sigTooltip(r.sig)}">${r.sig.label}</span>`
                     : r.sig.label}</td>
                 <td style="color:${trendClr};font-size:11px">${r.sig.trend}</td>
                 <td style="color:#666">${r.benefitStr}</td>
