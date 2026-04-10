@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.29
+// @version      1.7.30
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -1066,6 +1066,21 @@
     const HIGH_WEIGHT_MIN_CPR    = CONFIG.HIGH_WEIGHT_MIN_CPR;   // configurable via settings
 
     function _wKey(str) { return (str || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
+    // Add "#1", "#2" to duplicate positions within a crime (matching Torn UI labels)
+    function labelSlotPositions(slots) {
+        const total = {};
+        for (const s of slots) { const p = s.position || ''; total[p] = (total[p] || 0) + 1; }
+        const counts = {};
+        return slots.map(s => {
+            const p = s.position || '';
+            if (total[p] > 1) {
+                counts[p] = (counts[p] || 0) + 1;
+                return { ...s, label: `${p} #${counts[p]}` };
+            }
+            return { ...s, label: p };
+        });
+    }
     function getSlotWeight(weights, ocName, roleName) {
         if (!weights) return null;
         const oc   = weights[_wKey(ocName)] || {};
@@ -1104,9 +1119,9 @@
         let bestCrime = null, bestPos = null, bestPosCPR = -1, bestWeight = -1;
 
         for (const c of openOCs) {
-            for (const slot of (c.slots || []).filter(s => !s.user_id && !s.user?.id)) {
-                const roleName   = slot.position || '';
-                const slotWeight = getSlotWeight(weights, c.name, roleName);
+            const labeled = labelSlotPositions(c.slots || []);
+            for (const slot of labeled.filter(s => !s.user_id && !s.user?.id)) {
+                const slotWeight = getSlotWeight(weights, c.name, slot.label);
                 // High-weight slots need higher CPR
                 const minCPR = (slotWeight !== null && slotWeight >= HIGH_WEIGHT_THRESHOLD)
                     ? HIGH_WEIGHT_MIN_CPR : CONFIG.MINCPR;
@@ -1117,7 +1132,7 @@
                 const w = slotWeight ?? 0;
                 // Prefer: highest weight first, then highest role CPR as tiebreaker
                 if (w > bestWeight || (w === bestWeight && posCPR > bestPosCPR)) {
-                    bestPosCPR = posCPR; bestPos = roleName; // always use actual slot name (e.g. THIEF #1)
+                    bestPosCPR = posCPR; bestPos = slot.label; // "Thief #1" not just "Thief"
                     bestCrime = c; bestWeight = w;
                 }
             }
@@ -1126,9 +1141,10 @@
         // Fallback: if no qualifying slot (CPR too low), show best available anyway with a warning
         if (!bestCrime) {
             const c = openOCs[0];
-            const openSlot = (c.slots || []).find(s => !s.user_id && !s.user?.id);
+            const labeled = labelSlotPositions(c.slots || []);
+            const openSlot = labeled.find(s => !s.user_id && !s.user?.id);
             const pd  = lookupPosCPR(byPos, c.name, openSlot?.position);
-            return { type: 'rec', crime: c.name, position: openSlot?.position || pd?.position || null,
+            return { type: 'rec', crime: c.name, position: openSlot?.label || openSlot?.position || null,
                 cpr: pd?.cpr || null, level: m.joinable, count: openOCs.length, lowCpr: true };
         }
 
@@ -1224,11 +1240,14 @@
             recsHtml = `<div class="oc-viewer-none">No open Lvl ${joinable} OCs recruiting right now.</div>`;
         } else {
             const chips = myOcs.map(c => {
-                const openSlots = (c.slots || []).filter(s => !s.user_id && !s.user?.id);
-                let bestPos = null, bestCPR = -1;
+                const labeled = labelSlotPositions(c.slots || []);
+                const openSlots = labeled.filter(s => !s.user_id && !s.user?.id);
+                let bestPos = null, bestCPR = -1, bestW = -1;
                 for (const slot of openSlots) {
-                    const pd  = lookupPosCPR(byPos, c.name, slot.position);
-                    if (pd && pd.cpr > bestCPR) { bestCPR = pd.cpr; bestPos = pd.position; }
+                    const w  = getSlotWeight(weights, c.name, slot.label) ?? 0;
+                    const pd = lookupPosCPR(byPos, c.name, slot.position);
+                    const cpr = pd?.cpr || 0;
+                    if (w > bestW || (w === bestW && cpr > bestCPR)) { bestCPR = cpr; bestPos = slot.label; bestW = w; }
                 }
                 const posTag = bestPos
                     ? ` <span style="color:#9ca3af;font-size:9px;">as ${bestPos}${bestCPR > 0 ? ' ' + bestCPR + '%' : ''}</span>`
