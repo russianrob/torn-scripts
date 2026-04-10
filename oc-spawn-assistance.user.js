@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.24
+// @version      1.7.25
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -319,6 +319,8 @@
         .oc-row-ok            > td:first-child { border-left: 2px solid #74c69d; padding-left: 6px; }
         .oc-row-surplus       > td:first-child { border-left: 2px solid #60a5fa; padding-left: 6px; }
         .oc-row-deferred      > td:first-child { border-left: 2px solid #374151; padding-left: 6px; }
+        .oc-row-none          > td:first-child { border-left: 2px solid #374151; padding-left: 6px; }
+        .oc-row-none td { color: #6b7280; }
         .oc-row-deferred td { color: #6b7280 !important; }
         /* Badges & tags */
         .oc-tag-spawn { display: inline-block; background: rgba(244,162,97,.15); color: #f4a261; border: 1px solid rgba(244,162,97,.3); border-radius: 4px; padding: 2px 7px; font-size: 10px; font-weight: 700; }
