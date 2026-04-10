@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.25
+// @version      1.7.26
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -1098,7 +1098,8 @@
                     ? HIGH_WEIGHT_MIN_CPR : CONFIG.MINCPR;
                 if (memberCPR < minCPR) continue; // CPR too low for this slot
 
-                const key = slot.position_id || slot.position;
+                // Key scoped to crime type: "Break the Bank::Cleaner"
+                const key = `${c.name}::${slot.position_id || slot.position}`;
                 const pd  = byPos[key];
                 const posCPR = pd?.cpr || 0;
                 if (posCPR > bestPosCPR) {
@@ -1112,7 +1113,7 @@
         if (!bestCrime) {
             const c = openOCs[0];
             const openSlot = (c.slots || []).find(s => !s.user_id && !s.user?.id);
-            const key = openSlot?.position_id || openSlot?.position;
+            const key = `${c.name}::${openSlot?.position_id || openSlot?.position}`;
             const pd  = byPos[key];
             return { type: 'rec', crime: c.name, position: pd?.position || openSlot?.position || null,
                 cpr: pd?.cpr || null, level: m.joinable, count: openOCs.length, lowCpr: true };
@@ -1213,7 +1214,8 @@
                 const openSlots = (c.slots || []).filter(s => !s.user_id && !s.user?.id);
                 let bestPos = null, bestCPR = -1;
                 for (const slot of openSlots) {
-                    const key = slot.position_id || slot.position;
+                    // Key is scoped to crime type: "Break the Bank::Cleaner"
+                    const key = `${c.name}::${slot.position_id || slot.position}`;
                     const pd  = byPos[key];
                     if (pd && pd.cpr > bestCPR) { bestCPR = pd.cpr; bestPos = pd.position; }
                 }
