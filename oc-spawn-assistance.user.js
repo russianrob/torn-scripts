@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.4
+// @version      2.1.5
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -63,7 +63,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.4';
+    const SCRIPT_VERSION = '2.1.5';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -765,14 +765,19 @@
         if (scopeEl) scopeEl.value = scope;
 
         // Auto-push scope ONLY (lightweight endpoint — doesn't touch admin_roles etc.)
+        // Guard: don't push if lower than current server value (prevents stale cached data overwriting)
         clearTimeout(scopePushTimer);
-        scopePushTimer = setTimeout(() => {
+        scopePushTimer = setTimeout(async () => {
             if (!settingsReady) return;
             const apiKey = getApiKey();
-            if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') {
-                const p = new URLSearchParams({ key: apiKey, scope: scope });
-                gmRequest(`${SERVER}/api/oc/scope?${p}`).catch(() => {});
-            }
+            if (!apiKey || apiKey === 'YOUR_API_KEY_HERE') return;
+            try {
+                const srv = await gmRequest(`${SERVER}/api/oc/settings?key=${encodeURIComponent(apiKey)}`);
+                const serverScope = srv?.scope ?? 0;
+                if (scope < serverScope) return; // don't overwrite with a lower stale value
+            } catch (_) {}
+            const p = new URLSearchParams({ key: apiKey, scope: scope });
+            gmRequest(`${SERVER}/api/oc/scope?${p}`).catch(() => {});
         }, 2000);
     }
 
