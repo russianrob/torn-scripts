@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.7
+// @version      2.1.8
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.1.8  — Show "waiting" when members exist but no OCs at that level
 // v2.1.7  — Unblacklist Blood Bag (Irradiated) from Missing tab
 // v2.1.6  — Save button disabled until server settings loaded (prevents default overwrite)
 // v2.1.5  — Scope guard: don't push lower value than server has
@@ -103,7 +104,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.7';
+    const SCRIPT_VERSION = '2.1.8';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2088,8 +2089,11 @@
 
             let action, numOcsToSpawn = 0;
 
-            if (totalNeeded === 0 || (info.openSlots === 0 && numOcsNeeded === 0)) {
+            if (totalNeeded === 0) {
                 action = 'none';
+            } else if (info.openSlots === 0 && numOcsNeeded === 0 && totalNeeded > 0) {
+                // Members exist but no OCs and not enough for a full one — show waiting
+                action = 'waiting';
             } else if (deficit <= 0) {
                 action = deficit === 0 ? 'ok' : 'surplus';
                 numOcsToSpawn = 0;
