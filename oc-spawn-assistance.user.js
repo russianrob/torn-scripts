@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.48
+// @version      1.7.49
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -62,7 +62,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '1.7.48';
+    const SCRIPT_VERSION = '1.7.49';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -906,6 +906,28 @@
     recTooltipEl.id = 'oc-rec-tooltip';
     document.body.appendChild(recTooltipEl);
 
+    // Message Player button handler (lives inside tooltip, outside panel)
+    recTooltipEl.addEventListener('click', (e) => {
+        const mb = e.target.closest('.oc-msg-btn');
+        if (!mb) return;
+        e.stopPropagation();
+        const xid = mb.dataset.xid;
+        const msg = mb.dataset.msg;
+        // Copy to clipboard (TornPDA-compatible)
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = msg; ta.style.cssText = 'position:fixed;left:-9999px;';
+            document.body.appendChild(ta); ta.select();
+            document.execCommand('copy'); document.body.removeChild(ta);
+        } catch (_) {}
+        mb.textContent = 'Copied! Opening…';
+        // Navigate (TornPDA-compatible)
+        const a = document.createElement('a');
+        a.href = `https://www.torn.com/messages.php#/p=compose&XID=${xid}`;
+        a.target = '_blank'; a.rel = 'noopener';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    });
+
     const scopeTooltipEl = document.createElement('div');
     scopeTooltipEl.id = 'oc-scope-tooltip';
     document.body.appendChild(scopeTooltipEl);
@@ -1143,26 +1165,7 @@
         if (ps) { e.stopPropagation(); hideCprTooltip(); hideRecTooltip(); showScopeTooltip(ps); return; }
         const rb = e.target.closest('.oc-rec-btn');
         if (rb) { e.stopPropagation(); hideCprTooltip(); hideScopeTooltip(); showRecTooltip(rb); return; }
-        const mb = e.target.closest('.oc-msg-btn');
-        if (mb) {
-            e.stopPropagation();
-            const xid = mb.dataset.xid;
-            const msg = mb.dataset.msg;
-            // Copy to clipboard (TornPDA-compatible fallback)
-            try {
-                const ta = document.createElement('textarea');
-                ta.value = msg; ta.style.cssText = 'position:fixed;left:-9999px;';
-                document.body.appendChild(ta); ta.select();
-                document.execCommand('copy'); document.body.removeChild(ta);
-            } catch (_) {}
-            mb.textContent = 'Copied! Opening…';
-            // Navigate (TornPDA-compatible)
-            const a = document.createElement('a');
-            a.href = `https://www.torn.com/messages.php#/p=compose&XID=${xid}`;
-            a.target = '_blank'; a.rel = 'noopener';
-            document.body.appendChild(a); a.click(); document.body.removeChild(a);
-            return;
-        }
+
         hideCprTooltip(); hideScopeTooltip(); hideRecTooltip();
     });
     document.addEventListener('click', (e) => {
