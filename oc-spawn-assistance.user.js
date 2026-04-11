@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.8
+// @version      2.1.9
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.1.9  — Members fall to next available level if their level has no OCs
 // v2.1.8  — Show "waiting" when members exist but no OCs at that level
 // v2.1.7  — Unblacklist Blood Bag (Irradiated) from Missing tab
 // v2.1.6  — Save button disabled until server settings loaded (prevents default overwrite)
@@ -104,7 +105,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.8';
+    const SCRIPT_VERSION = '2.1.9';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2250,10 +2251,12 @@
         const memberCPR = m.cpr ?? 0;
         const openOCs  = normArr(availableCrimes).filter(c =>
             c.status === 'Recruiting' &&
-            c.difficulty === m.joinable &&
+            c.difficulty <= m.joinable &&
             (c.slots || []).some(s => !s.user_id && !s.user?.id)
         );
-        if (!openOCs.length) return { type: 'none', text: `No Lvl ${m.joinable} OCs open` };
+        // Sort highest level first so members get the best available OC
+        openOCs.sort((a, b) => (b.difficulty || 0) - (a.difficulty || 0));
+        if (!openOCs.length) return { type: 'none', text: `No OCs open (up to Lvl ${m.joinable})` };
 
         let bestCrime = null, bestPos = null, bestPosCPR = -1, bestWeight = -1;
 
