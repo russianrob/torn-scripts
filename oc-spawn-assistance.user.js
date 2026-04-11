@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.6
+// @version      2.1.7
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.1.7  — Unblacklist Blood Bag (Irradiated) from Missing tab
 // v2.1.6  — Save button disabled until server settings loaded (prevents default overwrite)
 // v2.1.5  — Scope guard: don't push lower value than server has
 // v2.1.4  — Unused tab: only show OC-relevant items
@@ -102,7 +103,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.6';
+    const SCRIPT_VERSION = '2.1.7';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
