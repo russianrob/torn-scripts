@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.42
+// @version      1.7.43
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -60,7 +60,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '1.7.42';
+    const SCRIPT_VERSION = '1.7.43';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -219,6 +219,267 @@
             }
         });
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  OC MANAGER  — constants, state, and core logic
+    // ═══════════════════════════════════════════════════════════════════════
+    const BLACKLISTED_ITEM_IDS = new Set([1012, 226]);
+    const mgr_memberNameMap = new Map();
+    let   mgr_membersLoaded = false;
+    const mgr_armoryCache   = new Map();
+    let   mgr_lastRefreshTime = 0;
+    const MGR_REFRESH_COOLDOWN_MS = 10000;
+    const mgr_recentlyLoaned = new Map(); // Map<string (UID), Set<number (IID)>>
+    let   mgr_preparedArmoryID = null;
+    let   mgr_pendingArmoryItemID = null;
+
+    const ITEM_TYPE_TO_ARMORY_TAB = {
+        'Tool': 'utilities', 'Drug': 'drugs', 'Medical': 'medical',
+        'Booster': 'boosters', 'Temporary': 'temporary', 'Clothing': 'clothing', 'Armor': 'armor'
+    };
+    const ARMORY_TAB_TO_POST_TYPE = {
+        'utilities': 'Tool', 'drugs': 'Drug', 'medical': 'Medical',
+        'boosters': 'Booster', 'temporary': 'Temporary', 'clothing': 'Clothing', 'armor': 'Armor'
+    };
+    const ARMORY_CATEGORIES = ['utilities', 'drugs', 'medical', 'boosters', 'temporary', 'clothing', 'armor', 'armour'];
+
+    // --- Utilities ---
+    const mgr_getRfcvToken = () => {
+        const match = document.cookie.match(/rfc_v=([^;]+)/);
+        return match ? match[1] : null;
+    };
+    const mgr_formatNumber = (num) => num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+    // --- Item name cache (localStorage) ---
+    const ITEM_NAME_CACHE_KEY = 'OCLM_ITEM_ID_NAME_MAP';
+    const mgr_getItemNameMap = () => { try { return JSON.parse(localStorage.getItem(ITEM_NAME_CACHE_KEY) || '{}'); } catch { return {}; } };
+    const mgr_setItemName = (itemID, name) => {
+        const map = mgr_getItemNameMap();
+        if (!map[itemID]) { map[itemID] = name; try { localStorage.setItem(ITEM_NAME_CACHE_KEY, JSON.stringify(map)); } catch {} }
+    };
+    const mgr_getItemName = (itemID) => mgr_getItemNameMap()[itemID] || null;
+
+    // --- API helpers (use fetch directly with Torn API key) ---
+    const mgr_loadMembers = async () => {
+        if (mgr_membersLoaded) return;
+        const key = getApiKey();
+        if (!key || key === 'YOUR_API_KEY_HERE') throw new Error('API key required');
+        const res = await fetch(`https://api.torn.com/v2/faction/members?key=${key}`);
+        if (!res.ok) throw new Error('Failed to load members');
+        const data = await res.json();
+        const members = Array.isArray(data?.members) ? data.members : Object.values(data?.members || {});
+        members.forEach(m => mgr_memberNameMap.set(String(m.id), m.name));
+        mgr_membersLoaded = true;
+    };
+
+    const mgr_getMissingOCItems = async () => {
+        const key = getApiKey();
+        if (!key || key === 'YOUR_API_KEY_HERE') throw new Error('API key required');
+        const res = await fetch(`https://api.torn.com/v2/faction/crimes?cat=available&key=${key}`);
+        if (!res.ok) throw new Error('Failed to load OC data');
+        const data = await res.json();
+        const missing = [];
+        const crimes = Array.isArray(data?.crimes) ? data.crimes : Object.values(data?.crimes || {});
+        crimes.forEach(crime => {
+            crime.slots?.forEach(slot => {
+                if (slot.item_requirement && !slot.item_requirement.is_available && slot.user?.id && !BLACKLISTED_ITEM_IDS.has(Number(slot.item_requirement.id))) {
+                    missing.push({
+                        crimeName: crime.name, position: slot.position,
+                        itemID: Number(slot.item_requirement.id),
+                        userID: slot.user.id,
+                        userName: mgr_memberNameMap.get(String(slot.user.id)) || `Unknown [${slot.user.id}]`
+                    });
+                }
+            });
+        });
+        return missing;
+    };
+
+    const mgr_getAllOCItemRequirements = async () => {
+        const key = getApiKey();
+        if (!key || key === 'YOUR_API_KEY_HERE') throw new Error('API key required');
+        const res = await fetch(`https://api.torn.com/v2/faction/crimes?cat=available&key=${key}`);
+        if (!res.ok) throw new Error('Failed to load OC data');
+        const data = await res.json();
+        const neededByUser = new Map();
+        const crimes = Array.isArray(data?.crimes) ? data.crimes : Object.values(data?.crimes || {});
+        crimes.forEach(crime => {
+            crime.slots?.forEach(slot => {
+                if (slot.item_requirement && slot.user?.id) {
+                    const uid = String(slot.user.id);
+                    const iid = Number(slot.item_requirement.id);
+                    if (!neededByUser.has(uid)) neededByUser.set(uid, new Set());
+                    neededByUser.get(uid).add(iid);
+                }
+            });
+        });
+        return neededByUser;
+    };
+
+    const mgr_getUnpaidCompletedCrimes = async () => {
+        const key = getApiKey();
+        if (!key || key === 'YOUR_API_KEY_HERE') throw new Error('API key required');
+        const now = Math.floor(Date.now() / 1000);
+        const thirtyDaysAgo = now - (30 * 24 * 60 * 60);
+        const res = await fetch(`https://api.torn.com/v2/faction/crimes?cat=successful&filter=executed_at&from=${thirtyDaysAgo}&to=${now}&sort=DESC&limit=100&key=${key}`);
+        if (!res.ok) throw new Error('Failed to load completed crimes');
+        const data = await res.json();
+        if (data?.error) throw new Error(`API error: ${data.error.error || JSON.stringify(data.error)}`);
+        const crimes = Array.isArray(data?.crimes) ? data.crimes : (data?.crimes && typeof data.crimes === 'object' ? Object.values(data.crimes) : []);
+        const unpaid = [];
+        for (const c of crimes) {
+            const paidAt = c?.rewards?.payout?.paid_at;
+            if (paidAt) continue;
+            const money = Number(c?.rewards?.money || 0);
+            const respect = Number(c?.rewards?.respect || 0);
+            const hasItems = Array.isArray(c?.rewards?.items) ? c.rewards.items.length > 0 : false;
+            if (money <= 0 && respect <= 0 && !hasItems) continue;
+            unpaid.push({ id: c.id, name: c.name || 'Unknown OC', difficulty: c.difficulty || null, executedAt: c.executed_at, money, respect, hasItems, payoutPct: c?.rewards?.payout?.percentage ?? null });
+        }
+        return unpaid;
+    };
+
+    const mgr_resolveItemNames = async (itemIDs) => {
+        const unknown = itemIDs.filter(id => !mgr_getItemName(id));
+        if (unknown.length === 0) return;
+        const unique = [...new Set(unknown)];
+        try {
+            const key = getApiKey();
+            if (!key || key === 'YOUR_API_KEY_HERE') return;
+            const res = await fetch(`https://api.torn.com/v2/torn/items?ids=${unique.join(',')}&key=${key}`);
+            const data = await res.json();
+            const items = Array.isArray(data?.items) ? data.items : Object.values(data?.items || {});
+            items.forEach(item => { if (item.id && item.name) mgr_setItemName(item.id, item.name); });
+        } catch { /* ignore */ }
+    };
+
+    // --- Armory Cache ---
+    const mgr_fetchArmoryCategoryJSON = async (category) => {
+        const rfcv = mgr_getRfcvToken();
+        if (!rfcv) throw new Error('Missing RFCV token');
+        let allItems = [];
+        const seenArmoryIDs = new Set();
+        let start = 0;
+        while (start < 1000) {
+            const body = new URLSearchParams({ step: 'armouryTabContent', type: category, start: String(start), ajax: 'true' });
+            const res = await fetch(`https://www.torn.com/factions.php?rfcv=${rfcv}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' },
+                body, credentials: 'same-origin'
+            });
+            if (!res.ok) break;
+            try {
+                const data = await res.json();
+                if (!data?.items) break;
+                const itemsArr = Array.isArray(data.items) ? data.items : Object.values(data.items);
+                if (itemsArr.length === 0) break;
+                let newItemsAdded = 0;
+                for (const entry of itemsArr) {
+                    if (entry.itemID && entry.name) mgr_setItemName(entry.itemID, entry.name);
+                    if (entry.armoryID && !seenArmoryIDs.has(entry.armoryID)) {
+                        seenArmoryIDs.add(entry.armoryID);
+                        allItems.push({ ...entry, itemID: Number(entry.itemID), armoryCategory: category });
+                        newItemsAdded++;
+                    }
+                }
+                if (newItemsAdded === 0) break;
+                if (itemsArr.length < 50) break;
+                start += 50;
+            } catch (e) { console.error('[OC Mgr] Armory fetch error for', category, e); break; }
+        }
+        return allItems;
+    };
+
+    const mgr_fetchAllArmoryItems = async () => {
+        const results = await Promise.all(ARMORY_CATEGORIES.map(cat => mgr_fetchArmoryCategoryJSON(cat)));
+        return results.flat();
+    };
+
+    const mgr_refreshArmoryCache = async (force = false) => {
+        const now = Date.now();
+        if (!force && mgr_armoryCache.size > 0 && (now - mgr_lastRefreshTime < MGR_REFRESH_COOLDOWN_MS)) return;
+        mgr_armoryCache.clear();
+        const items = await mgr_fetchAllArmoryItems();
+        for (const entry of items) {
+            const isUnused = entry.user === false || entry.user === '' || entry.user === 0 || (entry.user && !entry.user.userID);
+            if (isUnused) {
+                const qty = entry.qty !== undefined ? Number(entry.qty) : (entry.quantity !== undefined ? Number(entry.quantity) : 1);
+                if (qty > 0) {
+                    if (!mgr_armoryCache.has(entry.itemID)) {
+                        mgr_armoryCache.set(entry.itemID, { armoryIDs: [entry.armoryID], qty: qty, armoryCategory: entry.armoryCategory });
+                    } else {
+                        const cached = mgr_armoryCache.get(entry.itemID);
+                        cached.qty += qty;
+                        if (!cached.armoryIDs.includes(entry.armoryID)) cached.armoryIDs.push(entry.armoryID);
+                    }
+                }
+            }
+        }
+        mgr_lastRefreshTime = Date.now();
+    };
+
+    const mgr_getPostTypeForItem = (itemID) => {
+        const cached = mgr_armoryCache.get(itemID);
+        return (cached?.armoryCategory ? ARMORY_TAB_TO_POST_TYPE[cached.armoryCategory] : null) || 'Tool';
+    };
+
+    const mgr_prepareArmouryForItem = async (itemID) => {
+        if (!mgr_armoryCache.has(itemID)) await mgr_refreshArmoryCache(true);
+        else await mgr_refreshArmoryCache(false);
+        const entry = mgr_armoryCache.get(itemID);
+        if (!entry || entry.qty <= 0 || !entry.armoryIDs || entry.armoryIDs.length === 0) return null;
+        mgr_preparedArmoryID = entry.armoryIDs[0];
+        mgr_pendingArmoryItemID = itemID;
+        return mgr_preparedArmoryID;
+    };
+
+    const mgr_loanItem = async ({ armoryID, itemID, userID, userName }) => {
+        const rfcv = mgr_getRfcvToken();
+        if (!rfcv) throw new Error('Missing RFCV token');
+        const itemPostType = mgr_getPostTypeForItem(itemID);
+        const body = new URLSearchParams({ ajax: 'true', step: 'armouryActionItem', role: 'loan', item: armoryID, itemID: itemID, type: itemPostType, user: `${userName} [${userID}]`, quantity: '1' });
+        const res = await fetch(`https://www.torn.com/factions.php?rfcv=${rfcv}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' },
+            body, credentials: 'same-origin'
+        });
+        if (!res.ok) throw new Error('Loan request failed');
+        const text = await res.text();
+        if (!text.includes('success')) throw new Error('Loan failed');
+    };
+
+    const mgr_loanPreparedItem = async ({ userID, userName }) => {
+        if (!mgr_preparedArmoryID || mgr_pendingArmoryItemID === null) throw new Error('Armoury not prepared');
+        const itemID = mgr_pendingArmoryItemID;
+        await mgr_loanItem({ armoryID: mgr_preparedArmoryID, itemID: mgr_pendingArmoryItemID, userID, userName });
+        const entry = mgr_armoryCache.get(mgr_pendingArmoryItemID);
+        if (entry) {
+            entry.qty -= 1;
+            entry.armoryIDs.shift();
+            if (entry.qty <= 0 || entry.armoryIDs.length === 0) mgr_armoryCache.delete(mgr_pendingArmoryItemID);
+        }
+        const uid = String(userID);
+        if (!mgr_recentlyLoaned.has(uid)) mgr_recentlyLoaned.set(uid, new Set());
+        mgr_recentlyLoaned.get(uid).add(itemID);
+        mgr_preparedArmoryID = null; mgr_pendingArmoryItemID = null;
+    };
+
+    const mgr_retrieveItem = async ({ armoryID, itemID, userID, userName, postType }) => {
+        const rfcv = mgr_getRfcvToken();
+        if (!rfcv) throw new Error('Missing RFCV token');
+        const itemPostType = postType || mgr_getPostTypeForItem(itemID);
+        const body = new URLSearchParams({ ajax: 'true', step: 'armouryActionItem', role: 'retrieve', item: armoryID, itemID: itemID, type: itemPostType, user: `${userName} [${userID}]`, quantity: '1' });
+        const res = await fetch(`https://www.torn.com/factions.php?rfcv=${rfcv}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' },
+            body, credentials: 'same-origin'
+        });
+        if (!res.ok) throw new Error('Retrieve request failed');
+        const text = await res.text();
+        if (!text.includes('success')) throw new Error('Retrieve failed');
+        const uid = String(userID);
+        if (mgr_recentlyLoaned.has(uid)) { mgr_recentlyLoaned.get(uid).delete(itemID); if (mgr_recentlyLoaned.get(uid).size === 0) mgr_recentlyLoaned.delete(uid); }
+    };
 
     // ═══════════════════════════════════════════════════════════════════════
     //  FACTION SETTINGS  — fetch & push via server (faction-wide)
@@ -405,6 +666,41 @@
         }
         #oc-rec-tooltip .oc-tt-title { font-weight: 600; color: #f3f4f6; margin-bottom: 5px; font-size: 12px; }
         #oc-rec-tooltip .oc-tt-note  { color: #6b7280; font-size: 10px; margin-top: 5px; }
+        /* Manager sub-tab bar */
+        .mgr-sub-tab-bar { display: flex; gap: 0; border-bottom: 1px solid #2d4a3e; margin-bottom: 10px; }
+        .mgr-sub-tab { background: none; border: none; border-bottom: 2px solid transparent; color: #6b7280; padding: 5px 14px; cursor: pointer; font-family: inherit; font-size: 11px; font-weight: 500; margin-bottom: -1px; transition: color .15s; }
+        .mgr-sub-tab:hover:not(.mgr-sub-tab-active) { color: #d1d5db; }
+        .mgr-sub-tab-active { color: #74c69d; border-bottom-color: #74c69d; }
+        /* Manager cards */
+        .mgr-card { background: #111f18; border: 1px solid #253525; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; transition: border-color .2s; }
+        .mgr-card:hover { border-color: #2d6a4f; }
+        .mgr-card-header { display: flex; justify-content: space-between; margin-bottom: 6px; align-items: flex-start; }
+        .mgr-crime-name { font-weight: 700; font-size: 12px; color: #f3f4f6; flex: 1; padding-right: 8px; }
+        .mgr-pos-tag { font-size: 9px; padding: 2px 6px; background: rgba(116,198,157,.1); border-radius: 4px; color: #74c69d; text-transform: uppercase; }
+        .mgr-card-body { font-size: 11px; color: #9ca3af; line-height: 1.5; }
+        .mgr-item-row, .mgr-player-row { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
+        .mgr-label { color: #6b7280; width: 42px; flex-shrink: 0; font-size: 10px; }
+        .mgr-value { color: #f3f4f6; font-size: 11px; }
+        .mgr-player-link { color: #74c69d; text-decoration: none; font-weight: 500; font-size: 11px; }
+        .mgr-player-link:hover { text-decoration: underline; }
+        .mgr-action-btn { width: 100%; margin-top: 8px; padding: 8px; border-radius: 6px; border: none; font-weight: 700; font-size: 11px; cursor: pointer; transition: all .2s; display: flex; align-items: center; justify-content: center; gap: 5px; }
+        .mgr-btn-loan { background: #2d6a4f; color: #fff; }
+        .mgr-btn-loan:hover:not(:disabled) { background: #1b4332; }
+        .mgr-btn-retrieve { background: rgba(200,60,60,.1); color: #c33; border: 1px solid rgba(200,60,60,.2); }
+        .mgr-btn-retrieve:hover:not(:disabled) { background: rgba(200,60,60,.2); }
+        .mgr-btn-success { background: #1b4332 !important; color: #74c69d !important; }
+        .mgr-btn-warning { background: #3d3010 !important; color: #f4a261 !important; }
+        .mgr-summary-box { background: rgba(116,198,157,.08); border-radius: 8px; padding: 12px; margin-bottom: 12px; border: 1px solid rgba(116,198,157,.2); }
+        .mgr-summary-label { font-size: 10px; color: #74c69d; text-transform: uppercase; font-weight: 700; margin-bottom: 3px; letter-spacing: 0.4px; }
+        .mgr-summary-amount { font-size: 16px; font-weight: 800; color: #f3f4f6; }
+        .mgr-summary-detail { font-size: 11px; color: #6b7280; }
+        .mgr-payout-link { display: block; margin-top: 10px; padding: 8px; background: #2d6a4f; color: #fff; text-align: center; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 12px; }
+        .mgr-payout-link:hover { background: #1b4332; }
+        .mgr-payout-card { text-decoration: none; color: inherit; display: block; }
+        .mgr-loading { text-align: center; color: #6b7280; padding: 30px; font-size: 12px; }
+        .mgr-ok { text-align: center; color: #74c69d; padding: 30px; font-size: 13px; font-weight: 600; }
+        .mgr-error { text-align: center; color: #f87171; padding: 16px; font-size: 12px; }
+        .mgr-sub-content { min-height: 60px; }
     `);
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -590,9 +886,11 @@
         <div id="oc-tab-bar" class="oc-tab-bar" style="display:none;">
             <button class="oc-tab oc-tab-active" data-tab="profile">My OC</button>
             <button class="oc-tab" data-tab="admin" id="oc-admin-tab" style="display:none;">Admin</button>
+            <button class="oc-tab" data-tab="manager" id="oc-manager-tab" style="display:none;">Manager</button>
         </div>
         <div id="oc-tab-profile"></div>
         <div id="oc-tab-admin" style="display:none;"></div>
+        <div id="oc-tab-manager" style="display:none;"></div>
     `;
     document.body.appendChild(panel);
 
@@ -649,8 +947,11 @@
         });
         document.getElementById('oc-tab-profile').style.display = name === 'profile' ? '' : 'none';
         document.getElementById('oc-tab-admin').style.display   = name === 'admin'   ? '' : 'none';
-        // Close settings panel when switching to profile
-        if (name === 'profile') document.getElementById('oc-settings-panel').style.display = 'none';
+        document.getElementById('oc-tab-manager').style.display = name === 'manager' ? '' : 'none';
+        // Close settings panel when switching away from admin
+        if (name !== 'admin') document.getElementById('oc-settings-panel').style.display = 'none';
+        // Load manager content when switching to it
+        if (name === 'manager') loadManagerTab();
     }
 
     document.querySelectorAll('.oc-tab').forEach(btn => {
@@ -1344,6 +1645,177 @@
         return allowed.includes(pos);
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    //  OC MANAGER TAB  — Missing / Unused / Payouts sub-tabs
+    // ═══════════════════════════════════════════════════════════════════════
+    let mgr_currentSubTab = 'missing';
+
+    function loadManagerTab() {
+        const container = document.getElementById('oc-tab-manager');
+        // Only render sub-tab bar once; preserve if already there
+        if (!container.querySelector('.mgr-sub-tab-bar')) {
+            container.innerHTML = `
+                <div class="mgr-sub-tab-bar">
+                    <button class="mgr-sub-tab mgr-sub-tab-active" data-mgr-tab="missing">Missing</button>
+                    <button class="mgr-sub-tab" data-mgr-tab="unused">Unused</button>
+                    <button class="mgr-sub-tab" data-mgr-tab="payouts">Payouts</button>
+                </div>
+                <div id="mgr-sub-content" class="mgr-sub-content"></div>
+            `;
+            container.querySelectorAll('.mgr-sub-tab').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    mgr_currentSubTab = btn.dataset.mgrTab;
+                    container.querySelectorAll('.mgr-sub-tab').forEach(t => t.classList.toggle('mgr-sub-tab-active', t.dataset.mgrTab === mgr_currentSubTab));
+                    loadManagerSubTab(mgr_currentSubTab);
+                });
+            });
+        }
+        loadManagerSubTab(mgr_currentSubTab);
+    }
+
+    function loadManagerSubTab(tab) {
+        if (tab === 'missing') mgr_loadMissingTab();
+        else if (tab === 'unused') mgr_loadUnusedTab();
+        else if (tab === 'payouts') mgr_loadPayoutsTab();
+    }
+
+    async function mgr_loadMissingTab() {
+        const content = document.getElementById('mgr-sub-content');
+        content.innerHTML = '<div class="mgr-loading">Loading OC data…</div>';
+        try {
+            await mgr_loadMembers();
+            const missing = (await mgr_getMissingOCItems()).filter(m => !mgr_recentlyLoaned.get(String(m.userID))?.has(m.itemID));
+            if (!missing.length) { content.innerHTML = '<div class="mgr-ok">✓ All OC items allocated</div>'; return; }
+            await mgr_resolveItemNames(missing.map(m => m.itemID));
+            let html = '';
+            for (const m of missing) {
+                const itemName = mgr_getItemName(m.itemID) || `Item #${m.itemID}`;
+                html += `
+                    <div class="mgr-card">
+                        <div class="mgr-card-header"><span class="mgr-crime-name">${m.crimeName}</span><span class="mgr-pos-tag">${m.position}</span></div>
+                        <div class="mgr-card-body">
+                            <div class="mgr-item-row"><span class="mgr-label">Item</span><span class="mgr-value" style="font-weight:600;">${itemName}</span></div>
+                            <div class="mgr-player-row"><span class="mgr-label">Player</span><a href="/profiles.php?XID=${m.userID}" class="mgr-player-link">${m.userName}</a></div>
+                        </div>
+                        <button class="mgr-action-btn mgr-btn-loan mgr-loan-btn" data-itemid="${m.itemID}" data-userid="${m.userID}" data-username="${m.userName}">Loan Item</button>
+                    </div>
+                `;
+            }
+            content.innerHTML = html;
+            content.querySelectorAll('.mgr-loan-btn').forEach(btn => {
+                btn.onclick = async () => {
+                    if (btn.dataset.loaning === 'true' || btn.disabled) return;
+                    btn.dataset.loaning = 'true'; btn.disabled = true; btn.textContent = 'Refreshing…';
+                    const itemID = parseInt(btn.dataset.itemid, 10);
+                    const userID = parseInt(btn.dataset.userid, 10);
+                    const userName = btn.dataset.username;
+                    try {
+                        const armoryID = await mgr_prepareArmouryForItem(itemID);
+                        if (!armoryID) {
+                            btn.textContent = 'No stock'; btn.classList.add('mgr-btn-warning');
+                            setTimeout(() => { btn.dataset.loaning = 'false'; btn.disabled = false; btn.textContent = 'Loan Item'; btn.classList.remove('mgr-btn-warning'); }, 3000);
+                            return;
+                        }
+                        btn.textContent = 'Loaning…'; await mgr_loanPreparedItem({ userID, userName });
+                        btn.textContent = '✓ Loaned'; btn.classList.add('mgr-btn-success');
+                    } catch (e) { btn.textContent = '? Check'; btn.classList.add('mgr-btn-warning'); console.error('[OC Mgr] Loan error:', e); }
+                };
+            });
+        } catch (e) { content.innerHTML = `<div class="mgr-error">${e.message}</div>`; }
+    }
+
+    async function mgr_loadUnusedTab() {
+        const content = document.getElementById('mgr-sub-content');
+        content.innerHTML = '<div class="mgr-loading">Scanning armory…</div>';
+        try {
+            await mgr_loadMembers();
+            const [armoryItems, neededByUser] = await Promise.all([mgr_fetchAllArmoryItems(), mgr_getAllOCItemRequirements()]);
+            // Merge recently loaned items to avoid showing them as unused due to API lag
+            mgr_recentlyLoaned.forEach((items, uid) => {
+                if (!neededByUser.has(uid)) neededByUser.set(uid, new Set());
+                items.forEach(iid => neededByUser.get(uid).add(iid));
+            });
+            const unused = [];
+            const OC_ARMOUR_ITEM_IDS = new Set([348, 643, 644]);
+            for (const entry of armoryItems) {
+                if (entry.armoryCategory === 'temporary') continue;
+                if ((entry.armoryCategory === 'armor' || entry.armoryCategory === 'armour') && !OC_ARMOUR_ITEM_IDS.has(entry.itemID)) continue;
+                if (entry.user && entry.user.userID) {
+                    const uid = String(entry.user.userID), iid = entry.itemID;
+                    const needed = neededByUser.get(uid);
+                    if (!needed || !needed.has(iid)) {
+                        unused.push({
+                            itemID: iid, itemName: entry.name || mgr_getItemName(iid) || `Item #${iid}`,
+                            armoryID: entry.armoryID, armoryCategory: entry.armoryCategory || 'utilities',
+                            userID: uid, userName: entry.user.userName || mgr_memberNameMap.get(uid) || `Unknown [${uid}]`
+                        });
+                    }
+                }
+            }
+            if (!unused.length) { content.innerHTML = '<div class="mgr-ok">✓ No unused loaned items</div>'; return; }
+            let html = '<div style="margin-bottom:10px;font-size:11px;color:#6b7280;text-align:center;">Loaned but not needed for any OC:</div>';
+            for (const u of unused) {
+                html += `
+                    <div class="mgr-card">
+                        <div class="mgr-card-body">
+                            <div class="mgr-item-row"><span class="mgr-label">Item</span><span class="mgr-value" style="font-weight:600;">${u.itemName}</span></div>
+                            <div class="mgr-player-row"><span class="mgr-label">Player</span><a href="/profiles.php?XID=${u.userID}" class="mgr-player-link">${u.userName}</a></div>
+                        </div>
+                        <button class="mgr-action-btn mgr-btn-retrieve mgr-retrieve-btn" data-armoryid="${u.armoryID}" data-itemid="${u.itemID}" data-userid="${u.userID}" data-username="${u.userName}" data-category="${u.armoryCategory}">Retrieve Item</button>
+                    </div>
+                `;
+            }
+            content.innerHTML = html;
+            content.querySelectorAll('.mgr-retrieve-btn').forEach(btn => {
+                btn.onclick = async () => {
+                    if (btn.dataset.retrieving === 'true' || btn.disabled) return;
+                    btn.dataset.retrieving = 'true'; btn.disabled = true; btn.textContent = 'Retrieving…';
+                    try {
+                        const postType = ARMORY_TAB_TO_POST_TYPE[btn.dataset.category] || 'Tool';
+                        await mgr_retrieveItem({ armoryID: parseInt(btn.dataset.armoryid, 10), itemID: parseInt(btn.dataset.itemid, 10), userID: parseInt(btn.dataset.userid, 10), userName: btn.dataset.username, postType });
+                        btn.textContent = '✓ Retrieved'; btn.classList.add('mgr-btn-success');
+                    } catch (e) { btn.textContent = 'Error'; btn.classList.add('mgr-btn-warning'); btn.disabled = false; btn.dataset.retrieving = 'false'; }
+                };
+            });
+        } catch (e) { content.innerHTML = `<div class="mgr-error">Error: ${e.message}</div>`; }
+    }
+
+    async function mgr_loadPayoutsTab() {
+        const content = document.getElementById('mgr-sub-content');
+        content.innerHTML = '<div class="mgr-loading">Checking completions…</div>';
+        try {
+            const unpaid = await mgr_getUnpaidCompletedCrimes();
+            if (!unpaid.length) { content.innerHTML = '<div class="mgr-ok">✓ All OCs paid out</div>'; return; }
+            let totalMoney = 0, items = 0;
+            unpaid.forEach(c => { totalMoney += c.money; if (c.hasItems) items++; });
+            let html = `
+                <div class="mgr-summary-box">
+                    <div class="mgr-summary-label">Summary</div>
+                    ${totalMoney > 0 ? `<div class="mgr-summary-amount">$${mgr_formatNumber(totalMoney)}</div>` : ''}
+                    <div class="mgr-summary-detail">${unpaid.length} Unpaid OCs${items > 0 ? ` • ${items} with Items` : ''}</div>
+                    <a href="https://www.torn.com/factions.php?step=your#/tab=crimes&subTab=completed" target="_blank" class="mgr-payout-link">Open Payouts Page</a>
+                </div>
+            `;
+            for (const c of unpaid) {
+                const ageSec = Math.floor(Date.now() / 1000) - c.executedAt;
+                const ageDays = Math.floor(ageSec / 86400);
+                const ageColor = ageDays >= 7 ? '#f87171' : (ageDays >= 3 ? '#f4a261' : '#6b7280');
+                html += `
+                    <a href="https://www.torn.com/factions.php?step=your#/tab=crimes&subTab=completed" target="_blank" class="mgr-payout-card">
+                        <div class="mgr-card" style="padding:8px 10px;">
+                            <div class="mgr-card-header"><span class="mgr-crime-name" style="font-size:11px;">${c.name}</span><span style="font-size:10px;font-weight:700;color:${ageColor};">${ageDays > 0 ? ageDays + 'd' : Math.floor(ageSec / 3600) + 'h'}</span></div>
+                            <div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:12px;color:#74c69d;font-weight:700;">${c.money > 0 ? '$' + mgr_formatNumber(c.money) : ''}</span><span style="font-size:10px;color:#6b7280;">${c.hasItems ? '<span style="color:#74c69d;">Items</span>' : ''}${c.payoutPct ? ` ${c.payoutPct}%` : ''}</span></div>
+                        </div>
+                    </a>
+                `;
+            }
+            content.innerHTML = html;
+        } catch (e) { content.innerHTML = `<div class="mgr-error">Error: ${e.message}</div>`; }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  MAIN
+    // ═══════════════════════════════════════════════════════════════════════
     async function runAnalysis() {
         const apiKey = getApiKey();
         if (!apiKey || apiKey === 'YOUR_API_KEY_HERE') {
@@ -1440,8 +1912,16 @@
             // Always show tab bar with both tabs
             const tabBar   = document.getElementById('oc-tab-bar');
             const adminTab = document.getElementById('oc-admin-tab');
+            const managerTab = document.getElementById('oc-manager-tab');
             tabBar.style.display   = 'flex';
             adminTab.style.display = '';
+
+            // Show Manager tab for admins (same check as Admin tab)
+            if (canViewAdmin(viewer)) {
+                managerTab.style.display = '';
+            } else {
+                managerTab.style.display = 'none';
+            }
 
             // Lock admin tab content if viewer can't admin
             const settingsGear = document.getElementById('oc-spawn-settings');
