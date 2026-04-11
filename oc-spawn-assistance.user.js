@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.0
+// @version      2.1.1
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -51,7 +51,7 @@
             CPR_LOOKBACK_DAYS:       Number(GM_getValue('cfg_lookback_days',      90)),
             HIGH_WEIGHT_THRESHOLD:   Number(GM_getValue('cfg_high_weight_pct',    25)),
             HIGH_WEIGHT_MIN_CPR:     Number(GM_getValue('cfg_high_weight_mincpr', 75)),
-            ADMIN_ROLES:             GM_getValue('cfg_admin_roles', 'Leader,Co-leader'),
+            ADMIN_ROLES:             GM_getValue('cfg_admin_roles', 'Leader,Co-leader,Councilor'),
             SCOPE:             GM_getValue('cfg_scope', null),  // null = not configured
             VERSION:           '1.5.4',
         };
@@ -63,7 +63,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.0';
+    const SCRIPT_VERSION = '2.1.1';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1614,7 +1614,7 @@
                     <span class="oc-setting-label">Admin Roles</span>
                     <div class="oc-setting-desc">Comma-separated faction role names that can access the Admin tab (e.g. Leader,Co-leader,Officer).</div>
                 </div>
-                <input class="oc-setting-key-input" id="cfg-admin-roles" type="text" placeholder="Leader,Co-leader" style="width:140px;font-size:11px;"/>
+                <input class="oc-setting-key-input" id="cfg-admin-roles" type="text" placeholder="Leader,Co-leader,Councilor" style="width:140px;font-size:11px;"/>
             </div>
             <div style="text-align:right;margin-top:4px;">
                 <button id="oc-spawn-cfg-save" class="oc-setting-save-btn">Save for All Members</button>
@@ -1772,7 +1772,7 @@
         CONFIG.CPR_LOOKBACK_DAYS     = get('cfg-lookback-days');
         CONFIG.HIGH_WEIGHT_THRESHOLD = get('cfg-high-weight-pct');
         CONFIG.HIGH_WEIGHT_MIN_CPR   = get('cfg-high-weight-mincpr');
-        CONFIG.ADMIN_ROLES           = document.getElementById('cfg-admin-roles').value.trim() || 'Leader,Co-leader';
+        CONFIG.ADMIN_ROLES           = document.getElementById('cfg-admin-roles').value.trim() || 'Leader,Co-leader,Councilor';
 
         // Local persistence
         GM_setValue('cfg_active_days',    CONFIG.ACTIVE_DAYS);
@@ -2411,7 +2411,7 @@
         if (!viewer) return false;
         if (isDev(viewer)) return true;
         const pos = (viewer.position || '').toLowerCase().replace(/[^a-z]/g, '');
-        const allowed = (CONFIG.ADMIN_ROLES || 'Leader,Co-leader')
+        const allowed = (CONFIG.ADMIN_ROLES || 'Leader,Co-leader,Councilor')
             .split(',')
             .map(r => r.trim().toLowerCase().replace(/[^a-z]/g, ''))
             .filter(Boolean);
