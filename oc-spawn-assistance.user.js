@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.2
+// @version      2.1.3
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -63,7 +63,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.2';
+    const SCRIPT_VERSION = '2.1.3';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2478,6 +2478,16 @@
             content.querySelectorAll('.mgr-loan-btn').forEach(btn => {
                 btn.onclick = async () => {
                     if (btn.dataset.loaning === 'true' || btn.disabled) return;
+                    const onArmory = location.hash.includes('tab=armoury') || location.hash.includes('tab=armory');
+                    if (!onArmory) {
+                        // Step 1: navigate to armory tab first
+                        btn.textContent = 'Go to Armory…';
+                        location.hash = '#/tab=armoury';
+                        btn.dataset.ready = 'true';
+                        setTimeout(() => { btn.textContent = 'Loan Item'; btn.dataset.ready = 'false'; }, 5000);
+                        return;
+                    }
+                    // Step 2: on armory tab, perform loan
                     btn.dataset.loaning = 'true'; btn.disabled = true; btn.textContent = 'Refreshing…';
                     const itemID = parseInt(btn.dataset.itemid, 10);
                     const userID = parseInt(btn.dataset.userid, 10);
@@ -2542,6 +2552,15 @@
             content.querySelectorAll('.mgr-retrieve-btn').forEach(btn => {
                 btn.onclick = async () => {
                     if (btn.dataset.retrieving === 'true' || btn.disabled) return;
+                    const onArmory = location.hash.includes('tab=armoury') || location.hash.includes('tab=armory');
+                    if (!onArmory) {
+                        // Step 1: navigate to armory tab first
+                        btn.textContent = 'Go to Armory…';
+                        location.hash = '#/tab=armoury';
+                        setTimeout(() => { btn.textContent = 'Retrieve Item'; }, 5000);
+                        return;
+                    }
+                    // Step 2: on armory tab, perform retrieve
                     btn.dataset.retrieving = 'true'; btn.disabled = true; btn.textContent = 'Retrieving…';
                     try {
                         const postType = ARMORY_TAB_TO_POST_TYPE[btn.dataset.category] || 'Tool';
