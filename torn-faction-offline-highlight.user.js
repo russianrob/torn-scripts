@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Faction Offline Highlighter
 // @namespace    torn.faction.offline.highlight
-// @version      1.9.3
+// @version      1.9.4
 // @description  Highlights faction members red who have been offline for over 24 hours on the faction member list. Shows OC inactivity badges in chat globally. Configurable threshold. PDA compatible.
 // @author       RussianRob
 // @match        https://www.torn.com/*
@@ -17,6 +17,7 @@
 // =============================================================================
 // CHANGELOG
 // =============================================================================
+// v1.9.4  - Fix: chat tags now show [In OC] for members in active scenarios
 // v1.9.3  - Fix: OC badge showing twice in chat (avatar + name links)
 // v1.9.2  - Update URLs to tornwar.com hosting
 // v1.9.1  - Fix: highlighting bleeding onto armory/controls pages
@@ -157,6 +158,7 @@
     // ─── OC participation tracking ──────────────────────────
     let lastOCMap = {};  // member ID → { timestamp, crimeName }
     let notParticipatingIDs = new Set();  // IDs of members not in any active OC
+    let inActiveOCIDs = new Set();  // IDs of members currently in an active OC
     let allFactionMemberIDs = new Set();  // all faction member IDs
     let newMemberIDs = new Set();  // IDs of members who joined < 3 days ago (72h OC cooldown)
 
@@ -227,14 +229,14 @@
             }
 
             // Build set of member IDs in active OCs
-            const inActiveOC = new Set();
+            inActiveOCIDs = new Set();
             if (!crimesData.error) {
                 const crimes = crimesData.crimes || [];
                 for (const crime of crimes) {
                     if (!crime.slots) continue;
                     for (const slot of crime.slots) {
                         const uid = slot.user && (slot.user.id || slot.user.user_id);
-                        if (uid) inActiveOC.add(String(uid));
+                        if (uid) inActiveOCIDs.add(String(uid));
                     }
                 }
             }
@@ -243,12 +245,12 @@
             // Exclude new members (< 3 days) who can't join OCs yet
             notParticipatingIDs = new Set();
             for (const id of allFactionMemberIDs) {
-                if (!inActiveOC.has(id) && !newMemberIDs.has(id)) {
+                if (!inActiveOCIDs.has(id) && !newMemberIDs.has(id)) {
                     notParticipatingIDs.add(id);
                 }
             }
 
-            console.log(`[FOH] ${notParticipatingIDs.size} members not in active OCs, ${inActiveOC.size} in active OCs, ${newMemberIDs.size} new members (< 72h)`);
+            console.log(`[FOH] ${notParticipatingIDs.size} members not in active OCs, ${inActiveOCIDs.size} in active OCs, ${newMemberIDs.size} new members (< 72h)`);
         } catch (err) {
             console.error('[FOH] Failed to build not-participating list:', err);
         }
@@ -396,7 +398,7 @@
 
     // ─── Chat OC badges ──────────────────────────────────
     function annotateChatMessages() {
-        if (Object.keys(lastOCMap).length === 0 || notParticipatingIDs.size === 0) return;
+        if (Object.keys(lastOCMap).length === 0 && inActiveOCIDs.size === 0) return;
 
         // Cache the OC panel reference outside the loop (only on faction page)
         let ocPanelEl = null;
@@ -419,11 +421,11 @@
             if (!match) return;
             const id = match[1];
 
+            // Only annotate known faction members
+            if (allFactionMemberIDs.size > 0 && !allFactionMemberIDs.has(id)) return;
+
             // Skip new members who can't join OCs yet (< 72h cooldown)
             if (newMemberIDs.has(id)) return;
-
-            // Only annotate members who aren't participating in any OC
-            if (!notParticipatingIDs.has(id)) return;
 
             // Skip avatar/image links — only annotate the plain text name link
             if (link.querySelector('img')) return;
@@ -446,23 +448,34 @@
             const badge = document.createElement('span');
             badge.className = 'foh-chat-oc';
 
-            const ocInfo = lastOCMap[id];
-            if (ocInfo) {
-                const hrsAgo = hoursAgo(ocInfo.timestamp);
-                const timeStr = formatDuration(hrsAgo);
-                badge.textContent = ` [OC: ${timeStr} ago]`;
-                badge.title = `${ocInfo.crimeName} - ${new Date(ocInfo.timestamp * 1000).toLocaleDateString()}`;
-                if (hrsAgo > 168) {
-                    badge.style.color = '#ff4444';
-                } else if (hrsAgo > 72) {
-                    badge.style.color = '#ffa500';
+            if (inActiveOCIDs.has(id)) {
+                // Member is currently in an active OC scenario
+                badge.textContent = ' [In OC]';
+                badge.title = 'Currently assigned to an active OC scenario';
+                badge.style.color = '#2196f3';
+            } else if (notParticipatingIDs.has(id)) {
+                // Member is NOT in any active OC — show last completion time
+                const ocInfo = lastOCMap[id];
+                if (ocInfo) {
+                    const hrsAgo = hoursAgo(ocInfo.timestamp);
+                    const timeStr = formatDuration(hrsAgo);
+                    badge.textContent = ` [OC: ${timeStr} ago]`;
+                    badge.title = `${ocInfo.crimeName} - ${new Date(ocInfo.timestamp * 1000).toLocaleDateString()}`;
+                    if (hrsAgo > 168) {
+                        badge.style.color = '#ff4444';
+                    } else if (hrsAgo > 72) {
+                        badge.style.color = '#ffa500';
+                    } else {
+                        badge.style.color = '#4caf50';
+                    }
                 } else {
-                    badge.style.color = '#4caf50';
+                    badge.textContent = ' [OC: Never]';
+                    badge.title = 'No completed OC found in recent history';
+                    badge.style.color = '#ff4444';
                 }
             } else {
-                badge.textContent = ' [OC: Never]';
-                badge.title = 'No completed OC found in recent history';
-                badge.style.color = '#ff4444';
+                // Member not in either set (data may not be loaded yet) — skip
+                return;
             }
 
             badge.style.cssText += ';font-size:9px;font-weight:700;' +
