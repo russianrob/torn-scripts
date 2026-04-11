@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.44
+// @version      1.7.45
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -60,7 +60,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '1.7.44';
+    const SCRIPT_VERSION = '1.7.45';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -814,6 +814,7 @@
                     </div>
                 </div>
             </div>
+            <div id="oc-cfg-section" style="display:none;">
             <hr class="oc-setting-divider"/>
             <div class="oc-setting-row">
                 <div class="oc-setting-info">
@@ -881,6 +882,7 @@
             <div style="text-align:right;margin-top:4px;">
                 <button id="oc-spawn-cfg-save" class="oc-setting-save-btn">Save for All Members</button>
             </div>
+            </div><!-- /oc-cfg-section -->
         </div>
 
         <div id="oc-tab-bar" class="oc-tab-bar" style="display:none;">
@@ -1939,6 +1941,9 @@
             const settingsGear = document.getElementById('oc-spawn-settings');
             // Gear always visible to dev; visible to others only if they can view admin
             if (settingsGear) settingsGear.style.display = (isDev(viewer) || canViewAdmin(viewer)) ? '' : 'none';
+            // Show config section only for admins (prevents non-admins from pushing default settings)
+            const cfgSection = document.getElementById('oc-cfg-section');
+            if (cfgSection) cfgSection.style.display = (isDev(viewer) || canViewAdmin(viewer)) ? '' : 'none';
             if (canViewAdmin(viewer)) {
                 switchTab('admin');
             } else {
