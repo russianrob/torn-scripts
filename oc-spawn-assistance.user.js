@@ -954,7 +954,7 @@
     // ═══════════════════════════════════════════════════════════════════════
     //  OC MANAGER  — constants, state, and core logic
     // ═══════════════════════════════════════════════════════════════════════
-    const BLACKLISTED_ITEM_IDS = new Set([1012, 226]);
+    const BLACKLISTED_ITEM_IDS = new Set([226]);
     const mgr_memberNameMap = new Map();
     let   mgr_membersLoaded = false;
     const mgr_armoryCache   = new Map();
