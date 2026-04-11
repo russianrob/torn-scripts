@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.1
+// @version      2.1.2
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -63,7 +63,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.1';
+    const SCRIPT_VERSION = '2.1.2';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1546,7 +1546,7 @@
                     <span class="oc-setting-label">API Key</span>
                     <div class="oc-setting-desc">Your personal Torn API key. Must belong to a faction member.</div>
                     <div class="oc-setting-key-wrap">
-                        <input id="oc-spawn-key-input" type="password" placeholder="Paste API key…" class="oc-setting-key-input"/>
+                        <input id="oc-spawn-key-input" type="text" placeholder="Paste API key…" class="oc-setting-key-input"/>
                         <button id="oc-spawn-key-save" class="oc-setting-save-btn">Save</button>
                     </div>
                 </div>
