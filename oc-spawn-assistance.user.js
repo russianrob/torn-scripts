@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.11
+// @version      2.1.12
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.1.12 — Recommend spawning 1 OC when members exist but zero OCs at that level
 // v2.1.11 — Revert level fallback: members stay at their level (don't downgrade Lvl 7 to Lvl 4)
 // v2.1.10 — Prioritize expiring OCs first (soonest deadline gets filled first)
 // v2.1.9  — Members fall to next available level if their level has no OCs
@@ -107,7 +108,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.11';
+    const SCRIPT_VERSION = '2.1.12';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2094,8 +2095,13 @@
 
             if (totalNeeded === 0) {
                 action = 'none';
+            } else if (info.totalSlots === 0 && totalNeeded > 0) {
+                // No OCs exist at all but members are waiting — recommend spawning 1
+                action = 'spawn';
+                numOcsToSpawn = 1;
+                if (scopeBudget !== null) scopeBudget -= sr.cost;
             } else if (info.openSlots === 0 && numOcsNeeded === 0 && totalNeeded > 0) {
-                // Members exist but no OCs and not enough for a full one — show waiting
+                // OCs exist but full, not enough members for another — show waiting
                 action = 'waiting';
             } else if (deficit <= 0) {
                 action = deficit === 0 ? 'ok' : 'surplus';
