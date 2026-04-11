@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.9
+// @version      2.1.10
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.1.10 — Prioritize expiring OCs first (soonest deadline gets filled first)
 // v2.1.9  — Members fall to next available level if their level has no OCs
 // v2.1.8  — Show "waiting" when members exist but no OCs at that level
 // v2.1.7  — Unblacklist Blood Bag (Irradiated) from Missing tab
@@ -105,7 +106,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.9';
+    const SCRIPT_VERSION = '2.1.10';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2254,8 +2255,13 @@
             c.difficulty <= m.joinable &&
             (c.slots || []).some(s => !s.user_id && !s.user?.id)
         );
-        // Sort highest level first so members get the best available OC
-        openOCs.sort((a, b) => (b.difficulty || 0) - (a.difficulty || 0));
+        // Sort by urgency first (expiring soonest), then highest level as tiebreaker
+        openOCs.sort((a, b) => {
+            const aExp = a.expired_at || Infinity;
+            const bExp = b.expired_at || Infinity;
+            if (aExp !== bExp) return aExp - bExp; // soonest expiry first
+            return (b.difficulty || 0) - (a.difficulty || 0); // then highest level
+        });
         if (!openOCs.length) return { type: 'none', text: `No OCs open (up to Lvl ${m.joinable})` };
 
         let bestCrime = null, bestPos = null, bestPosCPR = -1, bestWeight = -1;
