@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.0.0
+// @version      2.1.0
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -10,6 +10,7 @@
 // @grant        GM_getValue
 // @grant        GM_xmlhttpRequest
 // @connect      tornwar.com
+// @connect      api.torn.com
 // @downloadURL  https://tornwar.com/scripts/oc-spawn-assistance.user.js
 // @updateURL    https://tornwar.com/scripts/oc-spawn-assistance.meta.js
 // ==/UserScript==
@@ -62,8 +63,692 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.0.0';
+    const SCRIPT_VERSION = '2.1.0';
     const SERVER = 'https://tornwar.com';
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  OC METRICS  — constants, state, and core logic (ported from Canixe's script)
+    // ═══════════════════════════════════════════════════════════════════════
+    const MET_CRIMES_API  = "https://api.torn.com/v2/faction/crimes";
+    const MET_NEWS_API    = "https://api.torn.com/v2/faction/news";
+    const MET_ITEMS_API   = "https://api.torn.com/v2/torn/items";
+    const MET_API_COMMENT = "OC-Spawn-Metrics";
+    const MET_API_PAGE_CAP = 100;
+    const MET_FIG = "\u2007";
+    const MET_ITEM_CACHE_KEY = "oc-spawn-metrics:items_cache_v1.1";
+    const MET_ITEM_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
+    let   met_ITEM_INFO = null;
+    const MET_VALUE_MODE_KEY = "oc-spawn-metrics:value_mode_v1";
+    const MET_VALUE_MODES = { MV: "mv", PAID: "paid" };
+    let   met_lastRender = null;
+    let   met_abortCtrl = null;
+    let   met_loaded = false; // true after first load
+
+    // --- Metrics utility functions ---
+    const met_delay = (ms) => new Promise(r => setTimeout(r, ms));
+    const met_escapeHtml = (s) => String(s)
+        .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+        .replace(/\"/g,"&quot;").replace(/'/g,"&#39;");
+    const met_fmtMoneySpace = (n) => String(Math.round(n||0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    const met_pad2   = (n) => String(n).padStart(2, MET_FIG);
+    const met_padPct = (r) => r.toFixed(1).padStart(5, MET_FIG) + "%";
+
+    function met_getValueMode() {
+        try {
+            const m = GM_getValue(MET_VALUE_MODE_KEY, MET_VALUE_MODES.MV) || MET_VALUE_MODES.MV;
+            return (String(m) === MET_VALUE_MODES.PAID) ? MET_VALUE_MODES.PAID : MET_VALUE_MODES.MV;
+        } catch { return MET_VALUE_MODES.MV; }
+    }
+    function met_setValueMode(val) {
+        try { GM_setValue(MET_VALUE_MODE_KEY, val); } catch {}
+    }
+
+    function met_setError(msg) {
+        const s = document.getElementById('met-status');
+        if (!s) return;
+        if (msg) { s.textContent = msg; s.style.display = 'inline'; }
+        else { s.textContent = ''; s.style.display = 'none'; }
+    }
+
+    function met_grossUpFromPaid(paidToMembers, payoutPct) {
+        const paid = Math.round(Number(paidToMembers || 0));
+        const pct  = Number(payoutPct || 0);
+        if (!paid || !(pct > 0)) return 0;
+        const bp = Math.round(pct * 100);
+        if (!(bp > 0)) return 0;
+        return Math.round((paid * 10000) / bp);
+    }
+
+    // --- Metrics API fetching (uses direct fetch + getApiKey) ---
+    async function met_fetchJSON(url) {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (data && (data.error || data.code)) {
+            const code = Number(data.error?.code ?? data.code ?? NaN);
+            const raw  = data.error?.error ?? data.error?.message ?? "API error";
+            const map = {
+                1: "Missing API key", 2: "Invalid API key",
+                5: "Rate limited: retry in ~30s", 7: "Requires Faction API Access",
+                14: "Daily usage limit reached", 16: "Insufficient access — requires Limited Access",
+            };
+            const nice = Number.isFinite(code) ? (map[code] || raw) : raw;
+            throw new Error('Torn API error' + (Number.isFinite(code) ? ' ' + code : '') + ': ' + nice);
+        }
+        return data;
+    }
+
+    const met_asCrimes = (p) =>
+        Array.isArray(p?.crimes) ? p.crimes
+        : (p?.crimes && typeof p.crimes === "object" ? Object.values(p.crimes)
+        : (Array.isArray(p?.result?.crimes) ? p.result.crimes : []));
+
+    const met_asNews = (p) =>
+        Array.isArray(p?.news) ? p.news
+        : (p?.news && typeof p.news === "object" ? Object.values(p.news)
+        : (Array.isArray(p?.result?.news) ? p.result.news : []));
+
+    async function met_fetchCrimesBatch({ key, startSec, endSec, signal }) {
+        const u = new URL(MET_CRIMES_API);
+        u.searchParams.set("comment", MET_API_COMMENT);
+        u.searchParams.set("key", key.trim());
+        u.searchParams.set("cat", "completed");
+        u.searchParams.set("filter", "executed_at");
+        u.searchParams.set("from", String(startSec));
+        u.searchParams.set("to",   String(endSec));
+        u.searchParams.set("sort", "DESC");
+
+        const data   = await met_fetchJSON(u.toString());
+        if (signal?.aborted) throw new Error("Aborted");
+        const crimes = (met_asCrimes(data) || []).filter(c => Number.isFinite(c?.executed_at));
+        return { crimes };
+    }
+
+    async function met_fetchNewsExpenses({ key, startSec, endSec, includeCrimeIds, signal }) {
+        const paidToMembersByCrime = new Map();
+        const grossTotalByCrime = new Map();
+        const seenNewsIds = new Set();
+        let cursorTo = endSec;
+
+        while (cursorTo >= startSec) {
+            if (signal?.aborted) throw new Error("Aborted");
+
+            const u = new URL(MET_NEWS_API);
+            u.searchParams.set("comment", MET_API_COMMENT);
+            u.searchParams.set("key", key.trim());
+            u.searchParams.set("cat", "crime");
+            u.searchParams.set("sort", "DESC");
+            u.searchParams.set("from", String(startSec));
+            u.searchParams.set("to",   String(cursorTo));
+
+            const news = (met_asNews(await met_fetchJSON(u.toString())) || []).filter(n => Number.isFinite(n?.timestamp));
+            const count = news.length;
+            if (!count) break;
+
+            for (const n of news) {
+                const nid = String(n?.id || "");
+                if (nid) {
+                    if (seenNewsIds.has(nid)) continue;
+                    seenNewsIds.add(nid);
+                }
+
+                const txt = String(n?.text || "");
+                const idm = txt.match(/crimeId=(\d+)/i); if (!idm) continue;
+                const crimeId = Number(idm[1]);
+                if (includeCrimeIds && !includeCrimeIds.has(crimeId)) continue;
+
+                const pm = txt.match(
+                    /money balance payout splitting\s+(\d+(?:\.\d+)?)%\s+of\s+the\s+\$([\d, ]+)\s+between\s+(\d+)\s+participants/i
+                );
+                if (!pm) continue;
+
+                const pct = parseFloat(pm[1]);
+                const total = parseInt(pm[2].replace(/[^\d]/g,""), 10);
+                const participants = parseInt(pm[3], 10);
+
+                const pool = Math.floor((total * pct + 1e-9) / 100);
+                const each = Math.floor(pool / participants);
+                const paidOutTotal = each * participants;
+
+                paidToMembersByCrime.set(crimeId, (paidToMembersByCrime.get(crimeId) || 0) + paidOutTotal);
+                grossTotalByCrime.set(crimeId, (grossTotalByCrime.get(crimeId) || 0) + total);
+            }
+
+            if (count < MET_API_PAGE_CAP) break;
+
+            const asc = [...new Set(news.map(n => n.timestamp))].sort((a,b)=>a-b);
+            const min = asc[0];
+            const secondMin = asc.length >= 2 ? asc[1] : NaN;
+
+            let nextTo = Number.isFinite(secondMin) ? secondMin : (min - 1);
+            if (!(nextTo < cursorTo)) nextTo = cursorTo - 1;
+            if (nextTo < startSec) break;
+            cursorTo = nextTo;
+
+            await met_delay(150);
+        }
+
+        return { paidToMembersByCrime, grossTotalByCrime };
+    }
+
+    // Items catalog with 24h localStorage cache
+    async function met_ensureItemInfo(key) {
+        if (met_ITEM_INFO) return;
+        try {
+            const raw = localStorage.getItem(MET_ITEM_CACHE_KEY);
+            if (raw) {
+                const obj = JSON.parse(raw);
+                if (obj?.ts && obj?.data && (Date.now() - obj.ts) < MET_ITEM_CACHE_TTL) {
+                    met_ITEM_INFO = new Map(obj.data);
+                    return;
+                }
+            }
+        } catch {}
+        try {
+            const u = new URL(MET_ITEMS_API);
+            u.searchParams.set("comment", MET_API_COMMENT);
+            u.searchParams.set("key", key.trim());
+            const data = await met_fetchJSON(u.toString());
+            const arr = Array.isArray(data?.items) ? data.items
+                : (Array.isArray(data?.result?.items) ? data.result.items : []);
+            const map = new Map();
+            for (const it of arr) {
+                const id = Number(it?.id);
+                if (!Number.isFinite(id)) continue;
+                const name = it?.name || 'Item #' + id;
+                const mv   = Number(it?.value?.market_price ?? 0) || 0;
+                map.set(id, { name, mv });
+            }
+            met_ITEM_INFO = map;
+            try {
+                localStorage.setItem(MET_ITEM_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: Array.from(map.entries()) }));
+            } catch {}
+        } catch(e) {
+            console.warn("[OC Metrics] Items catalog fetch failed:", e);
+            met_ITEM_INFO = new Map();
+        }
+    }
+    const met_itemName = (id) => met_ITEM_INFO?.get(id)?.name ?? ('Item #' + id);
+    const met_itemMV   = (id) => met_ITEM_INFO?.get(id)?.mv   ?? 0;
+
+    // --- Metrics aggregation ---
+    function met_aggregate(crimes) {
+        const totals = {
+            count: 0, success: 0, fail: 0,
+            money: 0, respect: 0,
+            payoutToMembers: 0, payoutToFaction: 0,
+            ocBreakdown: new Map(),
+        };
+        for (const c of crimes) {
+            const success = String(c?.status||"").toLowerCase() === "successful";
+            totals.count += 1;
+            success ? (totals.success += 1) : (totals.fail += 1);
+            const name = c?.name || "Unknown OC";
+            const diff = Number.isFinite(c?.difficulty) ? c.difficulty : null;
+            const key  = name + "|" + (diff ?? "");
+            let b = totals.ocBreakdown.get(key);
+            if (!b) {
+                b = { name, difficulty: diff, total: 0, success: 0, fail: 0, respect: 0, memMoney: 0, income: 0, itemsQty: 0, items: new Map() };
+                totals.ocBreakdown.set(key, b);
+            }
+            b.total += 1;
+            success ? (b.success += 1) : (b.fail += 1);
+            const money   = Number(c?.rewards?.money   || 0);
+            const respect = Number(c?.rewards?.respect || 0);
+            totals.money   += money;
+            totals.respect += respect;
+            b.income       += money;
+            b.respect      += respect;
+            const itemsArr = Array.isArray(c?.rewards?.items) ? c.rewards.items : [];
+            for (const it of itemsArr) {
+                const iid = Number(it?.id);
+                const qty = Number(it?.quantity || 0);
+                if (!Number.isFinite(iid) || !qty) continue;
+                b.itemsQty += qty;
+                b.items.set(iid, (b.items.get(iid) || 0) + qty);
+            }
+            const pct       = Math.max(0, Math.min(100, Number(c?.rewards?.payout?.percentage ?? 0)));
+            const toMembers = Math.round((money * pct) / 100);
+            const toFaction = money - toMembers;
+            totals.payoutToMembers += toMembers;
+            totals.payoutToFaction += toFaction;
+            b.memMoney += toMembers;
+        }
+        return { totals };
+    }
+
+    function met_buildOcExpenseMap(crimes, expenseByCrime) {
+        const map = new Map();
+        for (const c of crimes) {
+            const e = expenseByCrime.get(c.id) || 0;
+            if (!e) continue;
+            const name = c.name || "Unknown OC";
+            const diff = Number.isFinite(c.difficulty) ? c.difficulty : null;
+            const key  = name + "|" + (diff ?? "");
+            map.set(key, (map.get(key) || 0) + e);
+        }
+        return map;
+    }
+
+    function met_getMaxPaidAt(crimes) {
+        let max = NaN;
+        for (const c of crimes) {
+            const ts = Number(c?.rewards?.payout?.paid_at);
+            if (Number.isFinite(ts) && (!Number.isFinite(max) || ts > max)) max = ts;
+        }
+        return max;
+    }
+
+    function met_buildItemEstByKey(ocMap) {
+        const byKey = new Map(); let total = 0;
+        for (const [key, b] of ocMap) {
+            let est = 0;
+            if (b.items?.size) {
+                for (const [iid, qty] of b.items) est += qty * (met_itemMV(iid) || 0);
+            }
+            est = Math.round(est);
+            byKey.set(key, est);
+            total += est;
+        }
+        return { byKey, total: Math.round(total) };
+    }
+
+    function met_buildOcTimeItemEstByKey(crimes, grossTotalByCrime) {
+        const grossedByKey = new Map();
+        const incomeByKey  = new Map();
+        for (const c of crimes) {
+            const name = c.name || "Unknown OC";
+            const diff = Number.isFinite(c.difficulty) ? c.difficulty : null;
+            const key  = name + "|" + (diff ?? "");
+            const income = Math.round(Number(c?.rewards?.money || 0));
+            incomeByKey.set(key, (incomeByKey.get(key) || 0) + income);
+            const gross = grossTotalByCrime.get(c.id) || 0;
+            if (!gross) continue;
+            grossedByKey.set(key, (grossedByKey.get(key) || 0) + gross);
+        }
+        const byKey = new Map(); let total = 0;
+        for (const [key, grossed] of grossedByKey) {
+            const income = incomeByKey.get(key) || 0;
+            const estItems = Math.max(0, Math.round(grossed - income));
+            byKey.set(key, estItems);
+            total += estItems;
+        }
+        return { byKey, total: Math.round(total) };
+    }
+
+    // --- Metrics rendering ---
+    function met_renderTotals({ totals, countDays, paidToMembersOverride, netOverride }) {
+        const host = document.getElementById('met-totals');
+        if (!host) return;
+        const days = Math.max(1, countDays|0);
+        const rate = totals.count ? (totals.success / totals.count * 100) : 0;
+        const paidMembers = Number.isFinite(paidToMembersOverride) ? paidToMembersOverride : (totals.payoutToMembers || 0);
+        const netFaction  = Number.isFinite(netOverride)           ? netOverride           : (totals.payoutToFaction || 0);
+        const grandTotal  = paidMembers + netFaction;
+        const perRespect = totals.respect / days;
+        const perMem     = paidMembers   / days;
+        const perNet     = netFaction    / days;
+        const perGrand   = grandTotal    / days;
+
+        host.innerHTML = '<div class="met-kpis">'
+          + '<div class="met-kpi"><div class="met-kpi-label">Crimes</div>'
+          + '<div class="met-kpi-value">' + totals.count.toLocaleString() + '</div>'
+          + '<div class="met-kpi-sub"><span style="color:#74c69d">' + totals.success.toLocaleString() + '</span> / <span style="color:#f87171">' + totals.fail.toLocaleString() + '</span> \u2013 ' + rate.toFixed(1) + '%</div></div>'
+          + '<div class="met-kpi"><div class="met-kpi-label">Respect</div>'
+          + '<div class="met-kpi-value">' + totals.respect.toLocaleString() + '</div>'
+          + '<div class="met-kpi-sub">\u2248 ' + perRespect.toFixed(1) + ' / day</div></div>'
+          + '<div class="met-kpi"><div class="met-kpi-label">Money to Members</div>'
+          + '<div class="met-kpi-value">$' + paidMembers.toLocaleString() + '</div>'
+          + '<div class="met-kpi-sub">\u2248 $' + met_fmtMoneySpace(perMem) + ' / day</div></div>'
+          + '<div class="met-kpi"><div class="met-kpi-label">Money to Faction</div>'
+          + '<div class="met-kpi-value">$' + netFaction.toLocaleString() + '</div>'
+          + '<div class="met-kpi-sub">\u2248 $' + met_fmtMoneySpace(perNet) + ' / day</div></div>'
+          + '<div class="met-kpi"><div class="met-kpi-label">Grand Total</div>'
+          + '<div class="met-kpi-value">$' + grandTotal.toLocaleString() + '</div>'
+          + '<div class="met-kpi-sub">\u2248 $' + met_fmtMoneySpace(perGrand) + ' / day</div></div>'
+          + '</div>';
+    }
+
+    function met_renderOcBreakdown(ocMap, ocExpenseMap, itemEstByKey, opts) {
+        const mode = (opts && opts.valueMode) || MET_VALUE_MODES.MV;
+        const estLbl = (mode === MET_VALUE_MODES.PAID) ? "\u2248 $%s (OC-time)" : "\u2248 $%s (MV)";
+        const host = document.getElementById('met-ocbreak');
+        if (!host) return;
+
+        const entries = Array.from(ocMap.entries()).map(([key, b]) => ({ key, ...b }));
+        if (!entries.length) { host.innerHTML = '<span style="color:#6b7280;font-size:11px;">No crimes in range.</span>'; return; }
+
+        entries.sort((a,b)=> ((a.difficulty??9999) - (b.difficulty??9999)) || a.name.localeCompare(b.name));
+
+        const rows = entries.map(x => {
+            const rate   = x.total ? (x.success / x.total * 100) : 0;
+            const income = Math.round(x.income || 0);
+            const paid   = Math.round(ocExpenseMap.get(x.key) || 0);
+            const est    = Math.round(itemEstByKey.get(x.key) || 0);
+            const net    = income + est - paid;
+            const netCls = net >= 0 ? "color:#74c69d" : "color:#f87171";
+            const label  = x.difficulty + ' - ' + met_escapeHtml(x.name);
+
+            const parts = [];
+            if (income > 0) parts.push('<div style="color:#74c69d">$' + income.toLocaleString() + '</div>');
+            if (x.items?.size) {
+                const li = [];
+                for (const [iid, qty] of x.items) li.push('<li>' + qty.toLocaleString() + '\u00d7 ' + met_escapeHtml(met_itemName(iid)) + '</li>');
+                li.sort((a,b)=> a.localeCompare(b));
+                parts.push('<div class="met-items-col"><ul class="met-items-list">' + li.join("") + '</ul></div>');
+                if (est > 0) parts.push('<div style="color:#f4a261">' + estLbl.replace("%s", est.toLocaleString()) + '</div>');
+            }
+            const merged = parts.length ? parts.join("") : "\u2014";
+
+            const runsCell = '<span style="font-family:monospace">' + met_pad2(x.total) + ' (<span style="color:#74c69d">' + met_pad2(x.success) + '</span>/<span style="color:#f87171">' + met_pad2(x.fail) + '</span>) ' + met_padPct(rate) + '</span>';
+
+            // items detail for mobile expandable row
+            let itemsHTML = '';
+            if (x.items && x.items.size) {
+                const li2 = [];
+                x.items.forEach((qty, iid) => {
+                    li2.push('<li>' + qty.toLocaleString() + '\u00d7 ' + met_escapeHtml(met_itemName(iid)) + '</li>');
+                });
+                li2.sort((a,b) => a.localeCompare(b));
+                itemsHTML = '<ul class="met-items-list">' + li2.join('') + '</ul>';
+            }
+
+            const detailsHtml = '<div class="met-details-wrap">'
+                + '<div><strong>Runs</strong>: ' + runsCell + '</div>'
+                + '<div><strong>Resp.</strong>: ' + x.respect.toLocaleString() + '</div>'
+                + (income ? '<div style="color:#74c69d"><strong>Income</strong>: $' + income.toLocaleString() + '</div>' : '')
+                + (paid   ? '<div style="color:#f87171"><strong>Paid to Members</strong>: $' + paid.toLocaleString() + '</div>' : '')
+                + (x.items && x.items.size
+                    ? '<div><strong>Items</strong>:' + itemsHTML + '</div>'
+                      + (est ? '<div style="color:#f4a261"><strong>Item est.</strong>: $' + est.toLocaleString() + '</div>' : '')
+                    : '')
+                + '</div>';
+
+            return '<tr class="met-main-row" aria-expanded="false">'
+                + '<td class="met-oc-name">' + label + '</td>'
+                + '<td class="met-w-min met-center met-col-runs">' + runsCell + '</td>'
+                + '<td class="met-w-min met-center met-col-resp">' + x.respect.toLocaleString() + '</td>'
+                + '<td class="met-col-items">' + merged + '</td>'
+                + '<td class="met-w-min met-center met-col-paid" style="color:#f87171">$' + paid.toLocaleString() + '</td>'
+                + '<td class="met-w-min met-center" style="' + netCls + '">$' + net.toLocaleString() + '</td>'
+                + '</tr>'
+                + '<tr class="met-row-details"><td colspan="6">' + detailsHtml + '</td></tr>';
+        });
+
+        host.innerHTML = '<table class="oc-table met-table">'
+            + '<thead><tr>'
+            + '<th>OC</th>'
+            + '<th class="met-col-runs met-w-min">Runs</th>'
+            + '<th class="met-col-resp met-w-min">Resp.</th>'
+            + '<th class="met-col-items">' + ((mode === MET_VALUE_MODES.PAID) ? "Income & Items (OC-time est.)" : "Income & Items (Est. MV)") + '</th>'
+            + '<th class="met-col-paid met-w-min">Paid to Members</th>'
+            + '<th class="met-w-min">Net</th>'
+            + '</tr></thead>'
+            + '<tbody>' + rows.join('') + '</tbody>'
+            + '</table>';
+    }
+
+    function met_renderFromCache(mode) {
+        if (!met_lastRender) return;
+        const isPaid = (mode === MET_VALUE_MODES.PAID);
+        met_renderTotals({
+            totals: met_lastRender.totals,
+            countDays: met_lastRender.diffDays,
+            paidToMembersOverride: met_lastRender.totalPaid,
+            netOverride: isPaid ? met_lastRender.netTotalPaid : met_lastRender.netTotalMV
+        });
+        met_renderOcBreakdown(
+            met_lastRender.totals.ocBreakdown,
+            met_lastRender.ocExpenseMap,
+            isPaid ? met_lastRender.itemEstByKeyPaid : met_lastRender.itemEstByKeyMV,
+            { valueMode: mode }
+        );
+        const copyBtn = document.getElementById('met-copy');
+        if (copyBtn) copyBtn.style.display = 'inline-flex';
+    }
+
+    function met_buildSummaryTSV() {
+        if (!met_lastRender) return "";
+        const fromStr = document.getElementById('met-from')?.value || "";
+        const toStr   = document.getElementById('met-to')?.value || "";
+        const mode = met_getValueMode();
+        const modeLabel = (mode === MET_VALUE_MODES.PAID) ? "OC-Time" : "Current MV";
+        const totals = met_lastRender.totals;
+        const days   = Math.max(1, met_lastRender.diffDays|0);
+        const rate   = totals.count ? (totals.success / totals.count * 100) : 0;
+        const paidMembers = met_lastRender.totalPaid || 0;
+        const netFaction = (mode === MET_VALUE_MODES.PAID) ? (met_lastRender.netTotalPaid || 0) : (met_lastRender.netTotalMV || 0);
+        const grandTotal = paidMembers + netFaction;
+        const headers = [
+            "From(UTC)","To(UTC)","ValueMode",
+            "Crimes","Success","Fail","SuccessRate(%)",
+            "Respect","RespectPerDay",
+            "MoneyToMembers","MoneyToMembersPerDay",
+            "MoneyToFaction(Net)","MoneyToFactionPerDay",
+            "GrandTotal","GrandTotalPerDay"
+        ].join("\t");
+        const row = [
+            fromStr, toStr, modeLabel,
+            totals.count, totals.success, totals.fail, rate.toFixed(1),
+            totals.respect, (totals.respect / days).toFixed(1),
+            paidMembers, Math.round(paidMembers / days),
+            netFaction, Math.round(netFaction / days),
+            grandTotal, Math.round(grandTotal / days)
+        ].join("\t");
+        return headers + "\n" + row;
+    }
+
+    // --- Metrics main run ---
+    async function met_runQuery() {
+        const copyBtn = document.getElementById('met-copy');
+        if (copyBtn) copyBtn.style.display = 'none';
+
+        const key = getApiKey();
+        if (!key || key === 'YOUR_API_KEY_HERE') { met_setError("API key required — set it in Settings."); return; }
+
+        const fromStr = document.getElementById('met-from')?.value?.trim();
+        const toStr   = document.getElementById('met-to')?.value?.trim();
+        if (!fromStr || !toStr) { alert("Pick both dates."); return; }
+
+        const toUTC = (y,m,d,h,mi,s)=>Math.floor(Date.UTC(y,m-1,d,h||0,mi||0,s||0)/1000);
+        const startSec = toUTC(+fromStr.slice(0,4), +fromStr.slice(5,7), +fromStr.slice(8,10), 0,0,0);
+        const endSec   = toUTC(+toStr.slice(0,4),   +toStr.slice(5,7),   +toStr.slice(8,10),   23,59,59);
+        if (endSec < startSec) { alert('"To" must be \u2265 "From".'); return; }
+
+        const btnRun  = document.getElementById('met-run');
+        const btnStop = document.getElementById('met-stop');
+        met_abortCtrl = new AbortController();
+        if (btnRun) btnRun.disabled = true;
+        if (btnStop) btnStop.disabled = false;
+        met_setError("");
+
+        try {
+            const seenIds = new Set(); const collected = [];
+            let cursorTo = endSec;
+
+            while (cursorTo >= startSec) {
+                if (met_abortCtrl.signal.aborted) throw new Error("Aborted");
+                const { crimes } = await met_fetchCrimesBatch({ key, startSec, endSec: cursorTo, signal: met_abortCtrl.signal });
+                const count = crimes.length;
+                if (!count) break;
+                for (const c of crimes) {
+                    const id = c?.id;
+                    if (id != null && !seenIds.has(id)) { seenIds.add(id); collected.push(c); }
+                }
+                if (count < MET_API_PAGE_CAP) break;
+                const asc = [...new Set(crimes.map(c => c.executed_at))].sort((a,b)=>a-b);
+                const min = asc[0], secondMin = asc.length >= 2 ? asc[1] : NaN;
+                let nextTo = Number.isFinite(secondMin) ? secondMin : (min - 1);
+                if (!(nextTo < cursorTo)) nextTo = cursorTo - 1;
+                if (nextTo < startSec) break;
+                cursorTo = nextTo;
+                await met_delay(150);
+            }
+
+            const ranged = collected.filter(c => c.executed_at >= startSec && c.executed_at <= endSec);
+
+            await met_ensureItemInfo(key);
+            const idSet   = new Set(ranged.map(c => c.id));
+            const maxPaid = met_getMaxPaidAt(ranged);
+            const newsEnd = Number.isFinite(maxPaid) ? Math.max(endSec, maxPaid) : endSec;
+
+            let ocExpenseMap = new Map();
+            let paidToMembersByCrime = new Map();
+            let grossTotalByCrime = new Map();
+            try {
+                const news = await met_fetchNewsExpenses({
+                    key, startSec, endSec: newsEnd, includeCrimeIds: idSet, signal: met_abortCtrl.signal
+                });
+                paidToMembersByCrime = news.paidToMembersByCrime || new Map();
+                grossTotalByCrime    = news.grossTotalByCrime    || new Map();
+                ocExpenseMap = met_buildOcExpenseMap(ranged, paidToMembersByCrime);
+            } catch {}
+
+            const diffDays = Math.ceil(((endSec - startSec + 1) * 1000) / (24*3600*1000));
+            const { totals } = met_aggregate(ranged);
+
+            const { byKey: itemEstByKeyMV, total: itemEstTotalMV } = met_buildItemEstByKey(totals.ocBreakdown);
+            const { byKey: itemEstByKeyPaid, total: itemEstTotalPaid } = met_buildOcTimeItemEstByKey(ranged, grossTotalByCrime);
+
+            let totalIncome = 0; for (const b of totals.ocBreakdown.values()) totalIncome += Math.round(b.income || 0);
+            let totalPaid   = 0; for (const v of ocExpenseMap.values()) totalPaid += Math.round(v || 0);
+
+            const netTotalMV   = totalIncome + itemEstTotalMV   - totalPaid;
+            const netTotalPaid = totalIncome + itemEstTotalPaid - totalPaid;
+
+            met_lastRender = {
+                totals, diffDays, totalPaid,
+                ocExpenseMap,
+                itemEstByKeyMV, netTotalMV,
+                itemEstByKeyPaid, netTotalPaid,
+            };
+
+            const mode = met_getValueMode();
+            met_renderFromCache(mode);
+        } catch (e) {
+            if (e?.message !== "Aborted") met_setError(e?.message || "Unexpected error.");
+        } finally {
+            if (btnRun)  btnRun.disabled = false;
+            if (btnStop) btnStop.disabled = true;
+        }
+    }
+
+    // --- Metrics tab initialization ---
+    function met_initTab() {
+        if (met_loaded) return;
+        met_loaded = true;
+
+        const container = document.getElementById('oc-tab-metrics');
+        if (!container) return;
+
+        // Set default date range (last 7 days)
+        const now = new Date();
+        const toY = now.getUTCFullYear(), toM = now.getUTCMonth()+1, toD = now.getUTCDate();
+        const fromDate = new Date(Date.UTC(toY, toM-1, toD-6));
+        const iso = (d) => d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,"0") + '-' + String(d.getUTCDate()).padStart(2,"0");
+
+        container.innerHTML = ''
+            + '<div class="met-controls">'
+            + '  <div class="met-ctrl-row">'
+            + '    <label class="met-label">From</label>'
+            + '    <input type="date" id="met-from" class="met-date-input" value="' + iso(fromDate) + '"/>'
+            + '    <label class="met-label">To</label>'
+            + '    <input type="date" id="met-to" class="met-date-input" value="' + iso(now) + '"/>'
+            + '    <span class="met-pill-seg" id="met-valuemode">'
+            + '      <button type="button" data-mode="mv" class="met-seg-btn">Current MV</button>'
+            + '      <button type="button" data-mode="paid" class="met-seg-btn">OC-Time</button>'
+            + '    </span>'
+            + '    <span id="met-status" style="color:#f87171;font-size:11px;display:none;margin-left:6px;"></span>'
+            + '    <span class="met-ctrl-right">'
+            + '      <button id="met-copy" class="met-btn" style="display:none;" title="Copy summary">Copy</button>'
+            + '      <button id="met-stop" class="met-btn" title="Stop" disabled>\u25A0 Stop</button>'
+            + '      <button id="met-run" class="met-btn met-btn-primary" title="Run">\u25B6 Run</button>'
+            + '    </span>'
+            + '  </div>'
+            + '</div>'
+            + '<div id="met-totals"></div>'
+            + '<div id="met-ocbreak" style="margin-top:8px;">\u2014 Click Run to fetch metrics.</div>';
+
+        // Wire up buttons
+        document.getElementById('met-run')?.addEventListener('click', met_runQuery);
+        document.getElementById('met-stop')?.addEventListener('click', () => met_abortCtrl?.abort());
+
+        // Copy button
+        document.getElementById('met-copy')?.addEventListener('click', (ev) => {
+            const btn = ev.currentTarget;
+            const txt = met_buildSummaryTSV();
+            if (!txt) { met_setError("Nothing to copy yet."); return; }
+            // TornPDA-compatible copy
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = txt; ta.style.cssText = 'position:fixed;left:-9999px;';
+                document.body.appendChild(ta); ta.select();
+                document.execCommand('copy'); document.body.removeChild(ta);
+            } catch {}
+            const prev = btn.textContent;
+            btn.textContent = "Copied \u2713";
+            btn.disabled = true;
+            setTimeout(() => { btn.textContent = prev; btn.disabled = false; }, 2000);
+        });
+
+        // KPI click-to-copy
+        document.getElementById('met-totals')?.addEventListener('click', (ev) => {
+            const sel = window.getSelection ? String(window.getSelection()) : "";
+            if (sel && sel.trim().length) return;
+            const kpi = ev.target?.closest?.('.met-kpi');
+            if (!kpi) return;
+            const label = kpi.querySelector('.met-kpi-label')?.textContent?.trim() || "KPI";
+            const value = kpi.querySelector('.met-kpi-value')?.textContent?.trim() || "";
+            const sub   = kpi.querySelector('.met-kpi-sub')?.textContent?.trim() || "";
+            const txt = sub ? label + "\t" + value + "\t" + sub : label + "\t" + value;
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = txt; ta.style.cssText = 'position:fixed;left:-9999px;';
+                document.body.appendChild(ta); ta.select();
+                document.execCommand('copy'); document.body.removeChild(ta);
+            } catch {}
+            kpi.style.outline = '2px solid #2d4a3e';
+            kpi.style.filter = 'brightness(1.06)';
+            setTimeout(() => { kpi.style.outline = ''; kpi.style.filter = ''; }, 1500);
+        });
+
+        // Value mode toggle
+        const wrap = document.getElementById('met-valuemode');
+        if (wrap) {
+            const mode = met_getValueMode();
+            wrap.querySelectorAll('.met-seg-btn').forEach(b => {
+                b.classList.toggle('met-seg-active', b.getAttribute('data-mode') === mode);
+            });
+            wrap.addEventListener('click', (ev) => {
+                const btn = ev.target?.closest?.('button[data-mode]');
+                if (!btn) return;
+                const next = btn.getAttribute('data-mode');
+                if (next !== MET_VALUE_MODES.MV && next !== MET_VALUE_MODES.PAID) return;
+                met_setValueMode(next);
+                wrap.querySelectorAll('.met-seg-btn').forEach(b => {
+                    b.classList.toggle('met-seg-active', b.getAttribute('data-mode') === next);
+                });
+                if (met_lastRender) met_renderFromCache(next);
+            });
+        }
+
+        // Mobile expandable rows
+        container.addEventListener('click', (ev) => {
+            const row = ev.target?.closest?.('tr.met-main-row');
+            if (!row) return;
+            if (ev.target.closest('a')) return;
+            const details = row.nextElementSibling;
+            if (!details || !details.classList.contains('met-row-details')) return;
+            const open = details.classList.contains('met-open');
+            if (open) {
+                details.classList.remove('met-open');
+                row.setAttribute('aria-expanded', 'false');
+            } else {
+                details.classList.add('met-open');
+                row.setAttribute('aria-expanded', 'true');
+            }
+        });
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     //  SCOPE SYNC  — push detected scope to server ASAP
@@ -703,6 +1388,56 @@
         .mgr-ok { text-align: center; color: #74c69d; padding: 30px; font-size: 13px; font-weight: 600; }
         .mgr-error { text-align: center; color: #f87171; padding: 16px; font-size: 12px; }
         .mgr-sub-content { min-height: 60px; }
+
+        /* ═══════════════════════════════════════════════════════════════════
+           METRICS TAB STYLES
+           ═══════════════════════════════════════════════════════════════════ */
+        .met-controls { margin-bottom: 10px; }
+        .met-ctrl-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+        .met-label { font-size: 11px; color: #6b7280; }
+        .met-date-input { padding: 4px 6px; background: #0d1b2a; color: #f3f4f6; border: 1px solid #2d4a3e; border-radius: 4px; font-size: 11px; font-family: monospace; }
+        .met-btn { padding: 4px 10px; background: #152018; color: #74c69d; border: 1px solid #2d4a3e; border-radius: 6px; cursor: pointer; font-size: 11px; font-family: inherit; font-weight: 600; }
+        .met-btn:hover { background: #253525; color: #fff; }
+        .met-btn:disabled { opacity: .4; cursor: default; }
+        .met-btn-primary { background: #2d6a4f; color: #fff; }
+        .met-btn-primary:hover:not(:disabled) { background: #1b4332; }
+        .met-ctrl-right { margin-left: auto; display: flex; gap: 6px; }
+        .met-pill-seg { display: inline-flex; border: 1px solid #2d4a3e; border-radius: 20px; overflow: hidden; }
+        .met-seg-btn { background: transparent; border: 0; padding: 3px 10px; cursor: pointer; font-size: 11px; color: #9ca3af; font-family: inherit; }
+        .met-seg-btn + .met-seg-btn { border-left: 1px solid #2d4a3e; }
+        .met-seg-btn.met-seg-active { background: #253525; color: #74c69d; font-weight: 700; }
+        /* KPI cards */
+        .met-kpis { display: grid; gap: 6px; grid-template-columns: repeat(3, minmax(0,1fr)); margin-bottom: 8px; }
+        @media (min-width:560px) { .met-kpis { grid-template-columns: repeat(5, minmax(0,1fr)); } }
+        .met-kpi { background: #111f18; border: 1px solid #253525; border-radius: 8px; padding: 6px 8px; min-width: 0; box-sizing: border-box; cursor: pointer; transition: border-color .2s; }
+        .met-kpi:hover { border-color: #2d6a4f; }
+        .met-kpi-label { font-size: 11px; color: #6b7280; }
+        .met-kpi-value { font-weight: 700; font-size: 14px; color: #f3f4f6; }
+        .met-kpi-sub { font-size: 11px; color: #9ca3af; text-align: right; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        /* OC breakdown table */
+        .met-table th { text-align: center !important; }
+        .met-table td:first-child { text-align: left; }
+        .met-w-min { width: 1%; white-space: nowrap; }
+        .met-center { text-align: center; }
+        .met-oc-name { white-space: nowrap; }
+        .met-items-col { white-space: normal; }
+        .met-items-list { margin: 0; padding-left: 18px; list-style: disc; }
+        .met-items-list li { margin: 0; padding: 0; font-size: 11px; color: #f3f4f6; }
+        .met-details-wrap { padding: 8px 10px; font-size: 12px; color: #d1d5db; }
+        /* Mobile responsive */
+        @media (max-width: 560px) {
+            .met-col-runs, .met-col-items, .met-col-paid { display: none; }
+            tr.met-main-row { cursor: pointer; }
+            tr.met-main-row:hover td { background: #131f18; }
+            td.met-oc-name { position: relative; padding-left: 22px; }
+            td.met-oc-name::before { content: "▸"; position: absolute; left: 6px; top: 50%; transform: translateY(-50%); opacity: .85; }
+            tr.met-main-row[aria-expanded="true"] td.met-oc-name::before { content: "▾"; }
+            .met-row-details { display: none; background: #111f18; }
+            .met-row-details.met-open { display: table-row; }
+            .met-w-min { width: auto; }
+            .met-oc-name { white-space: normal; }
+        }
+        @media (min-width: 561px) { .met-row-details { display: none !important; } }
     `);
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -891,10 +1626,12 @@
             <button class="oc-tab oc-tab-active" data-tab="profile">My OC</button>
             <button class="oc-tab" data-tab="admin" id="oc-admin-tab" style="display:none;">Admin</button>
             <button class="oc-tab" data-tab="manager" id="oc-manager-tab" style="display:none;">Manager</button>
+            <button class="oc-tab" data-tab="metrics" id="oc-metrics-tab" style="display:none;">Metrics</button>
         </div>
         <div id="oc-tab-profile"></div>
         <div id="oc-tab-admin" style="display:none;"></div>
         <div id="oc-tab-manager" style="display:none;"></div>
+        <div id="oc-tab-metrics" style="display:none;"></div>
     `;
     document.body.appendChild(panel);
 
@@ -974,10 +1711,13 @@
         document.getElementById('oc-tab-profile').style.display = name === 'profile' ? '' : 'none';
         document.getElementById('oc-tab-admin').style.display   = name === 'admin'   ? '' : 'none';
         document.getElementById('oc-tab-manager').style.display = name === 'manager' ? '' : 'none';
+        document.getElementById('oc-tab-metrics').style.display = name === 'metrics' ? '' : 'none';
         // Close settings panel when switching away from admin
         if (name !== 'admin') document.getElementById('oc-settings-panel').style.display = 'none';
         // Load manager content when switching to it
         if (name === 'manager') loadManagerTab();
+        // Init metrics tab when switching to it
+        if (name === 'metrics') met_initTab();
     }
 
     document.querySelectorAll('.oc-tab').forEach(btn => {
@@ -1950,10 +2690,13 @@
             adminTab.style.display = '';
 
             // Show Manager tab for admins (same check as Admin tab)
+            const metricsTab = document.getElementById('oc-metrics-tab');
             if (canViewAdmin(viewer)) {
                 managerTab.style.display = '';
+                if (metricsTab) metricsTab.style.display = '';
             } else {
                 managerTab.style.display = 'none';
+                if (metricsTab) metricsTab.style.display = 'none';
             }
 
             // Lock admin tab content if viewer can't admin
