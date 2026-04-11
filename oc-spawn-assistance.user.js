@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.3
+// @version      2.1.4
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -63,7 +63,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.3';
+    const SCRIPT_VERSION = '2.1.4';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2518,11 +2518,15 @@
                 if (!neededByUser.has(uid)) neededByUser.set(uid, new Set());
                 items.forEach(iid => neededByUser.get(uid).add(iid));
             });
+            // Build set of ALL item IDs used in any OC (so we only show OC-relevant items)
+            const allOcItemIDs = new Set();
+            neededByUser.forEach(items => items.forEach(iid => allOcItemIDs.add(iid)));
+
             const unused = [];
-            const OC_ARMOUR_ITEM_IDS = new Set([348, 643, 644]);
             for (const entry of armoryItems) {
                 if (entry.armoryCategory === 'temporary') continue;
-                if ((entry.armoryCategory === 'armor' || entry.armoryCategory === 'armour') && !OC_ARMOUR_ITEM_IDS.has(entry.itemID)) continue;
+                // Only show items that are actually used in OCs
+                if (!allOcItemIDs.has(entry.itemID)) continue;
                 if (entry.user && entry.user.userID) {
                     const uid = String(entry.user.userID), iid = entry.itemID;
                     const needed = neededByUser.get(uid);
