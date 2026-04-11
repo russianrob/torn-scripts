@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.41
+// @version      1.7.42
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -60,38 +60,8 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '1.7.41';
+    const SCRIPT_VERSION = '1.7.42';
     const SERVER = 'https://tornwar.com';
-
-    // ═══════════════════════════════════════════════════════════════════════
-    //  VERSION CHECK — alert if script is outdated
-    // ═══════════════════════════════════════════════════════════════════════
-    (async function checkForUpdate() {
-        try {
-            const localVer = SCRIPT_VERSION;
-            const r = await gmRequest(`${SERVER}/api/oc/version`);
-            const remoteVer = r?.version;
-            if (!remoteVer || remoteVer === '0') return;
-            if (remoteVer !== localVer) {
-                const banner = document.createElement('div');
-                banner.innerHTML = `
-                    <div style="position:fixed;top:0;left:0;right:0;z-index:999999;background:#b91c1c;color:#fff;
-                        padding:10px 16px;font:600 13px/1.4 'Helvetica Neue',sans-serif;
-                        display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-                        <span>\u26a0 OC Spawn Assistance is outdated (v${localVer} → v${remoteVer}). Please update.</span>
-                        <span style="display:flex;gap:8px;">
-                            <a href="${SERVER}/scripts/oc-spawn-assistance.user.js" target="_blank"
-                               style="background:#fff;color:#b91c1c;padding:4px 12px;border-radius:4px;
-                               text-decoration:none;font-weight:700;font-size:12px;">Update Now</a>
-                            <button id="oc-dismiss-update" style="background:none;border:1px solid rgba(255,255,255,.4);
-                               color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;">Dismiss</button>
-                        </span>
-                    </div>`;
-                document.body.appendChild(banner);
-                document.getElementById('oc-dismiss-update')?.addEventListener('click', () => banner.remove());
-            }
-        } catch (e) { /* silent */ }
-    })();
 
     // ═══════════════════════════════════════════════════════════════════════
     //  SCOPE SYNC  — push detected scope to server ASAP
