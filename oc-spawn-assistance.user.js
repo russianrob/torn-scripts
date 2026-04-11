@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.12
+// @version      2.1.13
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.1.13 — Expiry fallback within same scope range only (Lvl 5↔Lvl 6, not Lvl 5→Lvl 4)
 // v2.1.12 — Recommend spawning 1 OC when members exist but zero OCs at that level
 // v2.1.11 — Revert level fallback: members stay at their level (don't downgrade Lvl 7 to Lvl 4)
 // v2.1.10 — Prioritize expiring OCs first (soonest deadline gets filled first)
@@ -108,7 +109,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.12';
+    const SCRIPT_VERSION = '2.1.13';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2257,11 +2258,16 @@
         }
         const byPos    = m.byPosition || {};
         const memberCPR = m.cpr ?? 0;
-        const openOCs  = normArr(availableCrimes).filter(c =>
-            c.status === 'Recruiting' &&
-            c.difficulty === m.joinable &&
-            (c.slots || []).some(s => !s.user_id && !s.user?.id)
-        );
+        // Allow OCs within same scope range (e.g. Lvl 5 member can join Lvl 5 or 6, both R3)
+        const memberRange = diffToScopeRange(m.joinable);
+        const openOCs  = normArr(availableCrimes).filter(c => {
+            const diff = c.difficulty || 0;
+            const crimeRange = diffToScopeRange(diff);
+            return c.status === 'Recruiting' &&
+                diff <= m.joinable && // can't go above their level
+                crimeRange.range === memberRange.range && // must be same scope range
+                (c.slots || []).some(s => !s.user_id && !s.user?.id);
+        });
         // Sort by urgency first (expiring soonest), then highest weight
         openOCs.sort((a, b) => {
             const aExp = a.expired_at || Infinity;
