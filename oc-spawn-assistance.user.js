@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.0.2
+// @version      2.0.0
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -62,7 +62,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.0.2';
+    const SCRIPT_VERSION = '2.0.0';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -527,12 +527,7 @@
             const err = new Error(r.data?.error || 'Access restricted to faction members only.');
             err.status = 403; throw err;
         }
-        if (!r.ok) {
-            const err = new Error(r.data?.error || `Server error (${r.status})`);
-            err.status = r.status;
-            err.updateUrl = r.data?.updateUrl || null;
-            throw err;
-        }
+        if (!r.ok) throw new Error(r.data?.error || `Server error (${r.status})`);
         return r.data;
     }
 
@@ -944,7 +939,6 @@
         onClickFn:  () => {
             panelVisible = !panelVisible;
             panel.style.display = panelVisible ? 'block' : 'none';
-            updateVisibility();
             if (panelVisible) GM_setValue('oc_panel_closed', false); // clear the closed flag
         },
         storageKey: 'oc_btn_pos',
@@ -1987,11 +1981,8 @@
                 : /forbidden|faction api/i.test(err.message)
                 ? ''
                 : 'Something went wrong — try refreshing.';
-            const updateLink = err.updateUrl
-                ? `<p style="margin-top:8px;"><a href="${err.updateUrl}" target="_blank" style="color:#74c69d;font-weight:600;font-size:13px;">Click here to update</a></p>`
-                : '';
             document.getElementById('oc-tab-profile').innerHTML =
-                `<p class="oc-error">Error: ${err.message}</p>${updateLink}
+                `<p class="oc-error">Error: ${err.message}</p>
                  <p style="color:#6b7280;font-size:11px;">${hint}</p>`;
             setStatus(`Error: ${err.message}`);
             console.error('[OC Spawn]', err);
@@ -1999,21 +1990,6 @@
             refreshBtn.disabled = false;
         }
     }
-
-    // Only show on crimes tab
-    function isOnCrimesTab() {
-        return location.hash.includes('tab=crimes') || location.hash.includes('tab=crime');
-    }
-    function updateVisibility() {
-        const show = isOnCrimesTab();
-        const p = document.getElementById('oc-spawn-panel');
-        const b = document.getElementById('oc-spawn-toggle');
-        if (p) p.style.display = show && panelVisible ? '' : 'none';
-        if (b) b.style.display = show ? '' : 'none';
-    }
-    window.addEventListener('hashchange', updateVisibility);
-    // Also check periodically (Torn sometimes changes tabs without hashchange)
-    setInterval(updateVisibility, 1000);
 
     // Start ASAP interception
     setupAjaxInterceptor();
