@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.43
+// @version      1.7.44
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -60,7 +60,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '1.7.43';
+    const SCRIPT_VERSION = '1.7.44';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1078,7 +1078,9 @@
             const cprStr = rec.cpr > 0 ? ` <span style="color:#74c69d">${rec.cpr}%</span>` : '';
             const posStr = rec.position ? `<br><span style="color:#9ca3af">Role: ${rec.position}${cprStr}</span>` : '';
             const moreStr = rec.count > 1 ? `<div class="oc-tt-note">${rec.count - 1} other Lvl ${rec.level} OC${rec.count > 2 ? 's' : ''} also open</div>` : '';
-            html = `<div class="oc-tt-title">${rec.crime}</div><div class="oc-tt-avg">Lvl ${rec.level} OC${posStr}</div>${moreStr}`;
+            const msgText = `Please join ${rec.crime}${rec.position ? ' as ' + rec.position : ''}`;
+            const msgBtn = `<button class="oc-msg-btn" data-xid="${uid}" data-msg="${msgText.replace(/"/g, '&quot;')}" style="margin-top:6px;width:100%;padding:4px 8px;background:#2d4a3e;color:#74c69d;border:1px solid #3d6a4e;border-radius:4px;cursor:pointer;font-size:10px;font-weight:600;">Message Player</button>`;
+            html = `<div class="oc-tt-title">${rec.crime}</div><div class="oc-tt-avg">Lvl ${rec.level} OC${posStr}</div>${moreStr}${msgBtn}`;
         }
         recTooltipEl.innerHTML = html;
         recTooltipEl.style.display = 'block';
@@ -1137,6 +1139,16 @@
         if (ps) { e.stopPropagation(); hideCprTooltip(); hideRecTooltip(); showScopeTooltip(ps); return; }
         const rb = e.target.closest('.oc-rec-btn');
         if (rb) { e.stopPropagation(); hideCprTooltip(); hideScopeTooltip(); showRecTooltip(rb); return; }
+        const mb = e.target.closest('.oc-msg-btn');
+        if (mb) {
+            e.stopPropagation();
+            const xid = mb.dataset.xid;
+            const msg = mb.dataset.msg;
+            navigator.clipboard?.writeText(msg).catch(() => {});
+            mb.textContent = 'Copied! Opening…';
+            setTimeout(() => window.open(`https://www.torn.com/messages.php#/p=compose&XID=${xid}`, '_blank'), 300);
+            return;
+        }
         hideCprTooltip(); hideScopeTooltip(); hideRecTooltip();
     });
     document.addEventListener('click', () => { if (cprTipOpen) hideCprTooltip(); if (scopeTipOpen) hideScopeTooltip(); hideRecTooltip(); });
