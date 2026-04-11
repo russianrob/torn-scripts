@@ -15,6 +15,45 @@
 // @updateURL    https://tornwar.com/scripts/oc-spawn-assistance.meta.js
 // ==/UserScript==
 
+// ═══════════════════════════════════════════════════════════════════════════════
+//  CHANGELOG
+// ═══════════════════════════════════════════════════════════════════════════════
+// v2.1.6  — Save button disabled until server settings loaded (prevents default overwrite)
+// v2.1.5  — Scope guard: don't push lower value than server has
+// v2.1.4  — Unused tab: only show OC-relevant items
+// v2.1.3  — Two-step loan/retrieve: navigate to armory tab first
+// v2.1.2  — API key field plain text instead of asterisks
+// v2.1.1  — Added Councilor to default admin roles
+// v2.1.0  — Metrics tab: KPIs, per-OC breakdown, date range, item valuation
+// v2.0.0  — Manager tab (Missing/Unused/Payouts), version gate, Message Player,
+//           hidden config for non-admins, SCRIPT_VERSION constant, @updateURL
+// v1.7.37 — Scope auto-push uses /api/oc/scope (no settings overwrite)
+// v1.7.36 — Scope auto-push to server (debounced, after settings loaded)
+// v1.7.35 — Trust server per-level joinable, don't override with overall CPR
+// v1.7.34 — Per-level CPR gating + server applies faction MINCPR/CPR_BOOST
+// v1.7.33 — Skipped members get full CPR/OC data (fixes viewer card for long OCs)
+// v1.7.31 — Fix: pass weights to renderViewerCard
+// v1.7.30 — Numbered role labels (#1, #2), weight lookups fixed
+// v1.7.29 — Weight-based role selection, full slot names
+// v1.7.28 — Use position name not position_id for byPosition keys
+// v1.7.27 — Role CPR fallback: exact crime match, then any crime with same role
+// v1.7.26 — Scope byPosition CPR to crime type (crimeName::role)
+// v1.7.25 — Border + dim styling for "None needed" rows
+// v1.7.24 — Always show levels with members or slots
+// v1.7.23 — Gear always visible to dev regardless of admin roles
+// v1.7.22 — Friendlier error for Incorrect ID-entity relation
+// v1.7.21 — Cross-faction fetchKey fix, smarter error hints
+// v1.7.20 — Configurable Admin Roles setting
+// v1.7.19 — Show actual server 403 message to unsubscribed users
+// v1.7.18 — Smarter error hints for Torn API timeouts
+// v1.7.16 — Admin tab gated by faction position or dev ID
+// v1.7.15 — Two-tab system: My OC (everyone) + Admin (admin-only)
+// v1.7.14 — Settings restricted to owner faction only
+// v1.7.13 — OWNER_API_KEY for faction fetches (Minimal keys work)
+// v1.7.12 — Configurable weight threshold/CPR settings
+// v1.7.11 — OC role weights from tornprobability.com
+// ═══════════════════════════════════════════════════════════════════════════════
+
 (function () {
     'use strict';
 
