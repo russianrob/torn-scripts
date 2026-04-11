@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.5
+// @version      2.1.6
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -63,7 +63,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.5';
+    const SCRIPT_VERSION = '2.1.6';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1622,7 +1622,7 @@
                 <input class="oc-setting-key-input" id="cfg-admin-roles" type="text" placeholder="Leader,Co-leader,Councilor" style="width:140px;font-size:11px;"/>
             </div>
             <div style="text-align:right;margin-top:4px;">
-                <button id="oc-spawn-cfg-save" class="oc-setting-save-btn">Save for All Members</button>
+                <button id="oc-spawn-cfg-save" class="oc-setting-save-btn" disabled>Save for All Members</button>
             </div>
             </div><!-- /oc-cfg-section -->
         </div>
@@ -1767,6 +1767,7 @@
     });
 
     document.getElementById('oc-spawn-cfg-save').addEventListener('click', async () => {
+        if (!settingsReady) { alert('Settings not loaded yet — please Refresh first.'); return; }
         const get    = id => Math.max(0, parseInt(document.getElementById(id).value) || 0);
         const rawScope = parseInt(document.getElementById('cfg-scope').value, 10);
         CONFIG.SCOPE          = isNaN(rawScope) ? null : Math.max(0, Math.min(100, rawScope));
@@ -2660,6 +2661,8 @@
 
                 populateSettings();
                 settingsReady = true;
+                const saveBtn = document.getElementById('oc-spawn-cfg-save');
+                if (saveBtn) saveBtn.disabled = false;
             }
 
             // Fetch OC data from server
