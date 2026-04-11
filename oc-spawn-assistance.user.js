@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.47
+// @version      1.7.48
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -62,7 +62,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '1.7.47';
+    const SCRIPT_VERSION = '1.7.48';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -664,7 +664,7 @@
             padding: 10px 12px; font-size: 11px;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
             color: #d1d5db; box-shadow: 0 4px 20px rgba(0,0,0,.7);
-            min-width: 180px; max-width: 260px; display: none; pointer-events: none;
+            min-width: 180px; max-width: 260px; display: none; pointer-events: auto;
         }
         #oc-rec-tooltip .oc-tt-title { font-weight: 600; color: #f3f4f6; margin-bottom: 5px; font-size: 12px; }
         #oc-rec-tooltip .oc-tt-note  { color: #6b7280; font-size: 10px; margin-top: 5px; }
@@ -1165,7 +1165,11 @@
         }
         hideCprTooltip(); hideScopeTooltip(); hideRecTooltip();
     });
-    document.addEventListener('click', () => { if (cprTipOpen) hideCprTooltip(); if (scopeTipOpen) hideScopeTooltip(); hideRecTooltip(); });
+    document.addEventListener('click', (e) => {
+        // Don't close rec tooltip if clicking inside it (for Message Player button)
+        if (recTooltipEl.contains(e.target)) return;
+        if (cprTipOpen) hideCprTooltip(); if (scopeTipOpen) hideScopeTooltip(); hideRecTooltip();
+    });
 
     // ═══════════════════════════════════════════════════════════════════════
     //  UTILITY
