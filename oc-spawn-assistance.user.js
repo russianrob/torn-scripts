@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      1.7.45
+// @version      1.7.46
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -60,7 +60,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '1.7.45';
+    const SCRIPT_VERSION = '1.7.46';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1146,9 +1146,19 @@
             e.stopPropagation();
             const xid = mb.dataset.xid;
             const msg = mb.dataset.msg;
-            navigator.clipboard?.writeText(msg).catch(() => {});
+            // Copy to clipboard (TornPDA-compatible fallback)
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = msg; ta.style.cssText = 'position:fixed;left:-9999px;';
+                document.body.appendChild(ta); ta.select();
+                document.execCommand('copy'); document.body.removeChild(ta);
+            } catch (_) {}
             mb.textContent = 'Copied! Opening…';
-            setTimeout(() => window.open(`https://www.torn.com/messages.php#/p=compose&XID=${xid}`, '_blank'), 300);
+            // Navigate (TornPDA-compatible)
+            const a = document.createElement('a');
+            a.href = `https://www.torn.com/messages.php#/p=compose&XID=${xid}`;
+            a.target = '_blank'; a.rel = 'noopener';
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
             return;
         }
         hideCprTooltip(); hideScopeTooltip(); hideRecTooltip();
