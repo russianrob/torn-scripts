@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.0.1
+// @version      2.0.2
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -62,7 +62,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.0.1';
+    const SCRIPT_VERSION = '2.0.2';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -944,6 +944,7 @@
         onClickFn:  () => {
             panelVisible = !panelVisible;
             panel.style.display = panelVisible ? 'block' : 'none';
+            updateVisibility();
             if (panelVisible) GM_setValue('oc_panel_closed', false); // clear the closed flag
         },
         storageKey: 'oc_btn_pos',
@@ -1998,6 +1999,21 @@
             refreshBtn.disabled = false;
         }
     }
+
+    // Only show on crimes tab
+    function isOnCrimesTab() {
+        return location.hash.includes('tab=crimes') || location.hash.includes('tab=crime');
+    }
+    function updateVisibility() {
+        const show = isOnCrimesTab();
+        const p = document.getElementById('oc-spawn-panel');
+        const b = document.getElementById('oc-spawn-toggle');
+        if (p) p.style.display = show && panelVisible ? '' : 'none';
+        if (b) b.style.display = show ? '' : 'none';
+    }
+    window.addEventListener('hashchange', updateVisibility);
+    // Also check periodically (Torn sometimes changes tabs without hashchange)
+    setInterval(updateVisibility, 1000);
 
     // Start ASAP interception
     setupAjaxInterceptor();
