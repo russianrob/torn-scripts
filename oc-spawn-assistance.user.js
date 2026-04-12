@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.19
+// @version      2.1.20
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.1.20 — Version bump
 // v2.1.19 — Switch armory reads to Torn API; page AJAX only for loan/retrieve actions
 // v2.1.18 — Remove dead ADMIN_ROLES config; graceful fallback when no faction-access key cached
 // v2.1.17 — Admin access based on API key faction access, not role names
@@ -114,7 +115,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.19';
+    const SCRIPT_VERSION = '2.1.20';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
