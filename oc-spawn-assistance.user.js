@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.16
+// @version      2.1.17
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,8 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.1.17 — Admin access based on API key faction access, not role names
+// v2.1.16 — Version bump
 // v2.1.15 — Revert same-range joining: back to exact level match only
 // v2.1.14 — Same scope range both directions (Lvl 5 can join Lvl 6 if that's what spawned)
 // v2.1.13 — Expiry fallback within same scope range only (Lvl 5↔Lvl 6, not Lvl 5→Lvl 4)
@@ -111,7 +113,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.16';
+    const SCRIPT_VERSION = '2.1.17';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2476,16 +2478,11 @@
     function isDev(viewer) {
         return viewer && String(viewer.playerId) === '137558';
     }
-    // Admin tab: dev OR any role in CONFIG.ADMIN_ROLES
+    // Admin tab: dev OR has faction API access
     function canViewAdmin(viewer) {
         if (!viewer) return false;
         if (isDev(viewer)) return true;
-        const pos = (viewer.position || '').toLowerCase().replace(/[^a-z]/g, '');
-        const allowed = (CONFIG.ADMIN_ROLES || 'Leader,Co-leader,Councilor')
-            .split(',')
-            .map(r => r.trim().toLowerCase().replace(/[^a-z]/g, ''))
-            .filter(Boolean);
-        return allowed.includes(pos);
+        return viewer.hasFactionAccess === true;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
