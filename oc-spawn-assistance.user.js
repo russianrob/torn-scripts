@@ -18,7 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
-// v2.1.18 — Graceful fallback when no faction-access key cached; only cache keys with confirmed access
+// v2.1.18 — Remove dead ADMIN_ROLES config; graceful fallback when no faction-access key cached
 // v2.1.17 — Admin access based on API key faction access, not role names
 // v2.1.16 — Version bump
 // v2.1.15 — Revert same-range joining: back to exact level match only
@@ -102,7 +102,6 @@
             CPR_LOOKBACK_DAYS:       Number(GM_getValue('cfg_lookback_days',      90)),
             HIGH_WEIGHT_THRESHOLD:   Number(GM_getValue('cfg_high_weight_pct',    25)),
             HIGH_WEIGHT_MIN_CPR:     Number(GM_getValue('cfg_high_weight_mincpr', 75)),
-            ADMIN_ROLES:             GM_getValue('cfg_admin_roles', 'Leader,Co-leader,Councilor'),
             SCOPE:             GM_getValue('cfg_scope', null),  // null = not configured
             VERSION:           '1.5.4',
         };
@@ -815,7 +814,7 @@
         const scopeEl = document.getElementById('cfg-scope');
         if (scopeEl) scopeEl.value = scope;
 
-        // Auto-push scope ONLY (lightweight endpoint — doesn't touch admin_roles etc.)
+        // Auto-push scope ONLY (lightweight endpoint — doesn't touch other settings)
         // Guard: don't push if lower than current server value (prevents stale cached data overwriting)
         clearTimeout(scopePushTimer);
         scopePushTimer = setTimeout(async () => {
@@ -1249,7 +1248,6 @@
                 lookback_days:        cfg.CPR_LOOKBACK_DAYS,
                 high_weight_pct:      cfg.HIGH_WEIGHT_THRESHOLD,
                 high_weight_mincpr:   cfg.HIGH_WEIGHT_MIN_CPR,
-                admin_roles:          cfg.ADMIN_ROLES,
                 scope:                cfg.SCOPE !== null ? cfg.SCOPE : '',
             });
             await gmRequest(`${SERVER}/api/oc/settings/update?${p}`);
@@ -1665,13 +1663,7 @@
                 </div>
                 <input class="oc-setting-num" id="cfg-high-weight-mincpr" type="number" min="0" max="100"/>
             </div>
-            <div class="oc-setting-row">
-                <div class="oc-setting-info">
-                    <span class="oc-setting-label">Admin Roles</span>
-                    <div class="oc-setting-desc">Comma-separated faction role names that can access the Admin tab (e.g. Leader,Co-leader,Officer).</div>
-                </div>
-                <input class="oc-setting-key-input" id="cfg-admin-roles" type="text" placeholder="Leader,Co-leader,Councilor" style="width:140px;font-size:11px;"/>
-            </div>
+
             <div style="text-align:right;margin-top:4px;">
                 <button id="oc-spawn-cfg-save" class="oc-setting-save-btn" disabled>Save for All Members</button>
             </div>
@@ -1795,7 +1787,6 @@
         document.getElementById('cfg-lookback-days').value        = CONFIG.CPR_LOOKBACK_DAYS;
         document.getElementById('cfg-high-weight-pct').value      = CONFIG.HIGH_WEIGHT_THRESHOLD;
         document.getElementById('cfg-high-weight-mincpr').value   = CONFIG.HIGH_WEIGHT_MIN_CPR;
-        document.getElementById('cfg-admin-roles').value          = CONFIG.ADMIN_ROLES;
     }
 
     function checkKeyRow() {
@@ -1829,7 +1820,6 @@
         CONFIG.CPR_LOOKBACK_DAYS     = get('cfg-lookback-days');
         CONFIG.HIGH_WEIGHT_THRESHOLD = get('cfg-high-weight-pct');
         CONFIG.HIGH_WEIGHT_MIN_CPR   = get('cfg-high-weight-mincpr');
-        CONFIG.ADMIN_ROLES           = document.getElementById('cfg-admin-roles').value.trim() || 'Leader,Co-leader,Councilor';
 
         // Local persistence
         GM_setValue('cfg_active_days',    CONFIG.ACTIVE_DAYS);
@@ -1839,7 +1829,6 @@
         GM_setValue('cfg_lookback_days',       CONFIG.CPR_LOOKBACK_DAYS);
         GM_setValue('cfg_high_weight_pct',     CONFIG.HIGH_WEIGHT_THRESHOLD);
         GM_setValue('cfg_high_weight_mincpr',  CONFIG.HIGH_WEIGHT_MIN_CPR);
-        GM_setValue('cfg_admin_roles',         CONFIG.ADMIN_ROLES);
         GM_setValue('cfg_scope',               CONFIG.SCOPE);
 
         document.getElementById('oc-settings-panel').style.display = 'none';
@@ -2707,7 +2696,6 @@
                 CONFIG.CPR_LOOKBACK_DAYS       = srvSettings.lookback_days;
                 CONFIG.HIGH_WEIGHT_THRESHOLD   = srvSettings.high_weight_pct      ?? CONFIG.HIGH_WEIGHT_THRESHOLD;
                 CONFIG.HIGH_WEIGHT_MIN_CPR     = srvSettings.high_weight_mincpr   ?? CONFIG.HIGH_WEIGHT_MIN_CPR;
-                CONFIG.ADMIN_ROLES             = srvSettings.admin_roles          ?? CONFIG.ADMIN_ROLES;
                 CONFIG.SCOPE                   = srvSettings.scope;
 
                 // Sync local storage with server values
@@ -2718,7 +2706,6 @@
                 GM_setValue('cfg_lookback_days',       CONFIG.CPR_LOOKBACK_DAYS);
                 GM_setValue('cfg_high_weight_pct',     CONFIG.HIGH_WEIGHT_THRESHOLD);
                 GM_setValue('cfg_high_weight_mincpr',  CONFIG.HIGH_WEIGHT_MIN_CPR);
-                GM_setValue('cfg_admin_roles',         CONFIG.ADMIN_ROLES);
                 GM_setValue('cfg_scope',               CONFIG.SCOPE);
 
                 populateSettings();
