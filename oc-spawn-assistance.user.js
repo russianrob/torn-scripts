@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.17
+// @version      2.1.18
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.1.18 — Graceful fallback when no faction-access key cached; only cache keys with confirmed access
 // v2.1.17 — Admin access based on API key faction access, not role names
 // v2.1.16 — Version bump
 // v2.1.15 — Revert same-range joining: back to exact level match only
@@ -113,7 +114,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.17';
+    const SCRIPT_VERSION = '2.1.18';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2728,9 +2729,10 @@
 
             // Fetch OC data from server
             setStatus('Fetching OC data…');
-            let members, availableCrimes, rawCprCache, viewer, weights;
+            let members, availableCrimes, rawCprCache, viewer, weights, serverResp;
             try {
-                ({ members, availableCrimes, cprCache: rawCprCache, viewer, weights } = await fetchServerOcData(apiKey));
+                serverResp = await fetchServerOcData(apiKey);
+                ({ members, availableCrimes, cprCache: rawCprCache, viewer, weights } = serverResp);
             } catch (err) {
                 if (err.status === 403) {
                     document.getElementById('oc-tab-profile').innerHTML =
@@ -2739,6 +2741,18 @@
                     return;
                 }
                 throw err;
+            }
+
+            // No faction key cached yet — show waiting message
+            if (serverResp.pendingFactionData) {
+                document.getElementById('oc-tab-profile').innerHTML =
+                    `<div style="text-align:center;padding:24px 16px;color:#9ca3af;">`
+                    + `<div style="font-size:18px;margin-bottom:8px;">⏳</div>`
+                    + `<div style="font-size:12px;font-weight:600;color:#f3f4f6;margin-bottom:4px;">Waiting for faction data</div>`
+                    + `<div style="font-size:11px;line-height:1.5;">Your API key doesn't have faction access.<br>OC data will appear once a member with faction API access loads the panel.</div>`
+                    + `</div>`;
+                setStatus('Waiting for faction data.');
+                return;
             }
 
             // Re-apply user's MINCPR/CPR_BOOST to joinable
