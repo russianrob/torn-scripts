@@ -982,7 +982,7 @@
     };
     const ARMORY_TAB_TO_POST_TYPE = {
         'utilities': 'Tool', 'drugs': 'Drug', 'medical': 'Medical',
-        'boosters': 'Booster', 'temporary': 'Temporary', 'clothing': 'Clothing', 'armor': 'Armor'
+        'boosters': 'Booster', 'temporary': 'Temporary', 'clothing': 'Clothing', 'armor': 'Armor', 'weapons': 'Primary'
     };
     const ARMORY_API_SELECTIONS = ['utilities', 'drugs', 'medical', 'boosters', 'temporary', 'armor', 'weapons', 'caches'];
     const ARMORY_CATEGORIES = ['utilities', 'drugs', 'medical', 'boosters', 'temporary', 'clothing', 'armor', 'armour']; // page AJAX categories (loan/retrieve only)
@@ -1114,7 +1114,8 @@
                 allItems.push({
                     itemID: Number(item.ID), name: item.name, type: item.type,
                     quantity: item.quantity || 0, available: item.available ?? item.quantity ?? 0,
-                    loaned: item.loaned || 0, armoryCategory: category
+                    loaned: item.loaned || 0, loaned_to: item.loaned_to || null,
+                    armoryCategory: category
                 });
             }
         }
@@ -2596,7 +2597,7 @@
         content.innerHTML = '<div class="mgr-loading">Scanning armory…</div>';
         try {
             await mgr_loadMembers();
-            const [armoryItems, neededByUser] = await Promise.all([mgr_fetchAllArmoryItems(), mgr_getAllOCItemRequirements()]);
+            const [armoryItems, neededByUser] = await Promise.all([mgr_fetchAllArmoryItemsAPI(), mgr_getAllOCItemRequirements()]);
             // Merge recently loaned items to avoid showing them as unused due to API lag
             mgr_recentlyLoaned.forEach((items, uid) => {
                 if (!neededByUser.has(uid)) neededByUser.set(uid, new Set());
@@ -2611,14 +2612,16 @@
                 if (entry.armoryCategory === 'temporary') continue;
                 // Only show items that are actually used in OCs
                 if (!allOcItemIDs.has(entry.itemID)) continue;
-                if (entry.user && entry.user.userID) {
-                    const uid = String(entry.user.userID), iid = entry.itemID;
+                // API returns loaned_to as comma-separated user IDs
+                if (!entry.loaned_to) continue;
+                const loanedUsers = String(entry.loaned_to).split(',').map(s => s.trim()).filter(Boolean);
+                for (const uid of loanedUsers) {
                     const needed = neededByUser.get(uid);
-                    if (!needed || !needed.has(iid)) {
+                    if (!needed || !needed.has(entry.itemID)) {
                         unused.push({
-                            itemID: iid, itemName: entry.name || mgr_getItemName(iid) || `Item #${iid}`,
-                            armoryID: entry.armoryID, armoryCategory: entry.armoryCategory || 'utilities',
-                            userID: uid, userName: entry.user.userName || mgr_memberNameMap.get(uid) || `Unknown [${uid}]`
+                            itemID: entry.itemID, itemName: entry.name || mgr_getItemName(entry.itemID) || `Item #${entry.itemID}`,
+                            armoryCategory: entry.armoryCategory || 'utilities',
+                            userID: uid, userName: mgr_memberNameMap.get(uid) || `Unknown [${uid}]`
                         });
                     }
                 }
@@ -2632,7 +2635,7 @@
                             <div class="mgr-item-row"><span class="mgr-label">Item</span><span class="mgr-value" style="font-weight:600;">${u.itemName}</span></div>
                             <div class="mgr-player-row"><span class="mgr-label">Player</span><a href="/profiles.php?XID=${u.userID}" class="mgr-player-link">${u.userName}</a></div>
                         </div>
-                        <button class="mgr-action-btn mgr-btn-retrieve mgr-retrieve-btn" data-armoryid="${u.armoryID}" data-itemid="${u.itemID}" data-userid="${u.userID}" data-username="${u.userName}" data-category="${u.armoryCategory}">Retrieve Item</button>
+                        <button class="mgr-action-btn mgr-btn-retrieve mgr-retrieve-btn" data-itemid="${u.itemID}" data-userid="${u.userID}" data-username="${u.userName}" data-category="${u.armoryCategory}">Retrieve Item</button>
                     </div>
                 `;
             }
@@ -2649,10 +2652,41 @@
                         return;
                     }
                     // Step 2: on armory tab, perform retrieve
-                    btn.dataset.retrieving = 'true'; btn.disabled = true; btn.textContent = 'Retrieving…';
+                    btn.dataset.retrieving = 'true'; btn.disabled = true; btn.textContent = 'Finding item…';
                     try {
-                        const postType = ARMORY_TAB_TO_POST_TYPE[btn.dataset.category] || 'Tool';
-                        await mgr_retrieveItem({ armoryID: parseInt(btn.dataset.armoryid, 10), itemID: parseInt(btn.dataset.itemid, 10), userID: parseInt(btn.dataset.userid, 10), userName: btn.dataset.username, postType });
+                        const cat = btn.dataset.category || 'utilities';
+                        const itemID = parseInt(btn.dataset.itemid, 10);
+                        const userID = parseInt(btn.dataset.userid, 10);
+                        // Fetch armoryIDs from page AJAX to find the specific loaned item
+                        const categoriesToTry = [cat];
+                        if (cat === 'armor') categoriesToTry.push('armour');
+                        let armoryID = null;
+                        for (const c of categoriesToTry) {
+                            const rfcv = mgr_getRfcvToken();
+                            if (!rfcv) throw new Error('Missing RFCV token');
+                            let start = 0;
+                            while (start < 1000 && !armoryID) {
+                                const body = new URLSearchParams({ step: 'armouryTabContent', type: c, start: String(start), ajax: 'true' });
+                                const res = await fetch(`https://www.torn.com/factions.php?rfcv=${rfcv}`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }, body, credentials: 'same-origin' });
+                                if (!res.ok) break;
+                                const data = await res.json();
+                                if (!data?.items) break;
+                                const itemsArr = Array.isArray(data.items) ? data.items : Object.values(data.items);
+                                if (itemsArr.length === 0) break;
+                                for (const entry of itemsArr) {
+                                    if (Number(entry.itemID) === itemID && entry.user && String(entry.user.userID) === String(userID) && entry.armoryID) {
+                                        armoryID = entry.armoryID; break;
+                                    }
+                                }
+                                if (itemsArr.length < 50) break;
+                                start += 50;
+                            }
+                            if (armoryID) break;
+                        }
+                        if (!armoryID) throw new Error('Could not find armory item');
+                        btn.textContent = 'Retrieving…';
+                        const postType = ARMORY_TAB_TO_POST_TYPE[cat] || 'Tool';
+                        await mgr_retrieveItem({ armoryID, itemID, userID, userName: btn.dataset.username, postType });
                         btn.textContent = '✓ Retrieved'; btn.classList.add('mgr-btn-success');
                     } catch (e) { btn.textContent = 'Error'; btn.classList.add('mgr-btn-warning'); btn.disabled = false; btn.dataset.retrieving = 'false'; }
                 };
