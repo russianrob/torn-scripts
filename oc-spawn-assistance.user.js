@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.18
+// @version      2.1.19
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.1.19 — Switch armory reads to Torn API; page AJAX only for loan/retrieve actions
 // v2.1.18 — Remove dead ADMIN_ROLES config; graceful fallback when no faction-access key cached
 // v2.1.17 — Admin access based on API key faction access, not role names
 // v2.1.16 — Version bump
@@ -113,7 +114,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.18';
+    const SCRIPT_VERSION = '2.1.19';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -983,7 +984,8 @@
         'utilities': 'Tool', 'drugs': 'Drug', 'medical': 'Medical',
         'boosters': 'Booster', 'temporary': 'Temporary', 'clothing': 'Clothing', 'armor': 'Armor'
     };
-    const ARMORY_CATEGORIES = ['utilities', 'drugs', 'medical', 'boosters', 'temporary', 'clothing', 'armor', 'armour'];
+    const ARMORY_API_SELECTIONS = ['utilities', 'drugs', 'medical', 'boosters', 'temporary', 'armor', 'weapons', 'caches'];
+    const ARMORY_CATEGORIES = ['utilities', 'drugs', 'medical', 'boosters', 'temporary', 'clothing', 'armor', 'armour']; // page AJAX categories (loan/retrieve only)
 
     // --- Utilities ---
     const mgr_getRfcvToken = () => {
@@ -1095,12 +1097,35 @@
         } catch { /* ignore */ }
     };
 
-    // --- Armory Cache ---
-    const mgr_fetchArmoryCategoryJSON = async (category) => {
+    // --- Armory Cache (reads via Torn API, actions via page AJAX) ---
+    const mgr_fetchAllArmoryItemsAPI = async () => {
+        const key = getApiKey();
+        if (!key || key === 'YOUR_API_KEY_HERE') throw new Error('API key required');
+        const selections = ARMORY_API_SELECTIONS.join(',');
+        const r = await gmRequest(`https://api.torn.com/v2/faction/?selections=${selections}&key=${encodeURIComponent(key)}`);
+        if (!r.ok) throw new Error('Failed to load armory data');
+        const data = r.data;
+        const allItems = [];
+        for (const sel of ARMORY_API_SELECTIONS) {
+            const items = Array.isArray(data?.[sel]) ? data[sel] : [];
+            const category = sel === 'weapons' ? 'weapons' : sel;
+            for (const item of items) {
+                if (item.ID && item.name) mgr_setItemName(item.ID, item.name);
+                allItems.push({
+                    itemID: Number(item.ID), name: item.name, type: item.type,
+                    quantity: item.quantity || 0, available: item.available ?? item.quantity ?? 0,
+                    loaned: item.loaned || 0, armoryCategory: category
+                });
+            }
+        }
+        return allItems;
+    };
+
+    // Page AJAX: fetch armoryIDs for a specific category (only used for loan/retrieve actions)
+    const mgr_fetchArmoryIDsForCategory = async (category) => {
         const rfcv = mgr_getRfcvToken();
         if (!rfcv) throw new Error('Missing RFCV token');
-        let allItems = [];
-        const seenArmoryIDs = new Set();
+        const ids = [];
         let start = 0;
         while (start < 1000) {
             const body = new URLSearchParams({ step: 'armouryTabContent', type: category, start: String(start), ajax: 'true' });
@@ -1115,45 +1140,35 @@
                 if (!data?.items) break;
                 const itemsArr = Array.isArray(data.items) ? data.items : Object.values(data.items);
                 if (itemsArr.length === 0) break;
-                let newItemsAdded = 0;
+                let added = 0;
                 for (const entry of itemsArr) {
-                    if (entry.itemID && entry.name) mgr_setItemName(entry.itemID, entry.name);
-                    if (entry.armoryID && !seenArmoryIDs.has(entry.armoryID)) {
-                        seenArmoryIDs.add(entry.armoryID);
-                        allItems.push({ ...entry, itemID: Number(entry.itemID), armoryCategory: category });
-                        newItemsAdded++;
+                    const isUnused = entry.user === false || entry.user === '' || entry.user === 0 || (entry.user && !entry.user.userID);
+                    if (isUnused && entry.armoryID) {
+                        ids.push({ armoryID: entry.armoryID, itemID: Number(entry.itemID) });
+                        added++;
                     }
                 }
-                if (newItemsAdded === 0) break;
+                if (added === 0 && itemsArr.length < 50) break;
                 if (itemsArr.length < 50) break;
                 start += 50;
-            } catch (e) { console.error('[OC Mgr] Armory fetch error for', category, e); break; }
+            } catch (e) { break; }
         }
-        return allItems;
-    };
-
-    const mgr_fetchAllArmoryItems = async () => {
-        const results = await Promise.all(ARMORY_CATEGORIES.map(cat => mgr_fetchArmoryCategoryJSON(cat)));
-        return results.flat();
+        return ids;
     };
 
     const mgr_refreshArmoryCache = async (force = false) => {
         const now = Date.now();
         if (!force && mgr_armoryCache.size > 0 && (now - mgr_lastRefreshTime < MGR_REFRESH_COOLDOWN_MS)) return;
         mgr_armoryCache.clear();
-        const items = await mgr_fetchAllArmoryItems();
+        const items = await mgr_fetchAllArmoryItemsAPI();
         for (const entry of items) {
-            const isUnused = entry.user === false || entry.user === '' || entry.user === 0 || (entry.user && !entry.user.userID);
-            if (isUnused) {
-                const qty = entry.qty !== undefined ? Number(entry.qty) : (entry.quantity !== undefined ? Number(entry.quantity) : 1);
-                if (qty > 0) {
-                    if (!mgr_armoryCache.has(entry.itemID)) {
-                        mgr_armoryCache.set(entry.itemID, { armoryIDs: [entry.armoryID], qty: qty, armoryCategory: entry.armoryCategory });
-                    } else {
-                        const cached = mgr_armoryCache.get(entry.itemID);
-                        cached.qty += qty;
-                        if (!cached.armoryIDs.includes(entry.armoryID)) cached.armoryIDs.push(entry.armoryID);
-                    }
+            const avail = entry.available || 0;
+            if (avail > 0) {
+                if (!mgr_armoryCache.has(entry.itemID)) {
+                    mgr_armoryCache.set(entry.itemID, { armoryIDs: [], qty: avail, armoryCategory: entry.armoryCategory });
+                } else {
+                    const cached = mgr_armoryCache.get(entry.itemID);
+                    cached.qty += avail;
                 }
             }
         }
@@ -1169,8 +1184,20 @@
         if (!mgr_armoryCache.has(itemID)) await mgr_refreshArmoryCache(true);
         else await mgr_refreshArmoryCache(false);
         const entry = mgr_armoryCache.get(itemID);
-        if (!entry || entry.qty <= 0 || !entry.armoryIDs || entry.armoryIDs.length === 0) return null;
-        mgr_preparedArmoryID = entry.armoryIDs[0];
+        if (!entry || entry.qty <= 0) return null;
+        // Fetch armoryID from page AJAX (user-initiated action)
+        const category = entry.armoryCategory || 'utilities';
+        // Try both singular and alternate names for the page AJAX category
+        const categoriesToTry = [category];
+        if (category === 'armor') categoriesToTry.push('armour');
+        let armoryID = null;
+        for (const cat of categoriesToTry) {
+            const ids = await mgr_fetchArmoryIDsForCategory(cat);
+            const match = ids.find(i => i.itemID === itemID);
+            if (match) { armoryID = match.armoryID; break; }
+        }
+        if (!armoryID) return null;
+        mgr_preparedArmoryID = armoryID;
         mgr_pendingArmoryItemID = itemID;
         return mgr_preparedArmoryID;
     };
