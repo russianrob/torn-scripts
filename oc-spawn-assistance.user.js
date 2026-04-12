@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.14
+// @version      2.1.15
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.1.15 — Revert same-range joining: back to exact level match only
 // v2.1.14 — Same scope range both directions (Lvl 5 can join Lvl 6 if that's what spawned)
 // v2.1.13 — Expiry fallback within same scope range only (Lvl 5↔Lvl 6, not Lvl 5→Lvl 4)
 // v2.1.12 — Recommend spawning 1 OC when members exist but zero OCs at that level
@@ -110,7 +111,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.14';
+    const SCRIPT_VERSION = '2.1.15';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2259,16 +2260,12 @@
         }
         const byPos    = m.byPosition || {};
         const memberCPR = m.cpr ?? 0;
-        // Allow OCs within same scope range — spawning is random within range
-        // (e.g. Lvl 5 member can join Lvl 6 if that's what spawned, both R3)
-        const memberRange = diffToScopeRange(m.joinable);
-        const openOCs  = normArr(availableCrimes).filter(c => {
-            const diff = c.difficulty || 0;
-            const crimeRange = diffToScopeRange(diff);
-            return c.status === 'Recruiting' &&
-                crimeRange.range === memberRange.range && // same scope range (either direction)
-                (c.slots || []).some(s => !s.user_id && !s.user?.id);
-        });
+        // Exact level match only
+        const openOCs  = normArr(availableCrimes).filter(c =>
+            c.status === 'Recruiting' &&
+            (c.difficulty || 0) === m.joinable &&
+            (c.slots || []).some(s => !s.user_id && !s.user?.id)
+        );
         // Sort by urgency first (expiring soonest), then highest weight
         openOCs.sort((a, b) => {
             const aExp = a.expired_at || Infinity;
