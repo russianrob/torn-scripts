@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.24
+// @version      2.1.25
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.1.25 — API key guidance (Limited Access required), subscription timer in header
 // v2.1.24 — Buttons render as action text if already on armoury tab at load time
 // v2.1.23 — All loan/retrieve buttons update to action text when navigating to armoury
 // v2.1.22 — Fix admin locked message to reference API access instead of role names
@@ -119,7 +120,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.24';
+    const SCRIPT_VERSION = '2.1.25';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1626,12 +1627,13 @@
             </span>
         </h2>
         <div id="oc-spawn-status">Click Refresh to load data.</div>
+        <div id="oc-sub-timer" style="display:none;color:#6b7280;font-size:10px;margin:-4px 0 8px;"></div>
 
         <div id="oc-settings-panel">
             <div class="oc-setting-row">
                 <div class="oc-setting-info">
                     <span class="oc-setting-label">API Key</span>
-                    <div class="oc-setting-desc">Your personal Torn API key. Must belong to a faction member.</div>
+                    <div class="oc-setting-desc">Your personal Torn API key (<b style="color:#e5b567;">Limited Access</b> or higher required for Admin/Manager/Metrics tabs).</div>
                     <div class="oc-setting-key-wrap">
                         <input id="oc-spawn-key-input" type="text" placeholder="Paste API key…" class="oc-setting-key-input"/>
                         <button id="oc-spawn-key-save" class="oc-setting-save-btn">Save</button>
@@ -1998,6 +2000,28 @@
     // ═══════════════════════════════════════════════════════════════════════
     const now = () => Math.floor(Date.now() / 1000);
     function setStatus(msg) { document.getElementById('oc-spawn-status').textContent = msg; }
+    function updateSubTimer(viewer) {
+        const el = document.getElementById('oc-sub-timer');
+        if (!el || !viewer) return;
+        const exp = viewer.subscriptionExpiresAt;
+        if (!exp) { el.style.display = 'none'; return; }
+        if (exp === 'permanent') {
+            el.innerHTML = '\u2705 Subscription: <b style="color:#4ade80;">Permanent</b>';
+            el.style.display = 'block'; return;
+        }
+        const expiresMs = new Date(exp).getTime();
+        const nowMs = Date.now();
+        const diffMs = expiresMs - nowMs;
+        if (diffMs <= 0) {
+            el.innerHTML = '\u26a0\ufe0f Subscription: <b style="color:#ef4444;">Expired</b>';
+            el.style.display = 'block'; return;
+        }
+        const days = Math.floor(diffMs / 86400000);
+        const hours = Math.floor((diffMs % 86400000) / 3600000);
+        const color = days < 3 ? '#ef4444' : days < 7 ? '#e5b567' : '#4ade80';
+        el.innerHTML = `\u23f3 Subscription: <b style="color:${color};">${days}d ${hours}h remaining</b>`;
+        el.style.display = 'block';
+    }
     function normArr(raw) { return Array.isArray(raw) ? raw : Object.values(raw || {}); }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2873,6 +2897,7 @@
             }
 
             setStatus(`Last updated: ${new Date().toLocaleTimeString()} · ${normArr(members).length} members`);
+            updateSubTimer(viewer);
 
         } catch (err) {
             const hint = /504|503|502|timeout/i.test(err.message)
