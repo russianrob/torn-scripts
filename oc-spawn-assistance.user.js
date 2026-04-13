@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.22
+// @version      2.1.23
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.1.23 — All loan/retrieve buttons update to action text when navigating to armoury
 // v2.1.22 — Fix admin locked message to reference API access instead of role names
 // v2.1.21 — Loan/Retrieve buttons start as "Go to Armoury", change to action after navigating
 // v2.1.20 — Version bump
@@ -117,7 +118,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.22';
+    const SCRIPT_VERSION = '2.1.23';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2570,7 +2571,7 @@
                     if (!onArmory) {
                         // Step 1: navigate to armory tab first
                         location.hash = '#/tab=armoury';
-                        btn.textContent = 'Loan Item';
+                        content.querySelectorAll('.mgr-loan-btn').forEach(b => { b.textContent = 'Loan Item'; });
                         return;
                     }
                     // Step 2: on armory tab, perform loan
@@ -2648,7 +2649,7 @@
                     if (!onArmory) {
                         // Step 1: navigate to armory tab first
                         location.hash = '#/tab=armoury';
-                        btn.textContent = 'Retrieve Item';
+                        content.querySelectorAll('.mgr-retrieve-btn').forEach(b => { b.textContent = 'Retrieve Item'; });
                         return;
                     }
                     // Step 2: on armory tab, perform retrieve
