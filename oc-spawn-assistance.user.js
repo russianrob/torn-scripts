@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.23
+// @version      2.1.24
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.1.24 — Buttons render as action text if already on armoury tab at load time
 // v2.1.23 — All loan/retrieve buttons update to action text when navigating to armoury
 // v2.1.22 — Fix admin locked message to reference API access instead of role names
 // v2.1.21 — Loan/Retrieve buttons start as "Go to Armoury", change to action after navigating
@@ -118,7 +119,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.23';
+    const SCRIPT_VERSION = '2.1.24';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2559,7 +2560,7 @@
                             <div class="mgr-item-row"><span class="mgr-label">Item</span><span class="mgr-value" style="font-weight:600;">${itemName}</span></div>
                             <div class="mgr-player-row"><span class="mgr-label">Player</span><a href="/profiles.php?XID=${m.userID}" class="mgr-player-link">${m.userName}</a></div>
                         </div>
-                        <button class="mgr-action-btn mgr-btn-loan mgr-loan-btn" data-itemid="${m.itemID}" data-userid="${m.userID}" data-username="${m.userName}">Go to Armoury</button>
+                        <button class="mgr-action-btn mgr-btn-loan mgr-loan-btn" data-itemid="${m.itemID}" data-userid="${m.userID}" data-username="${m.userName}">${(location.hash.includes('tab=armoury') || location.hash.includes('tab=armory')) ? 'Loan Item' : 'Go to Armoury'}</button>
                     </div>
                 `;
             }
@@ -2637,7 +2638,7 @@
                             <div class="mgr-item-row"><span class="mgr-label">Item</span><span class="mgr-value" style="font-weight:600;">${u.itemName}</span></div>
                             <div class="mgr-player-row"><span class="mgr-label">Player</span><a href="/profiles.php?XID=${u.userID}" class="mgr-player-link">${u.userName}</a></div>
                         </div>
-                        <button class="mgr-action-btn mgr-btn-retrieve mgr-retrieve-btn" data-itemid="${u.itemID}" data-userid="${u.userID}" data-username="${u.userName}" data-category="${u.armoryCategory}">Go to Armoury</button>
+                        <button class="mgr-action-btn mgr-btn-retrieve mgr-retrieve-btn" data-itemid="${u.itemID}" data-userid="${u.userID}" data-username="${u.userName}" data-category="${u.armoryCategory}">${(location.hash.includes('tab=armoury') || location.hash.includes('tab=armory')) ? 'Retrieve Item' : 'Go to Armoury'}</button>
                     </div>
                 `;
             }
