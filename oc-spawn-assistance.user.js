@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.21
+// @version      2.1.22
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.1.22 — Fix admin locked message to reference API access instead of role names
 // v2.1.21 — Loan/Retrieve buttons start as "Go to Armoury", change to action after navigating
 // v2.1.20 — Version bump
 // v2.1.19 — Switch armory reads to Torn API; page AJAX only for loan/retrieve actions
@@ -116,7 +117,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.21';
+    const SCRIPT_VERSION = '2.1.22';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2864,8 +2865,8 @@
             } else {
                 // Replace admin content with locked message
                 document.getElementById('oc-tab-admin').innerHTML =
-                    `<p class="oc-error" style="margin-top:8px;">🔒 Admin access requires Leader or Co-leader rank.</p>
-                     <p style="color:#6b7280;font-size:11px;">Rank: <b style="color:#9ca3af;">${viewer?.position || 'Unknown'}</b> &nbsp;·&nbsp; ID: <b style="color:#9ca3af;">${viewer?.playerId || '?'}</b></p>`;
+                    `<p class="oc-error" style="margin-top:8px;">🔒 Admin access requires faction API access.</p>
+                     <p style="color:#6b7280;font-size:11px;">Your API key does not have faction access. &nbsp;·&nbsp; ID: <b style="color:#9ca3af;">${viewer?.playerId || '?'}</b></p>`;
                 switchTab('profile');
             }
 
