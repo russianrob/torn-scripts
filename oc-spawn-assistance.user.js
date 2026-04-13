@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.25
+// @version      2.1.26
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.1.26 — Settings gear always visible so all members can change their API key
 // v2.1.25 — API key guidance (Limited Access required), subscription timer in header
 // v2.1.24 — Buttons render as action text if already on armoury tab at load time
 // v2.1.23 — All loan/retrieve buttons update to action text when navigating to armoury
@@ -120,7 +121,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.25';
+    const SCRIPT_VERSION = '2.1.26';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2882,7 +2883,7 @@
             // Lock admin tab content if viewer can't admin
             const settingsGear = document.getElementById('oc-spawn-settings');
             // Gear always visible to dev; visible to others only if they can view admin
-            if (settingsGear) settingsGear.style.display = (isDev(viewer) || canViewAdmin(viewer)) ? '' : 'none';
+            if (settingsGear) settingsGear.style.display = ''; // always show — API key field is accessible to everyone
             // Show config section only for admins (prevents non-admins from pushing default settings)
             const cfgSection = document.getElementById('oc-cfg-section');
             if (cfgSection) cfgSection.style.display = (isDev(viewer) || canViewAdmin(viewer)) ? '' : 'none';
