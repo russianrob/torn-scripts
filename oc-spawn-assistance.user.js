@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.26
+// @version      2.1.27
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.1.27 — Recommendations search downward through lower levels if none at joinable level
 // v2.1.26 — Settings gear always visible so all members can change their API key
 // v2.1.25 — API key guidance (Limited Access required), subscription timer in header
 // v2.1.24 — Buttons render as action text if already on armoury tab at load time
@@ -121,7 +122,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.26';
+    const SCRIPT_VERSION = '2.1.27';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2310,12 +2311,17 @@
         }
         const byPos    = m.byPosition || {};
         const memberCPR = m.cpr ?? 0;
-        // Exact level match only
-        const openOCs  = normArr(availableCrimes).filter(c =>
-            c.status === 'Recruiting' &&
-            (c.difficulty || 0) === m.joinable &&
-            (c.slots || []).some(s => !s.user_id && !s.user?.id)
-        );
+        // Try exact level first, then search downward if none available
+        let openOCs = [];
+        let matchedLevel = m.joinable;
+        for (let lvl = m.joinable; lvl >= 1; lvl--) {
+            openOCs = normArr(availableCrimes).filter(c =>
+                c.status === 'Recruiting' &&
+                (c.difficulty || 0) === lvl &&
+                (c.slots || []).some(s => !s.user_id && !s.user?.id)
+            );
+            if (openOCs.length) { matchedLevel = lvl; break; }
+        }
         // Sort by urgency first (expiring soonest), then highest weight
         openOCs.sort((a, b) => {
             const aExp = a.expired_at || Infinity;
@@ -2323,7 +2329,7 @@
             if (aExp !== bExp) return aExp - bExp; // soonest expiry first
             return (b.difficulty || 0) - (a.difficulty || 0);
         });
-        if (!openOCs.length) return { type: 'none', text: `No Lvl ${m.joinable} OCs open` };
+        if (!openOCs.length) return { type: 'none', text: `No OCs open (Lvl 1-${m.joinable})` };
 
         let bestCrime = null, bestPos = null, bestPosCPR = -1, bestWeight = -1;
 
@@ -2354,11 +2360,11 @@
             const openSlot = labeled.find(s => !s.user_id && !s.user?.id);
             const pd  = lookupPosCPR(byPos, c.name, openSlot?.position);
             return { type: 'rec', crime: c.name, position: openSlot?.label || openSlot?.position || null,
-                cpr: pd?.cpr || null, level: m.joinable, count: openOCs.length, lowCpr: true };
+                cpr: pd?.cpr || null, level: matchedLevel, count: openOCs.length, lowCpr: true };
         }
 
         return { type: 'rec', crime: bestCrime.name, position: bestPos,
-            cpr: bestPosCPR > 0 ? bestPosCPR : null, level: m.joinable, count: openOCs.length,
+            cpr: bestPosCPR > 0 ? bestPosCPR : null, level: matchedLevel, count: openOCs.length,
             weight: bestWeight };
     }
 
