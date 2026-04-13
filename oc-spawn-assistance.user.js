@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.20
+// @version      2.1.21
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.1.21 — Loan/Retrieve buttons start as "Go to Armoury", change to action after navigating
 // v2.1.20 — Version bump
 // v2.1.19 — Switch armory reads to Torn API; page AJAX only for loan/retrieve actions
 // v2.1.18 — Remove dead ADMIN_ROLES config; graceful fallback when no faction-access key cached
@@ -115,7 +116,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.20';
+    const SCRIPT_VERSION = '2.1.21';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2556,7 +2557,7 @@
                             <div class="mgr-item-row"><span class="mgr-label">Item</span><span class="mgr-value" style="font-weight:600;">${itemName}</span></div>
                             <div class="mgr-player-row"><span class="mgr-label">Player</span><a href="/profiles.php?XID=${m.userID}" class="mgr-player-link">${m.userName}</a></div>
                         </div>
-                        <button class="mgr-action-btn mgr-btn-loan mgr-loan-btn" data-itemid="${m.itemID}" data-userid="${m.userID}" data-username="${m.userName}">Loan Item</button>
+                        <button class="mgr-action-btn mgr-btn-loan mgr-loan-btn" data-itemid="${m.itemID}" data-userid="${m.userID}" data-username="${m.userName}">Go to Armoury</button>
                     </div>
                 `;
             }
@@ -2567,10 +2568,8 @@
                     const onArmory = location.hash.includes('tab=armoury') || location.hash.includes('tab=armory');
                     if (!onArmory) {
                         // Step 1: navigate to armory tab first
-                        btn.textContent = 'Go to Armory…';
                         location.hash = '#/tab=armoury';
-                        btn.dataset.ready = 'true';
-                        setTimeout(() => { btn.textContent = 'Loan Item'; btn.dataset.ready = 'false'; }, 5000);
+                        btn.textContent = 'Loan Item';
                         return;
                     }
                     // Step 2: on armory tab, perform loan
@@ -2582,7 +2581,7 @@
                         const armoryID = await mgr_prepareArmouryForItem(itemID);
                         if (!armoryID) {
                             btn.textContent = 'No stock'; btn.classList.add('mgr-btn-warning');
-                            setTimeout(() => { btn.dataset.loaning = 'false'; btn.disabled = false; btn.textContent = 'Loan Item'; btn.classList.remove('mgr-btn-warning'); }, 3000);
+                            setTimeout(() => { btn.dataset.loaning = 'false'; btn.disabled = false; btn.textContent = 'Go to Armoury'; btn.classList.remove('mgr-btn-warning'); }, 3000);
                             return;
                         }
                         btn.textContent = 'Loaning…'; await mgr_loanPreparedItem({ userID, userName });
@@ -2636,7 +2635,7 @@
                             <div class="mgr-item-row"><span class="mgr-label">Item</span><span class="mgr-value" style="font-weight:600;">${u.itemName}</span></div>
                             <div class="mgr-player-row"><span class="mgr-label">Player</span><a href="/profiles.php?XID=${u.userID}" class="mgr-player-link">${u.userName}</a></div>
                         </div>
-                        <button class="mgr-action-btn mgr-btn-retrieve mgr-retrieve-btn" data-itemid="${u.itemID}" data-userid="${u.userID}" data-username="${u.userName}" data-category="${u.armoryCategory}">Retrieve Item</button>
+                        <button class="mgr-action-btn mgr-btn-retrieve mgr-retrieve-btn" data-itemid="${u.itemID}" data-userid="${u.userID}" data-username="${u.userName}" data-category="${u.armoryCategory}">Go to Armoury</button>
                     </div>
                 `;
             }
@@ -2647,9 +2646,8 @@
                     const onArmory = location.hash.includes('tab=armoury') || location.hash.includes('tab=armory');
                     if (!onArmory) {
                         // Step 1: navigate to armory tab first
-                        btn.textContent = 'Go to Armory…';
                         location.hash = '#/tab=armoury';
-                        setTimeout(() => { btn.textContent = 'Retrieve Item'; }, 5000);
+                        btn.textContent = 'Retrieve Item';
                         return;
                     }
                     // Step 2: on armory tab, perform retrieve
