@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.3.9
+// @version      2.4.0
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.4.0 — Rate limiting: 15s cooldown per user, countdown on Refresh button, 429 handling
 // v2.3.9 — Member Reliability: predict scores for new members with no OC history
 // v2.3.8 — Traveling alert: only show members flying in OCs that are ready now
 // v2.3.7 — Traveling alert: include Recruiting OCs that are ready now
@@ -139,7 +140,7 @@
             ENGINE_ITEM_ROI:         GM_getValue('eng_item_roi', false),
             ENGINE_GAP_ANALYZER:     GM_getValue('eng_gap_analyzer', false),
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
-            VERSION:           '2.3.9',
+            VERSION:           '2.4.0',
         };
     }
     let CONFIG = loadConfig();
@@ -149,7 +150,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.3.9';
+    const SCRIPT_VERSION = '2.4.0';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1315,6 +1316,10 @@
             const err = new Error(r.data?.error || 'Access restricted to faction members only.');
             err.status = 403; throw err;
         }
+        if (r.status === 429) {
+            const err = new Error(r.data?.error || 'Too many requests — please wait a moment.');
+            err.status = 429; throw err;
+        }
         if (!r.ok) throw new Error(r.data?.error || `Server error (${r.status})`);
         return r.data;
     }
@@ -1793,9 +1798,28 @@
         handle: panel.querySelector('h2'),
     });
     let _lastRefresh = 0;
+    let _refreshTimer = null;
+    function startRefreshCooldown() {
+        const btn = document.getElementById('oc-spawn-refresh');
+        btn.disabled = true;
+        let remaining = 15;
+        btn.textContent = `\u21bb ${remaining}s`;
+        clearInterval(_refreshTimer);
+        _refreshTimer = setInterval(() => {
+            remaining--;
+            if (remaining <= 0) {
+                clearInterval(_refreshTimer);
+                btn.textContent = '\u21bb Refresh';
+                btn.disabled = false;
+            } else {
+                btn.textContent = `\u21bb ${remaining}s`;
+            }
+        }, 1000);
+    }
     document.getElementById('oc-spawn-refresh').addEventListener('click', () => {
-        if (Date.now() - _lastRefresh < 3000) return; // 3s cooldown between refreshes
+        if (Date.now() - _lastRefresh < 15000) return; // 15s cooldown between refreshes
         _lastRefresh = Date.now();
+        startRefreshCooldown();
         runAnalysis();
     });
     document.getElementById('oc-spawn-close').addEventListener('click', () => {
@@ -3411,7 +3435,7 @@
             setStatus(`Error: ${err.message}`);
             console.error('[OC Spawn]', err);
         } finally {
-            refreshBtn.disabled = false;
+            // Refresh button re-enables via cooldown timer (startRefreshCooldown)
         }
     }
 
@@ -3420,7 +3444,11 @@
 
     if (window.location.href.includes('tab=crimes') || window.location.hash.includes('crimes')) {
         panelVisible = true; panel.style.display = 'block';
-        if (getApiKey()) setTimeout(runAnalysis, 500);
+        if (getApiKey()) {
+            _lastRefresh = Date.now();
+            startRefreshCooldown();
+            setTimeout(runAnalysis, 500);
+        }
     }
 
     // Start DOM scope reader (runs whenever recruiting tab is visible)
