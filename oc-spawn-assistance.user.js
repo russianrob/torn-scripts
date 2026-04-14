@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.3.4
+// @version      2.3.5
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.3.5 — Traveling alert banner: warns when members in an OC are flying
 // v2.3.4 — Member Reliability engine: track success rates, consistency, activity, and reliability scores
 // v2.3.3 — Member Projector engine: estimate OC potential, readiness, and progression timeline
 // v2.3.2 — Slot Optimizer recommendation shown in My OC viewer card
@@ -134,7 +135,7 @@
             ENGINE_ITEM_ROI:         GM_getValue('eng_item_roi', false),
             ENGINE_GAP_ANALYZER:     GM_getValue('eng_gap_analyzer', false),
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
-            VERSION:           '2.3.4',
+            VERSION:           '2.3.5',
         };
     }
     let CONFIG = loadConfig();
@@ -2880,7 +2881,49 @@
         </div>`;
     }
 
-    function renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes, weights, engines) {
+    function buildTravelingAlert(availableCrimes, members) {
+        const memberArr = Array.isArray(members) ? members : Object.values(members || {});
+        const statusMap = {}; // uid -> { name, state }
+        for (const m of memberArr) {
+            const uid = String(m.id || m.playerId || m.uid);
+            const state = (m.status?.state || 'Okay').toLowerCase();
+            statusMap[uid] = { name: m.name || m.playerName || uid, state };
+        }
+
+        const alerts = []; // { memberName, crimeName, position, difficulty }
+        for (const crime of (availableCrimes || [])) {
+            if (crime.status !== 'Recruiting' && crime.status !== 'Planning') continue;
+            for (const slot of (crime.slots || [])) {
+                const uid = String(slot.user_id ?? slot.user?.id ?? '');
+                if (!uid) continue;
+                const info = statusMap[uid];
+                if (!info) continue;
+                if (info.state === 'traveling') {
+                    alerts.push({
+                        memberName: info.name,
+                        crimeName: crime.name || 'Unknown',
+                        position: slot.position || 'Unknown',
+                        difficulty: crime.difficulty || 0,
+                    });
+                }
+            }
+        }
+        if (alerts.length === 0) return '';
+
+        let html = `<div style="background:#7f1d1d;border:1px solid #ef4444;border-radius:6px;padding:8px 10px;margin-bottom:8px;">`;
+        html += `<div style="font-size:11px;font-weight:700;color:#fca5a5;margin-bottom:4px;">\u2708\ufe0f ${alerts.length} member${alerts.length > 1 ? 's' : ''} traveling while in an OC</div>`;
+        for (const a of alerts) {
+            html += `<div style="font-size:10px;color:#fecaca;padding:2px 0;">`;
+            html += `<b style="color:#f3f4f6;">${a.memberName}</b>`;
+            html += ` <span style="color:#ef4444;">\u2192</span> `;
+            html += `${a.crimeName} (${a.position}) <span style="color:#9ca3af;">Lvl ${a.difficulty}</span>`;
+            html += `</div>`;
+        }
+        html += `</div>`;
+        return html;
+    }
+
+    function renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes, weights, engines, members) {
         const total = eligible.length + skipped.length;
         const eli   = eligible.length;
         const free  = eligible.filter(m => !m.inOC).length;
@@ -2905,7 +2948,9 @@
             '<p style="color:#6b7280;font-size:11px;">No personal OC data yet — refresh to load.</p>';
 
         // Admin tab — everything else
+        const travelAlert = buildTravelingAlert(availableCrimes, members);
         document.getElementById('oc-tab-admin').innerHTML = `
+            ${travelAlert}
             <div class="oc-stats-strip">
                 <span class="oc-stat-chip"><b>${total}</b> members</span>
                 <span class="oc-stat-chip"><b>${eli}</b> eligible</span>
@@ -3289,7 +3334,7 @@
             lastScopeProjection         = scopeProjection; // cache for tooltip
             const recs                  = buildRecommendations(eligible, slotMap, scopeProjection);
 
-            renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes, weights, engines);
+            renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes, weights, engines, members);
 
             // Always show tab bar with both tabs
             const tabBar   = document.getElementById('oc-tab-bar');
