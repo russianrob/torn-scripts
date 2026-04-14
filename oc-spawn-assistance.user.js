@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.5.0
+// @version      2.5.1
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -141,7 +141,6 @@
             ENGINE_MEMBER_RELIABILITY: GM_getValue('eng_member_reliability', false),
             ENGINE_PAYOUT_OPTIMIZER: GM_getValue('eng_payout_optimizer', false),
             ENGINE_ITEM_ROI:         GM_getValue('eng_item_roi', false),
-            ENGINE_GAP_ANALYZER:     GM_getValue('eng_gap_analyzer', false),
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
             VERSION:           '2.4.3',
         };
@@ -1941,7 +1940,6 @@
         CONFIG.ENGINE_MEMBER_RELIABILITY = document.getElementById('eng-member-reliability').checked;
         CONFIG.ENGINE_PAYOUT_OPTIMIZER = document.getElementById('eng-payout-optimizer').checked;
         CONFIG.ENGINE_ITEM_ROI         = document.getElementById('eng-item-roi').checked;
-        CONFIG.ENGINE_GAP_ANALYZER     = document.getElementById('eng-gap-analyzer').checked;
         CONFIG.ENGINE_MEMBER_PROJECTOR = document.getElementById('eng-member-projector').checked;
 
         GM_setValue('eng_slot_optimizer',       CONFIG.ENGINE_SLOT_OPTIMIZER);
@@ -1950,7 +1948,6 @@
         GM_setValue('eng_member_reliability',   CONFIG.ENGINE_MEMBER_RELIABILITY);
         GM_setValue('eng_payout_optimizer',     CONFIG.ENGINE_PAYOUT_OPTIMIZER);
         GM_setValue('eng_item_roi',             CONFIG.ENGINE_ITEM_ROI);
-        GM_setValue('eng_gap_analyzer',         CONFIG.ENGINE_GAP_ANALYZER);
         GM_setValue('eng_member_projector',     CONFIG.ENGINE_MEMBER_PROJECTOR);
 
         const apiKey = getApiKey();
@@ -1964,7 +1961,6 @@
                 engine_member_reliability: CONFIG.ENGINE_MEMBER_RELIABILITY,
                 engine_payout_optimizer: CONFIG.ENGINE_PAYOUT_OPTIMIZER,
                 engine_item_roi:         CONFIG.ENGINE_ITEM_ROI,
-                engine_gap_analyzer:     CONFIG.ENGINE_GAP_ANALYZER,
                 engine_member_projector: CONFIG.ENGINE_MEMBER_PROJECTOR,
             });
             await gmRequest(`${SERVER}/api/oc/engines/update?${p}`);
@@ -2328,20 +2324,18 @@
         html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-item-roi" ${CONFIG.ENGINE_ITEM_ROI ? 'checked' : ''}/> <span>Item ROI</span><span class="oc-engine-desc">Track item costs vs OC payout returns</span></label>`;
 
         html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Recruitment</div>`;
-        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-gap-analyzer" ${CONFIG.ENGINE_GAP_ANALYZER ? 'checked' : ''}/> <span>Gap Analyzer</span><span class="oc-engine-desc">Identify which roles/levels your faction needs</span></label>`;
         html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-member-projector" ${CONFIG.ENGINE_MEMBER_PROJECTOR ? 'checked' : ''}/> <span>Member Projector</span><span class="oc-engine-desc">Estimate member OC potential and project readiness for higher levels</span></label>`;
 
         html += `<div style="text-align:right;margin-top:8px;"><button id="oc-engine-save" class="oc-setting-save-btn">Save Engines</button></div>`;
 
         // Engine results
-        if (engines.slotOptimizer || engines.failureRisk || engines.cprForecaster || engines.memberProjector || engines.memberReliability || engines.gapAnalyzer || engines.payoutTracker || engines.itemRoi) {
+        if (engines.slotOptimizer || engines.failureRisk || engines.cprForecaster || engines.memberProjector || engines.memberReliability || engines.payoutTracker || engines.itemRoi) {
             html += `<div style="margin-top:12px;border-top:1px solid #374151;padding-top:10px;">`;
             if (engines.slotOptimizer) html += renderSlotOptimizer(engines.slotOptimizer);
             if (engines.failureRisk) html += renderFailureRisk(engines.failureRisk);
             if (engines.cprForecaster) html += renderCprForecaster(engines.cprForecaster);
             if (engines.memberProjector) html += renderMemberProjector(engines.memberProjector);
             if (engines.memberReliability) html += renderMemberReliability(engines.memberReliability);
-            if (engines.gapAnalyzer) html += renderGapAnalyzer(engines.gapAnalyzer);
             if (engines.payoutTracker) html += renderPayoutTracker(engines.payoutTracker);
             if (engines.itemRoi) html += renderItemRoi(engines.itemRoi);
             html += `</div>`;
@@ -2638,77 +2632,6 @@
             html += `</div>`;
         }
         html += `</div></div>`;
-        return html;
-    }
-
-    function renderGapAnalyzer(engineData) {
-        if (!engineData || !engineData.gaps) return '';
-        const { gaps, levelCoverage, crossTraining, summary } = engineData;
-
-        let html = `<div style="margin:12px 0;border:1px solid #b45309;border-radius:8px;padding:10px;background:#1a0f00;">`;
-        html += `<div style="font-size:12px;font-weight:700;color:#f59e0b;margin-bottom:6px;">\u{1f50d} Gap Analyzer</div>`;
-
-        // Summary
-        html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:10px;color:#9ca3af;">`;
-        if (summary.criticalGaps > 0) html += `<span style="color:#ef4444;">\u{1f6a8} <b>${summary.criticalGaps}</b> critical</span>`;
-        if (summary.highGaps > 0) html += `<span style="color:#f97316;">\u26a0\ufe0f <b>${summary.highGaps}</b> high</span>`;
-        html += `<span><b style="color:#f3f4f6;">${summary.totalGaps}</b> total gaps</span>`;
-        html += `</div>`;
-
-        if (gaps.length === 0) {
-            html += `<div style="color:#4ade80;font-size:11px;">\u2705 All open positions have sufficient coverage.</div>`;
-        } else {
-            html += `<div style="display:flex;flex-direction:column;gap:3px;">`;
-            for (const g of gaps) {
-                const sevColor = g.severity === 'critical' ? '#ef4444' : g.severity === 'high' ? '#f97316' : g.severity === 'medium' ? '#e5b567' : '#6b7280';
-                html += `<div style="padding:5px 8px;background:#111;border-left:3px solid ${sevColor};border-radius:4px;">`;
-                html += `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:10px;">`;
-                html += `<span style="color:#f59e0b;font-weight:600;">${g.crimeName}</span>`;
-                html += `<span style="color:#9ca3af;">${g.position}</span>`;
-                html += `<span style="color:#6b7280;">Lvl ${g.difficulty}</span>`;
-                html += `<span style="color:${sevColor};font-weight:700;text-transform:uppercase;font-size:9px;">${g.severity}</span>`;
-                html += `<span style="color:#6b7280;">${g.openSlots} open / ${g.activeAvailable} available</span>`;
-                html += `</div>`;
-                if (g.candidates.length > 0) {
-                    html += `<div style="margin-top:2px;font-size:9px;color:#6b7280;">Candidates: `;
-                    html += g.candidates.map(c => `<span style="color:${c.hasExperience ? '#4ade80' : '#e5b567'};">${c.name}${c.hasExperience ? '' : ' \u{1f331}'}</span>`).join(', ');
-                    html += `</div>`;
-                }
-                html += `</div>`;
-            }
-            html += `</div>`;
-        }
-
-        // Cross-training suggestions
-        if (crossTraining && crossTraining.length > 0) {
-            html += `<div style="margin-top:8px;border-top:1px solid #374151;padding-top:6px;">`;
-            html += `<div style="font-size:10px;color:#f59e0b;font-weight:600;margin-bottom:4px;">Cross-Training Suggestions</div>`;
-            for (const ct of crossTraining.slice(0, 5)) {
-                html += `<div style="font-size:9px;color:#9ca3af;padding:2px 0;">`;
-                html += `<span style="color:#f3f4f6;">${ct.memberName}</span> \u2192 ${ct.targetCrime} ${ct.targetPosition}`;
-                html += ` <span style="color:#6b7280;">(exp: ${ct.relatedExperience.join(', ')})</span>`;
-                html += `</div>`;
-            }
-            html += `</div>`;
-        }
-
-        // Level coverage bar
-        if (levelCoverage && Object.keys(levelCoverage).length > 0) {
-            html += `<div style="margin-top:8px;border-top:1px solid #374151;padding-top:6px;">`;
-            html += `<div style="font-size:10px;color:#f59e0b;font-weight:600;margin-bottom:4px;">Level Coverage</div>`;
-            html += `<div style="display:flex;gap:4px;flex-wrap:wrap;">`;
-            for (const [lvl, lc] of Object.entries(levelCoverage).sort((a, b) => Number(b[0]) - Number(a[0]))) {
-                const pct = Math.min(100, Math.round(lc.active / Math.max(1, lc.total) * 100));
-                const color = pct >= 50 ? '#4ade80' : pct >= 25 ? '#e5b567' : '#ef4444';
-                html += `<div style="text-align:center;font-size:9px;">`;
-                html += `<div style="color:#9ca3af;">L${lvl}</div>`;
-                html += `<div style="color:${color};font-weight:600;">${lc.active}/${lc.total}</div>`;
-                html += `</div>`;
-            }
-            html += `</div></div>`;
-        }
-
-        html += `</div>`;
         return html;
     }
 
@@ -3467,7 +3390,6 @@
                 CONFIG.ENGINE_MEMBER_RELIABILITY = srvSettings.engine_member_reliability ?? CONFIG.ENGINE_MEMBER_RELIABILITY;
                 CONFIG.ENGINE_PAYOUT_OPTIMIZER = srvSettings.engine_payout_optimizer ?? CONFIG.ENGINE_PAYOUT_OPTIMIZER;
                 CONFIG.ENGINE_ITEM_ROI         = srvSettings.engine_item_roi         ?? CONFIG.ENGINE_ITEM_ROI;
-                CONFIG.ENGINE_GAP_ANALYZER     = srvSettings.engine_gap_analyzer     ?? CONFIG.ENGINE_GAP_ANALYZER;
                 CONFIG.ENGINE_MEMBER_PROJECTOR = srvSettings.engine_member_projector ?? CONFIG.ENGINE_MEMBER_PROJECTOR;
 
                 // Sync local storage with server values
@@ -3485,7 +3407,6 @@
                 GM_setValue('eng_member_reliability',   CONFIG.ENGINE_MEMBER_RELIABILITY);
                 GM_setValue('eng_payout_optimizer',     CONFIG.ENGINE_PAYOUT_OPTIMIZER);
                 GM_setValue('eng_item_roi',             CONFIG.ENGINE_ITEM_ROI);
-                GM_setValue('eng_gap_analyzer',         CONFIG.ENGINE_GAP_ANALYZER);
                 GM_setValue('eng_member_projector',     CONFIG.ENGINE_MEMBER_PROJECTOR);
 
                 populateSettings();
