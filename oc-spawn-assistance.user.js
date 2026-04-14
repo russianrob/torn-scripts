@@ -2351,7 +2351,6 @@
         } else {
             html += `<div style="display:flex;flex-direction:column;gap:4px;">`;
             for (const a of assignments) {
-                const urgency = a.hoursToExpiry < 6 ? '#ef4444' : a.hoursToExpiry < 12 ? '#e5b567' : '#4ade80';
                 const cprColor = (a.positionCpr || a.memberCpr) >= 80 ? '#4ade80' : (a.positionCpr || a.memberCpr) >= 60 ? '#e5b567' : '#ef4444';
                 html += `<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:#111b14;border-radius:4px;font-size:10px;flex-wrap:wrap;">`;
                 html += `<span style="color:#f3f4f6;font-weight:600;min-width:90px;">${a.memberName}</span>`;
@@ -2360,7 +2359,7 @@
                 html += `<span style="color:#9ca3af;">${a.position}</span>`;
                 html += `<span style="color:${cprColor};font-weight:600;">${a.positionCpr ? a.positionCpr.toFixed(0) + '%' : a.memberCpr.toFixed(0) + '%'}</span>`;
                 html += `<span style="color:#6b7280;">Lvl ${a.difficulty}</span>`;
-                if (a.hoursToExpiry < 999) html += `<span style="color:${urgency};font-size:9px;">${a.hoursToExpiry}h</span>`;
+
                 const cprVal = a.positionCpr || a.memberCpr;
                 const fitLabel = cprVal >= 80 ? 'Strong Fit' : cprVal >= 60 ? 'Good Fit' : 'Weak Fit';
                 const fitColor = cprVal >= 80 ? '#4ade80' : cprVal >= 60 ? '#e5b567' : '#ef4444';
