@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.3.6
+// @version      2.3.7
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.3.7 — Traveling alert: include Recruiting OCs that are ready now
 // v2.3.6 — Traveling alert: only flags members flying in OCs within 30 min of starting or in Planning
 // v2.3.5 — Traveling alert banner: warns when members in an OC are flying
 // v2.3.4 — Member Reliability engine: track success rates, consistency, activity, and reliability scores
@@ -136,7 +137,7 @@
             ENGINE_ITEM_ROI:         GM_getValue('eng_item_roi', false),
             ENGINE_GAP_ANALYZER:     GM_getValue('eng_gap_analyzer', false),
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
-            VERSION:           '2.3.6',
+            VERSION:           '2.3.7',
         };
     }
     let CONFIG = loadConfig();
@@ -146,7 +147,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.3.6';
+    const SCRIPT_VERSION = '2.3.7';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2911,8 +2912,10 @@
                     urgency = 'planning';
                 }
             } else {
-                // Recruiting: only flag if ready_at is within 30 min (nearly full, about to go)
-                if (readyAt > 0 && (readyAt - now) <= THIRTY_MIN) {
+                // Recruiting: flag if ready now or within 30 min
+                if (readyAt > 0 && readyAt <= now) {
+                    urgency = 'ready now';
+                } else if (readyAt > 0 && (readyAt - now) <= THIRTY_MIN) {
                     const minsLeft = Math.ceil((readyAt - now) / 60);
                     urgency = `${minsLeft}m to start`;
                 } else {
