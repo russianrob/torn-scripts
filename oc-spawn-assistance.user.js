@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.4.0
+// @version      2.4.1
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.4.1 — Member Projector: stricter readiness tiers (Building 60-69%, Developing 70-74%, Ready 75%+)
 // v2.4.0 — Rate limiting: 15s cooldown per user, countdown on Refresh button, 429 handling
 // v2.3.9 — Member Reliability: predict scores for new members with no OC history
 // v2.3.8 — Traveling alert: only show members flying in OCs that are ready now
@@ -140,7 +141,7 @@
             ENGINE_ITEM_ROI:         GM_getValue('eng_item_roi', false),
             ENGINE_GAP_ANALYZER:     GM_getValue('eng_gap_analyzer', false),
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
-            VERSION:           '2.4.0',
+            VERSION:           '2.4.1',
         };
     }
     let CONFIG = loadConfig();
@@ -150,7 +151,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.4.0';
+    const SCRIPT_VERSION = '2.4.1';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2480,12 +2481,14 @@
         // Summary stats
         const ready = members.filter(m => m.projection?.readiness === 'ready').length;
         const developing = members.filter(m => m.projection?.readiness === 'developing').length;
+        const building = members.filter(m => m.projection?.readiness === 'building').length;
         const notReady = members.filter(m => m.projection?.readiness === 'not_ready').length;
         const estimated = members.filter(m => m.isEstimated).length;
 
         html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;font-size:10px;color:#9ca3af;">`;
         html += `<span>\u{1f7e2} <b style="color:#4ade80;">${ready}</b> ready</span>`;
         html += `<span>\u{1f7e1} <b style="color:#e5b567;">${developing}</b> developing</span>`;
+        html += `<span>\u{1f7e0} <b style="color:#f97316;">${building}</b> building</span>`;
         html += `<span>\u{1f534} <b style="color:#ef4444;">${notReady}</b> not ready</span>`;
         if (estimated > 0) html += `<span>\u{1f535} <b style="color:#60a5fa;">${estimated}</b> estimated (no OC data)</span>`;
         html += `</div>`;
@@ -2513,6 +2516,7 @@
             let borderColor = '#374151'; // default grey
             if (proj?.readiness === 'ready') borderColor = '#2d6a4f';
             else if (proj?.readiness === 'developing') borderColor = '#92400e';
+            else if (proj?.readiness === 'building') borderColor = '#78350f';
             else if (proj?.readiness === 'not_ready') borderColor = '#7f1d1d';
 
             html += `<div style="padding:6px 8px;background:#111827;border-left:3px solid ${borderColor};border-radius:4px;">`;
@@ -2542,7 +2546,7 @@
 
             // Projection row
             if (proj) {
-                const readinessColor = proj.readiness === 'ready' ? '#4ade80' : proj.readiness === 'developing' ? '#e5b567' : '#ef4444';
+                const readinessColor = proj.readiness === 'ready' ? '#4ade80' : proj.readiness === 'developing' ? '#e5b567' : proj.readiness === 'building' ? '#f97316' : '#ef4444';
                 html += `<div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap;">`;
                 html += `<span style="color:${readinessColor};font-weight:600;font-size:10px;">${proj.readinessLabel}</span>`;
                 html += `<span style="color:#9ca3af;font-size:10px;">for Lvl ${proj.nextLevel}</span>`;
@@ -2555,7 +2559,7 @@
                 if (proj.estimatedDays !== null && proj.estimatedDays > 0) {
                     html += `<span style="color:#60a5fa;font-size:9px;">~${proj.estimatedDays}d</span>`;
                 }
-                if (proj.suggestedRoles.length > 0) {
+                if (proj.suggestedRoles.length > 0 && (proj.readiness === 'ready' || proj.readiness === 'developing')) {
                     html += `<span style="color:#4b5563;font-size:9px;">try: ${proj.suggestedRoles.join(', ')}</span>`;
                 }
                 html += `</div>`;
