@@ -116,7 +116,6 @@
             SCOPE:             GM_getValue('cfg_scope', null),  // null = not configured
             // Engine toggles
             ENGINE_SLOT_OPTIMIZER:   GM_getValue('eng_slot_optimizer', false),
-            ENGINE_SPAWN_PREDICTOR:  GM_getValue('eng_spawn_predictor', false),
             ENGINE_CPR_FORECASTER:   GM_getValue('eng_cpr_forecaster', false),
             ENGINE_FAILURE_RISK:     GM_getValue('eng_failure_risk', false),
             ENGINE_EXPIRY_RISK:      GM_getValue('eng_expiry_risk', false),
@@ -1300,7 +1299,6 @@
                 high_weight_mincpr:   cfg.HIGH_WEIGHT_MIN_CPR,
                 scope:                cfg.SCOPE !== null ? cfg.SCOPE : '',
                 engine_slot_optimizer:   cfg.ENGINE_SLOT_OPTIMIZER,
-                engine_spawn_predictor:  cfg.ENGINE_SPAWN_PREDICTOR,
                 engine_cpr_forecaster:   cfg.ENGINE_CPR_FORECASTER,
                 engine_failure_risk:     cfg.ENGINE_FAILURE_RISK,
                 engine_expiry_risk:      cfg.ENGINE_EXPIRY_RISK,
@@ -1739,7 +1737,6 @@
 
                 <div style="font-size:10px;color:#9ca3af;margin-bottom:6px;font-weight:600;">Optimization</div>
                 <label class="oc-engine-toggle"><input type="checkbox" id="eng-slot-optimizer"/> <span>Slot Optimizer</span><span class="oc-engine-desc">Auto-calculate best member-to-slot assignments</span></label>
-                <label class="oc-engine-toggle"><input type="checkbox" id="eng-spawn-predictor"/> <span>Spawn Predictor</span><span class="oc-engine-desc">Predict when next OCs will spawn based on history</span></label>
                 <label class="oc-engine-toggle"><input type="checkbox" id="eng-cpr-forecaster"/> <span>CPR Forecaster</span><span class="oc-engine-desc">Project member CPR trends over time</span></label>
 
                 <div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Risk</div>
@@ -1879,7 +1876,6 @@
         document.getElementById('cfg-high-weight-mincpr').value   = CONFIG.HIGH_WEIGHT_MIN_CPR;
         // Engine toggles
         document.getElementById('eng-slot-optimizer').checked       = CONFIG.ENGINE_SLOT_OPTIMIZER;
-        document.getElementById('eng-spawn-predictor').checked      = CONFIG.ENGINE_SPAWN_PREDICTOR;
         document.getElementById('eng-cpr-forecaster').checked       = CONFIG.ENGINE_CPR_FORECASTER;
         document.getElementById('eng-failure-risk').checked         = CONFIG.ENGINE_FAILURE_RISK;
         document.getElementById('eng-expiry-risk').checked          = CONFIG.ENGINE_EXPIRY_RISK;
@@ -1933,7 +1929,6 @@
         GM_setValue('cfg_high_weight_mincpr',  CONFIG.HIGH_WEIGHT_MIN_CPR);
         GM_setValue('cfg_scope',               CONFIG.SCOPE);
         GM_setValue('eng_slot_optimizer',       CONFIG.ENGINE_SLOT_OPTIMIZER);
-        GM_setValue('eng_spawn_predictor',      CONFIG.ENGINE_SPAWN_PREDICTOR);
         GM_setValue('eng_cpr_forecaster',       CONFIG.ENGINE_CPR_FORECASTER);
         GM_setValue('eng_failure_risk',         CONFIG.ENGINE_FAILURE_RISK);
         GM_setValue('eng_expiry_risk',          CONFIG.ENGINE_EXPIRY_RISK);
@@ -2910,7 +2905,6 @@
 
                 // Engine toggles
                 CONFIG.ENGINE_SLOT_OPTIMIZER   = srvSettings.engine_slot_optimizer   ?? CONFIG.ENGINE_SLOT_OPTIMIZER;
-                CONFIG.ENGINE_SPAWN_PREDICTOR  = srvSettings.engine_spawn_predictor  ?? CONFIG.ENGINE_SPAWN_PREDICTOR;
                 CONFIG.ENGINE_CPR_FORECASTER   = srvSettings.engine_cpr_forecaster   ?? CONFIG.ENGINE_CPR_FORECASTER;
                 CONFIG.ENGINE_FAILURE_RISK     = srvSettings.engine_failure_risk     ?? CONFIG.ENGINE_FAILURE_RISK;
                 CONFIG.ENGINE_EXPIRY_RISK      = srvSettings.engine_expiry_risk      ?? CONFIG.ENGINE_EXPIRY_RISK;
@@ -2931,8 +2925,7 @@
                 GM_setValue('cfg_high_weight_mincpr',  CONFIG.HIGH_WEIGHT_MIN_CPR);
                 GM_setValue('cfg_scope',               CONFIG.SCOPE);
                 GM_setValue('eng_slot_optimizer',       CONFIG.ENGINE_SLOT_OPTIMIZER);
-                GM_setValue('eng_spawn_predictor',      CONFIG.ENGINE_SPAWN_PREDICTOR);
-                GM_setValue('eng_cpr_forecaster',       CONFIG.ENGINE_CPR_FORECASTER);
+                        GM_setValue('eng_cpr_forecaster',       CONFIG.ENGINE_CPR_FORECASTER);
                 GM_setValue('eng_failure_risk',         CONFIG.ENGINE_FAILURE_RISK);
                 GM_setValue('eng_expiry_risk',          CONFIG.ENGINE_EXPIRY_RISK);
                 GM_setValue('eng_member_reliability',   CONFIG.ENGINE_MEMBER_RELIABILITY);
