@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.2.3
+// @version      2.2.4
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.2.4 — Failure Risk engine + Slot Optimizer fit labels (Strong/Good/Weak Fit)
 // v2.2.3 — Engines tab: greyed-out coming soon engines, removed Nerve Efficiency, renamed OC Payout Tracker
 // v2.2.2 — Dedicated Engines tab with separate save, removed scope auto-push
 // v2.2.1 — Slot Optimizer engine: auto-calculate best member-to-slot assignments
@@ -136,7 +137,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.2.3';
+    const SCRIPT_VERSION = '2.2.4';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2274,7 +2275,7 @@
         html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-cpr-forecaster" disabled/> <span>CPR Forecaster</span><span class="oc-engine-desc">Project member CPR trends over time</span></label>`;
 
         html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Risk</div>`;
-        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-failure-risk" disabled/> <span>Failure Risk</span><span class="oc-engine-desc">Score OC failure probability before launch</span></label>`;
+        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-failure-risk" ${CONFIG.ENGINE_FAILURE_RISK ? 'checked' : ''}/> <span>Failure Risk</span><span class="oc-engine-desc">Score OC failure probability before launch</span></label>`;
         html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-expiry-risk" disabled/> <span>Expiry Risk</span><span class="oc-engine-desc">Flag OCs at risk of expiring unfilled</span></label>`;
         html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-member-reliability" disabled/> <span>Member Reliability</span><span class="oc-engine-desc">Track member availability and completion rates</span></label>`;
 
@@ -2289,13 +2290,47 @@
         html += `<div style="text-align:right;margin-top:8px;"><button id="oc-engine-save" class="oc-setting-save-btn">Save Engines</button></div>`;
 
         // Engine results
-        if (engines.slotOptimizer) {
+        if (engines.slotOptimizer || engines.failureRisk) {
             html += `<div style="margin-top:12px;border-top:1px solid #374151;padding-top:10px;">`;
-            html += renderSlotOptimizer(engines.slotOptimizer);
+            if (engines.slotOptimizer) html += renderSlotOptimizer(engines.slotOptimizer);
+            if (engines.failureRisk) html += renderFailureRisk(engines.failureRisk);
             html += `</div>`;
         }
 
         html += `</div>`;
+        return html;
+    }
+
+    function renderFailureRisk(engineData) {
+        if (!engineData || !engineData.crimes) return '';
+        const { crimes } = engineData;
+        if (crimes.length === 0) return '<div style="color:#6b7280;font-size:11px;">No recruiting OCs to analyze.</div>';
+        let html = `<div style="margin:12px 0;border:1px solid #7f1d1d;border-radius:8px;padding:10px;background:#1a0a0a;">`;
+        html += `<div style="font-size:12px;font-weight:700;color:#ef4444;margin-bottom:8px;">\u26a0\ufe0f Failure Risk Analysis</div>`;
+        html += `<div style="display:flex;flex-direction:column;gap:6px;">`;
+        for (const c of crimes) {
+            const riskColor = c.failureRisk >= 60 ? '#ef4444' : c.failureRisk >= 30 ? '#e5b567' : '#4ade80';
+            const riskLabel = c.failureRisk >= 60 ? 'High Risk' : c.failureRisk >= 30 ? 'Moderate' : 'Low Risk';
+            html += `<div style="background:#111;border-radius:6px;padding:8px;border-left:3px solid ${riskColor};">`;
+            html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">`;
+            html += `<span style="color:#f3f4f6;font-weight:600;font-size:11px;">${c.crimeName} <span style="color:#6b7280;font-weight:400;">Lvl ${c.difficulty}</span></span>`;
+            html += `<span style="color:${riskColor};font-weight:700;font-size:11px;">${c.failureRisk}% ${riskLabel}</span>`;
+            html += `</div>`;
+            html += `<div style="font-size:10px;color:#9ca3af;margin-bottom:4px;">${c.filledSlots}/${c.totalSlots} slots filled${c.emptySlots > 0 ? ` \u2014 <span style="color:#e5b567;">${c.emptySlots} empty</span>` : ''}</div>`;
+            // Danger slots: high weight + low CPR
+            if (c.dangerSlots && c.dangerSlots.length > 0) {
+                for (const d of c.dangerSlots) {
+                    html += `<div style="font-size:10px;color:#ef4444;padding:2px 0;">\u{1f6a8} <b>${d.name}</b> — ${d.position} (${d.cpr.toFixed(0)}% CPR, ${d.weight.toFixed(0)}% weight)</div>`;
+                }
+            }
+            // Weakest link (if no danger slots, show weakest)
+            if ((!c.dangerSlots || c.dangerSlots.length === 0) && c.weakestLink) {
+                const w = c.weakestLink;
+                html += `<div style="font-size:10px;color:#e5b567;padding:2px 0;">Weakest: <b>${w.name}</b> — ${w.position} (${w.cpr.toFixed(0)}% CPR, ${w.weight.toFixed(0)}% weight)</div>`;
+            }
+            html += `</div>`;
+        }
+        html += `</div></div>`;
         return html;
     }
 
@@ -2325,8 +2360,10 @@
                 html += `<span style="color:#9ca3af;">${a.position}</span>`;
                 html += `<span style="color:${cprColor};font-weight:600;">${a.positionCpr ? a.positionCpr.toFixed(0) + '%' : a.memberCpr.toFixed(0) + '%'}</span>`;
                 html += `<span style="color:#6b7280;">Lvl ${a.difficulty}</span>`;
-                html += `<span style="color:${urgency};font-size:9px;">${a.hoursToExpiry < 999 ? a.hoursToExpiry + 'h' : ''}</span>`;
-                html += `<span style="color:#374151;font-size:9px;">score:${a.score}</span>`;
+                if (a.hoursToExpiry < 999) html += `<span style="color:${urgency};font-size:9px;">${a.hoursToExpiry}h</span>`;
+                const fitLabel = a.score >= 150 ? 'Strong Fit' : a.score >= 100 ? 'Good Fit' : 'Weak Fit';
+                const fitColor = a.score >= 150 ? '#4ade80' : a.score >= 100 ? '#e5b567' : '#ef4444';
+                html += `<span style="color:${fitColor};font-size:9px;font-weight:600;">${fitLabel}</span>`;
                 html += `</div>`;
             }
             html += `</div>`;
