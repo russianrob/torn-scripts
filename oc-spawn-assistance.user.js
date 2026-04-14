@@ -123,7 +123,6 @@
             ENGINE_MEMBER_RELIABILITY: GM_getValue('eng_member_reliability', false),
             ENGINE_PAYOUT_OPTIMIZER: GM_getValue('eng_payout_optimizer', false),
             ENGINE_ITEM_ROI:         GM_getValue('eng_item_roi', false),
-            ENGINE_NERVE_EFFICIENCY: GM_getValue('eng_nerve_efficiency', false),
             ENGINE_GAP_ANALYZER:     GM_getValue('eng_gap_analyzer', false),
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
             VERSION:           '1.5.4',
@@ -1895,7 +1894,6 @@
         CONFIG.ENGINE_MEMBER_RELIABILITY = document.getElementById('eng-member-reliability').checked;
         CONFIG.ENGINE_PAYOUT_OPTIMIZER = document.getElementById('eng-payout-optimizer').checked;
         CONFIG.ENGINE_ITEM_ROI         = document.getElementById('eng-item-roi').checked;
-        CONFIG.ENGINE_NERVE_EFFICIENCY = document.getElementById('eng-nerve-efficiency').checked;
         CONFIG.ENGINE_GAP_ANALYZER     = document.getElementById('eng-gap-analyzer').checked;
         CONFIG.ENGINE_MEMBER_PROJECTOR = document.getElementById('eng-member-projector').checked;
 
@@ -1906,7 +1904,6 @@
         GM_setValue('eng_member_reliability',   CONFIG.ENGINE_MEMBER_RELIABILITY);
         GM_setValue('eng_payout_optimizer',     CONFIG.ENGINE_PAYOUT_OPTIMIZER);
         GM_setValue('eng_item_roi',             CONFIG.ENGINE_ITEM_ROI);
-        GM_setValue('eng_nerve_efficiency',     CONFIG.ENGINE_NERVE_EFFICIENCY);
         GM_setValue('eng_gap_analyzer',         CONFIG.ENGINE_GAP_ANALYZER);
         GM_setValue('eng_member_projector',     CONFIG.ENGINE_MEMBER_PROJECTOR);
 
@@ -1921,7 +1918,6 @@
                 engine_member_reliability: CONFIG.ENGINE_MEMBER_RELIABILITY,
                 engine_payout_optimizer: CONFIG.ENGINE_PAYOUT_OPTIMIZER,
                 engine_item_roi:         CONFIG.ENGINE_ITEM_ROI,
-                engine_nerve_efficiency: CONFIG.ENGINE_NERVE_EFFICIENCY,
                 engine_gap_analyzer:     CONFIG.ENGINE_GAP_ANALYZER,
                 engine_member_projector: CONFIG.ENGINE_MEMBER_PROJECTOR,
             });
@@ -2282,9 +2278,8 @@
         html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-member-reliability" disabled/> <span>Member Reliability</span><span class="oc-engine-desc">Track member availability and completion rates</span></label>`;
 
         html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Economy</div>`;
-        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-payout-optimizer" disabled/> <span>Payout Optimizer</span><span class="oc-engine-desc">Identify highest-return crime types per nerve</span></label>`;
+        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-payout-optimizer" disabled/> <span>OC Payout Tracker</span><span class="oc-engine-desc">Track payout per hour across OC types</span></label>`;
         html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-item-roi" disabled/> <span>Item ROI</span><span class="oc-engine-desc">Track item costs vs OC payout returns</span></label>`;
-        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-nerve-efficiency" disabled/> <span>Nerve Efficiency</span><span class="oc-engine-desc">Calculate cash per nerve across crime types</span></label>`;
 
         html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Recruitment</div>`;
         html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-gap-analyzer" disabled/> <span>Gap Analyzer</span><span class="oc-engine-desc">Identify which roles/levels your faction needs</span></label>`;
@@ -2933,7 +2928,6 @@
                 CONFIG.ENGINE_MEMBER_RELIABILITY = srvSettings.engine_member_reliability ?? CONFIG.ENGINE_MEMBER_RELIABILITY;
                 CONFIG.ENGINE_PAYOUT_OPTIMIZER = srvSettings.engine_payout_optimizer ?? CONFIG.ENGINE_PAYOUT_OPTIMIZER;
                 CONFIG.ENGINE_ITEM_ROI         = srvSettings.engine_item_roi         ?? CONFIG.ENGINE_ITEM_ROI;
-                CONFIG.ENGINE_NERVE_EFFICIENCY = srvSettings.engine_nerve_efficiency ?? CONFIG.ENGINE_NERVE_EFFICIENCY;
                 CONFIG.ENGINE_GAP_ANALYZER     = srvSettings.engine_gap_analyzer     ?? CONFIG.ENGINE_GAP_ANALYZER;
                 CONFIG.ENGINE_MEMBER_PROJECTOR = srvSettings.engine_member_projector ?? CONFIG.ENGINE_MEMBER_PROJECTOR;
 
@@ -2953,7 +2947,6 @@
                 GM_setValue('eng_member_reliability',   CONFIG.ENGINE_MEMBER_RELIABILITY);
                 GM_setValue('eng_payout_optimizer',     CONFIG.ENGINE_PAYOUT_OPTIMIZER);
                 GM_setValue('eng_item_roi',             CONFIG.ENGINE_ITEM_ROI);
-                GM_setValue('eng_nerve_efficiency',     CONFIG.ENGINE_NERVE_EFFICIENCY);
                 GM_setValue('eng_gap_analyzer',         CONFIG.ENGINE_GAP_ANALYZER);
                 GM_setValue('eng_member_projector',     CONFIG.ENGINE_MEMBER_PROJECTOR);
 
