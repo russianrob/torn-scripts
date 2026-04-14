@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.2.2
+// @version      2.2.3
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.2.3 — Engines tab: greyed-out coming soon engines, removed Nerve Efficiency, renamed OC Payout Tracker
 // v2.2.2 — Dedicated Engines tab with separate save, removed scope auto-push
 // v2.2.1 — Slot Optimizer engine: auto-calculate best member-to-slot assignments
 // v2.2.0 — Engine toggle system: 11 engines across Optimization, Risk, Economy, Recruitment categories
@@ -135,7 +136,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.2.2';
+    const SCRIPT_VERSION = '2.2.3';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
