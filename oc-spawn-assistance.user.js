@@ -1351,6 +1351,8 @@
         .oc-engine-toggle input[type=checkbox] { accent-color:#2d6a4f; width:14px; height:14px; cursor:pointer; }
         .oc-engine-toggle span:first-of-type { font-weight:600; min-width:120px; }
         .oc-engine-desc { color:#6b7280; font-size:10px; font-weight:400; }
+        .oc-engine-toggle.oc-engine-disabled { opacity:0.4; pointer-events:none; cursor:default; }
+        .oc-engine-toggle.oc-engine-disabled span::after { content:' (Coming Soon)'; color:#6b7280; font-weight:400; font-size:9px; }
         /* Stats & banners */
         .oc-stats-strip { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
         .oc-stat-chip { background: #131f18; border: 1px solid #253525; border-radius: 20px; padding: 3px 10px; font-size: 11px; color: #9ca3af; }
@@ -2272,21 +2274,21 @@
 
         html += `<div style="font-size:10px;color:#9ca3af;margin-bottom:6px;font-weight:600;">Optimization</div>`;
         html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-slot-optimizer" ${CONFIG.ENGINE_SLOT_OPTIMIZER ? 'checked' : ''}/> <span>Slot Optimizer</span><span class="oc-engine-desc">Auto-calculate best member-to-slot assignments</span></label>`;
-        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-cpr-forecaster" ${CONFIG.ENGINE_CPR_FORECASTER ? 'checked' : ''}/> <span>CPR Forecaster</span><span class="oc-engine-desc">Project member CPR trends over time</span></label>`;
+        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-cpr-forecaster" disabled/> <span>CPR Forecaster</span><span class="oc-engine-desc">Project member CPR trends over time</span></label>`;
 
         html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Risk</div>`;
-        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-failure-risk" ${CONFIG.ENGINE_FAILURE_RISK ? 'checked' : ''}/> <span>Failure Risk</span><span class="oc-engine-desc">Score OC failure probability before launch</span></label>`;
-        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-expiry-risk" ${CONFIG.ENGINE_EXPIRY_RISK ? 'checked' : ''}/> <span>Expiry Risk</span><span class="oc-engine-desc">Flag OCs at risk of expiring unfilled</span></label>`;
-        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-member-reliability" ${CONFIG.ENGINE_MEMBER_RELIABILITY ? 'checked' : ''}/> <span>Member Reliability</span><span class="oc-engine-desc">Track member availability and completion rates</span></label>`;
+        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-failure-risk" disabled/> <span>Failure Risk</span><span class="oc-engine-desc">Score OC failure probability before launch</span></label>`;
+        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-expiry-risk" disabled/> <span>Expiry Risk</span><span class="oc-engine-desc">Flag OCs at risk of expiring unfilled</span></label>`;
+        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-member-reliability" disabled/> <span>Member Reliability</span><span class="oc-engine-desc">Track member availability and completion rates</span></label>`;
 
         html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Economy</div>`;
-        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-payout-optimizer" ${CONFIG.ENGINE_PAYOUT_OPTIMIZER ? 'checked' : ''}/> <span>Payout Optimizer</span><span class="oc-engine-desc">Identify highest-return crime types per nerve</span></label>`;
-        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-item-roi" ${CONFIG.ENGINE_ITEM_ROI ? 'checked' : ''}/> <span>Item ROI</span><span class="oc-engine-desc">Track item costs vs OC payout returns</span></label>`;
-        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-nerve-efficiency" ${CONFIG.ENGINE_NERVE_EFFICIENCY ? 'checked' : ''}/> <span>Nerve Efficiency</span><span class="oc-engine-desc">Calculate cash per nerve across crime types</span></label>`;
+        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-payout-optimizer" disabled/> <span>Payout Optimizer</span><span class="oc-engine-desc">Identify highest-return crime types per nerve</span></label>`;
+        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-item-roi" disabled/> <span>Item ROI</span><span class="oc-engine-desc">Track item costs vs OC payout returns</span></label>`;
+        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-nerve-efficiency" disabled/> <span>Nerve Efficiency</span><span class="oc-engine-desc">Calculate cash per nerve across crime types</span></label>`;
 
         html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Recruitment</div>`;
-        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-gap-analyzer" ${CONFIG.ENGINE_GAP_ANALYZER ? 'checked' : ''}/> <span>Gap Analyzer</span><span class="oc-engine-desc">Identify which roles/levels your faction needs</span></label>`;
-        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-member-projector" ${CONFIG.ENGINE_MEMBER_PROJECTOR ? 'checked' : ''}/> <span>Member Projector</span><span class="oc-engine-desc">Estimate new member OC potential</span></label>`;
+        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-gap-analyzer" disabled/> <span>Gap Analyzer</span><span class="oc-engine-desc">Identify which roles/levels your faction needs</span></label>`;
+        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-member-projector" disabled/> <span>Member Projector</span><span class="oc-engine-desc">Estimate new member OC potential</span></label>`;
 
         html += `<div style="text-align:right;margin-top:8px;"><button id="oc-engine-save" class="oc-setting-save-btn">Save Engines</button></div>`;
 
