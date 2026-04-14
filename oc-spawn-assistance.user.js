@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.5.1
+// @version      2.5.2
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -139,8 +139,7 @@
             ENGINE_FAILURE_RISK:     GM_getValue('eng_failure_risk', false),
 
             ENGINE_MEMBER_RELIABILITY: GM_getValue('eng_member_reliability', false),
-            ENGINE_PAYOUT_OPTIMIZER: GM_getValue('eng_payout_optimizer', false),
-            ENGINE_ITEM_ROI:         GM_getValue('eng_item_roi', false),
+
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
             VERSION:           '2.4.3',
         };
@@ -1938,16 +1937,14 @@
         CONFIG.ENGINE_FAILURE_RISK     = document.getElementById('eng-failure-risk').checked;
 
         CONFIG.ENGINE_MEMBER_RELIABILITY = document.getElementById('eng-member-reliability').checked;
-        CONFIG.ENGINE_PAYOUT_OPTIMIZER = document.getElementById('eng-payout-optimizer').checked;
-        CONFIG.ENGINE_ITEM_ROI         = document.getElementById('eng-item-roi').checked;
+
         CONFIG.ENGINE_MEMBER_PROJECTOR = document.getElementById('eng-member-projector').checked;
 
         GM_setValue('eng_slot_optimizer',       CONFIG.ENGINE_SLOT_OPTIMIZER);
         GM_setValue('eng_cpr_forecaster',       CONFIG.ENGINE_CPR_FORECASTER);
         GM_setValue('eng_failure_risk',         CONFIG.ENGINE_FAILURE_RISK);
         GM_setValue('eng_member_reliability',   CONFIG.ENGINE_MEMBER_RELIABILITY);
-        GM_setValue('eng_payout_optimizer',     CONFIG.ENGINE_PAYOUT_OPTIMIZER);
-        GM_setValue('eng_item_roi',             CONFIG.ENGINE_ITEM_ROI);
+
         GM_setValue('eng_member_projector',     CONFIG.ENGINE_MEMBER_PROJECTOR);
 
         const apiKey = getApiKey();
@@ -1959,8 +1956,7 @@
                 engine_failure_risk:     CONFIG.ENGINE_FAILURE_RISK,
 
                 engine_member_reliability: CONFIG.ENGINE_MEMBER_RELIABILITY,
-                engine_payout_optimizer: CONFIG.ENGINE_PAYOUT_OPTIMIZER,
-                engine_item_roi:         CONFIG.ENGINE_ITEM_ROI,
+
                 engine_member_projector: CONFIG.ENGINE_MEMBER_PROJECTOR,
             });
             await gmRequest(`${SERVER}/api/oc/engines/update?${p}`);
@@ -2319,25 +2315,20 @@
 
         html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-member-reliability" ${CONFIG.ENGINE_MEMBER_RELIABILITY ? 'checked' : ''}/> <span>Member Reliability</span><span class="oc-engine-desc">Track member availability, completion rates, and consistency</span></label>`;
 
-        html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Economy</div>`;
-        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-payout-optimizer" ${CONFIG.ENGINE_PAYOUT_OPTIMIZER ? 'checked' : ''}/> <span>OC Payout Tracker</span><span class="oc-engine-desc">Track payout per hour across OC types</span></label>`;
-        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-item-roi" ${CONFIG.ENGINE_ITEM_ROI ? 'checked' : ''}/> <span>Item ROI</span><span class="oc-engine-desc">Track item costs vs OC payout returns</span></label>`;
-
         html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Recruitment</div>`;
         html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-member-projector" ${CONFIG.ENGINE_MEMBER_PROJECTOR ? 'checked' : ''}/> <span>Member Projector</span><span class="oc-engine-desc">Estimate member OC potential and project readiness for higher levels</span></label>`;
 
         html += `<div style="text-align:right;margin-top:8px;"><button id="oc-engine-save" class="oc-setting-save-btn">Save Engines</button></div>`;
 
         // Engine results
-        if (engines.slotOptimizer || engines.failureRisk || engines.cprForecaster || engines.memberProjector || engines.memberReliability || engines.payoutTracker || engines.itemRoi) {
+        if (engines.slotOptimizer || engines.failureRisk || engines.cprForecaster || engines.memberProjector || engines.memberReliability) {
             html += `<div style="margin-top:12px;border-top:1px solid #374151;padding-top:10px;">`;
             if (engines.slotOptimizer) html += renderSlotOptimizer(engines.slotOptimizer);
             if (engines.failureRisk) html += renderFailureRisk(engines.failureRisk);
             if (engines.cprForecaster) html += renderCprForecaster(engines.cprForecaster);
             if (engines.memberProjector) html += renderMemberProjector(engines.memberProjector);
             if (engines.memberReliability) html += renderMemberReliability(engines.memberReliability);
-            if (engines.payoutTracker) html += renderPayoutTracker(engines.payoutTracker);
-            if (engines.itemRoi) html += renderItemRoi(engines.itemRoi);
+
             html += `</div>`;
         }
 
@@ -2632,101 +2623,6 @@
             html += `</div>`;
         }
         html += `</div></div>`;
-        return html;
-    }
-
-    function renderPayoutTracker(engineData) {
-        if (!engineData || !engineData.crimeTypes || engineData.crimeTypes.length === 0)
-            return '<div style="color:#6b7280;font-size:11px;padding:8px;">No payout data available. Needs completed OCs with payout data.</div>';
-        const { crimeTypes, leaderboard, summary } = engineData;
-
-        let html = `<div style="margin:12px 0;border:1px solid #047857;border-radius:8px;padding:10px;background:#001a0f;">`;
-        html += `<div style="font-size:12px;font-weight:700;color:#10b981;margin-bottom:6px;">\u{1f4b0} OC Payout Tracker</div>`;
-
-        // Summary
-        html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:10px;color:#9ca3af;">`;
-        html += `<span>Total earned: <b style="color:#10b981;">$${(summary.totalMoney || 0).toLocaleString()}</b></span>`;
-        html += `<span>Respect: <b style="color:#60a5fa;">${(summary.totalRespect || 0).toLocaleString()}</b></span>`;
-        html += `<span>OCs: <b style="color:#f3f4f6;">${summary.totalCompleted || 0}</b></span>`;
-        if (summary.bestMoneyPerHour) html += `<span>Best: <b style="color:#10b981;">$${summary.bestMoneyPerHour.moneyPerHour?.toLocaleString()}/hr</b> (${summary.bestMoneyPerHour.crimeName})</span>`;
-        html += `</div>`;
-
-        // Crime type table
-        html += `<div style="display:flex;flex-direction:column;gap:3px;">`;
-        for (const c of crimeTypes) {
-            html += `<div style="padding:5px 8px;background:#0a1f14;border-radius:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:10px;">`;
-            html += `<span style="color:#10b981;font-weight:600;min-width:120px;">${c.crimeName}</span>`;
-            html += `<span style="color:#6b7280;">Lvl ${c.difficulty}</span>`;
-            html += `<span style="color:#f3f4f6;">$${c.avgMoney.toLocaleString()}</span>`;
-            if (c.moneyPerHour !== null) html += `<span style="color:#10b981;font-weight:600;">$${c.moneyPerHour.toLocaleString()}/hr</span>`;
-            html += `<span style="color:#6b7280;">${c.succeeded}/${c.completed} (${c.successRate}%)</span>`;
-            if (c.avgDurationHrs) html += `<span style="color:#6b7280;">${c.avgDurationHrs}h avg</span>`;
-            html += `</div>`;
-        }
-        html += `</div>`;
-
-        // Leaderboard
-        if (leaderboard && leaderboard.length > 0) {
-            html += `<div style="margin-top:8px;border-top:1px solid #374151;padding-top:6px;">`;
-            html += `<div style="font-size:10px;color:#10b981;font-weight:600;margin-bottom:4px;">Top Earners</div>`;
-            for (const m of leaderboard.slice(0, 5)) {
-                html += `<div style="font-size:9px;color:#9ca3af;padding:1px 0;display:flex;gap:6px;">`;
-                html += `<span style="color:#f3f4f6;min-width:80px;">${m.name}</span>`;
-                html += `<span style="color:#10b981;">$${m.totalMoney.toLocaleString()}</span>`;
-                html += `<span>${m.ocCount} OCs</span>`;
-                html += `</div>`;
-            }
-            html += `</div>`;
-        }
-
-        html += `</div>`;
-        return html;
-    }
-
-    function renderItemRoi(engineData) {
-        if (!engineData || !engineData.crimes || engineData.crimes.length === 0)
-            return '<div style="color:#6b7280;font-size:11px;padding:8px;">No item ROI data available. Needs completed OCs to analyze.</div>';
-        const { crimes, topItems, summary } = engineData;
-
-        let html = `<div style="margin:12px 0;border:1px solid #7c3aed;border-radius:8px;padding:10px;background:#0f0520;">`;
-        html += `<div style="font-size:12px;font-weight:700;color:#c084fc;margin-bottom:6px;">\u{1f4e6} Item ROI</div>`;
-
-        // Summary
-        html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:10px;color:#9ca3af;">`;
-        html += `<span><b style="color:#f3f4f6;">${summary.totalCrimeTypes}</b> crime types</span>`;
-        if (summary.bestRoi) html += `<span>Best ROI: <b style="color:#c084fc;">${summary.bestRoi.crimeName}</b> (score ${summary.bestRoi.roiScore.toLocaleString()})</span>`;
-        html += `</div>`;
-
-        // Crime ROI table
-        html += `<div style="display:flex;flex-direction:column;gap:3px;">`;
-        for (const c of crimes) {
-            const roiColor = c.roiScore > 50000 ? '#4ade80' : c.roiScore > 10000 ? '#e5b567' : '#ef4444';
-            html += `<div style="padding:5px 8px;background:#111;border-radius:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:10px;">`;
-            html += `<span style="color:#c084fc;font-weight:600;min-width:120px;">${c.crimeName}</span>`;
-            html += `<span style="color:#6b7280;">Lvl ${c.difficulty}</span>`;
-            html += `<span style="color:#f3f4f6;">$${c.expectedPayout.toLocaleString()} expected</span>`;
-            html += `<span style="color:${roiColor};font-weight:600;">ROI: ${c.roiScore.toLocaleString()}</span>`;
-            html += `<span style="color:#6b7280;">${c.successRate}% success</span>`;
-            if (c.itemsPerRun > 0) html += `<span style="color:#e5b567;">${c.itemsPerRun} item${c.itemsPerRun > 1 ? 's' : ''} consumed</span>`;
-            else html += `<span style="color:#4ade80;">No items</span>`;
-            html += `</div>`;
-        }
-        html += `</div>`;
-
-        // Top consumed items
-        if (topItems && topItems.length > 0) {
-            html += `<div style="margin-top:8px;border-top:1px solid #374151;padding-top:6px;">`;
-            html += `<div style="font-size:10px;color:#c084fc;font-weight:600;margin-bottom:4px;">Most Used Items</div>`;
-            for (const i of topItems.slice(0, 5)) {
-                html += `<div style="font-size:9px;color:#9ca3af;padding:1px 0;">`;
-                html += `<span style="color:#f3f4f6;">${i.itemName}</span>`;
-                html += ` \u2014 needed ${i.totalNeeded}x across ${i.usedIn.length} crime${i.usedIn.length > 1 ? 's' : ''}`;
-                html += `</div>`;
-            }
-            html += `</div>`;
-        }
-
-        html += `</div>`;
         return html;
     }
 
@@ -3388,8 +3284,7 @@
                 CONFIG.ENGINE_FAILURE_RISK     = srvSettings.engine_failure_risk     ?? CONFIG.ENGINE_FAILURE_RISK;
 
                 CONFIG.ENGINE_MEMBER_RELIABILITY = srvSettings.engine_member_reliability ?? CONFIG.ENGINE_MEMBER_RELIABILITY;
-                CONFIG.ENGINE_PAYOUT_OPTIMIZER = srvSettings.engine_payout_optimizer ?? CONFIG.ENGINE_PAYOUT_OPTIMIZER;
-                CONFIG.ENGINE_ITEM_ROI         = srvSettings.engine_item_roi         ?? CONFIG.ENGINE_ITEM_ROI;
+
                 CONFIG.ENGINE_MEMBER_PROJECTOR = srvSettings.engine_member_projector ?? CONFIG.ENGINE_MEMBER_PROJECTOR;
 
                 // Sync local storage with server values
@@ -3405,8 +3300,7 @@
                         GM_setValue('eng_cpr_forecaster',       CONFIG.ENGINE_CPR_FORECASTER);
                 GM_setValue('eng_failure_risk',         CONFIG.ENGINE_FAILURE_RISK);
                 GM_setValue('eng_member_reliability',   CONFIG.ENGINE_MEMBER_RELIABILITY);
-                GM_setValue('eng_payout_optimizer',     CONFIG.ENGINE_PAYOUT_OPTIMIZER);
-                GM_setValue('eng_item_roi',             CONFIG.ENGINE_ITEM_ROI);
+
                 GM_setValue('eng_member_projector',     CONFIG.ENGINE_MEMBER_PROJECTOR);
 
                 populateSettings();
