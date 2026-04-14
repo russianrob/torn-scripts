@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.3.1
+// @version      2.3.2
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.3.2 — Slot Optimizer recommendation shown in My OC viewer card
 // v2.3.1 — CPR Forecaster: per-level, per-role breakdown
 // v2.3.0 — Remember active tab across refreshes
 // v2.2.9 — CPR Forecaster: per-level trends instead of flat average
@@ -141,7 +142,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.3.1';
+    const SCRIPT_VERSION = '2.3.2';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2641,7 +2642,7 @@
         </table>`;
     }
 
-    function renderViewerCard(viewer, eligible, skipped, availableCrimes, weights) {
+    function renderViewerCard(viewer, eligible, skipped, availableCrimes, weights, engines) {
         // Always show card if we have at least a name
         if (!viewer || (!viewer.playerId && !viewer.playerName)) return '';
         const vid   = viewer.playerId ? String(viewer.playerId) : null;
@@ -2680,9 +2681,22 @@
             return (c.slots || []).some(s => !s.user_id && !s.user?.id);
         });
 
+        // Check Slot Optimizer assignment for this member
+        const optAssignment = engines?.slotOptimizer?.assignments?.find(a => String(a.memberId) === vid);
+
         let recsHtml;
         if (me?.inOC) {
             recsHtml = `<div class="oc-viewer-none">You\'re already in an OC.</div>`;
+        } else if (optAssignment) {
+            const cprVal = optAssignment.positionCpr || optAssignment.memberCpr;
+            const fitLabel = cprVal >= 80 ? 'Strong Fit' : cprVal >= 60 ? 'Good Fit' : 'Weak Fit';
+            const fitColor = cprVal >= 80 ? '#4ade80' : cprVal >= 60 ? '#e5b567' : '#ef4444';
+            recsHtml = `<div style="background:#0a1f14;border:1px solid #2d6a4f;border-radius:6px;padding:8px;margin-top:4px;">`
+                + `<div style="font-size:10px;color:#4ade80;font-weight:600;margin-bottom:4px;">\u2699\ufe0f Slot Optimizer Recommendation</div>`
+                + `<div style="font-size:12px;color:#f3f4f6;font-weight:700;">${optAssignment.crimeName}</div>`
+                + `<div style="font-size:11px;color:#9ca3af;margin-top:2px;">Join as <b style="color:#74c69d;">${optAssignment.position}</b> (Lvl ${optAssignment.difficulty})</div>`
+                + `<div style="font-size:10px;margin-top:3px;"><span style="color:${fitColor};font-weight:600;">${cprVal.toFixed(0)}% CPR — ${fitLabel}</span></div>`
+                + `</div>`;
         } else if (myOcs.length === 0) {
             recsHtml = `<div class="oc-viewer-none">No open Lvl ${joinable} OCs recruiting right now.</div>`;
         } else {
@@ -2732,7 +2746,7 @@
 
         // Profile tab — viewer card only
         document.getElementById('oc-tab-profile').innerHTML =
-            renderViewerCard(viewer, eligible, skipped, availableCrimes, weights) ||
+            renderViewerCard(viewer, eligible, skipped, availableCrimes, weights, engines) ||
             '<p style="color:#6b7280;font-size:11px;">No personal OC data yet — refresh to load.</p>';
 
         // Admin tab — everything else
