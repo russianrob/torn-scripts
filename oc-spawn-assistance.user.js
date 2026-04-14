@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.3.5
+// @version      2.3.6
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.3.6 — Traveling alert: only flags members flying in OCs within 30 min of starting or in Planning
 // v2.3.5 — Traveling alert banner: warns when members in an OC are flying
 // v2.3.4 — Member Reliability engine: track success rates, consistency, activity, and reliability scores
 // v2.3.3 — Member Projector engine: estimate OC potential, readiness, and progression timeline
@@ -135,7 +136,7 @@
             ENGINE_ITEM_ROI:         GM_getValue('eng_item_roi', false),
             ENGINE_GAP_ANALYZER:     GM_getValue('eng_gap_analyzer', false),
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
-            VERSION:           '2.3.5',
+            VERSION:           '2.3.6',
         };
     }
     let CONFIG = loadConfig();
@@ -145,7 +146,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.3.2';
+    const SCRIPT_VERSION = '2.3.6';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2890,9 +2891,35 @@
             statusMap[uid] = { name: m.name || m.playerName || uid, state };
         }
 
-        const alerts = []; // { memberName, crimeName, position, difficulty }
+        const now = Math.floor(Date.now() / 1000);
+        const THIRTY_MIN = 30 * 60;
+
+        const alerts = []; // { memberName, crimeName, position, difficulty, urgency }
         for (const crime of (availableCrimes || [])) {
             if (crime.status !== 'Recruiting' && crime.status !== 'Planning') continue;
+            const readyAt = crime.ready_at || 0;
+
+            // Only alert if OC is Planning (about to start) or ready within 30 min
+            let urgency = '';
+            if (crime.status === 'Planning') {
+                if (readyAt > 0 && readyAt <= now) {
+                    urgency = 'ready now';
+                } else if (readyAt > 0 && (readyAt - now) <= THIRTY_MIN) {
+                    const minsLeft = Math.ceil((readyAt - now) / 60);
+                    urgency = `${minsLeft}m to start`;
+                } else {
+                    urgency = 'planning';
+                }
+            } else {
+                // Recruiting: only flag if ready_at is within 30 min (nearly full, about to go)
+                if (readyAt > 0 && (readyAt - now) <= THIRTY_MIN) {
+                    const minsLeft = Math.ceil((readyAt - now) / 60);
+                    urgency = `${minsLeft}m to start`;
+                } else {
+                    continue; // skip recruiting OCs not close to starting
+                }
+            }
+
             for (const slot of (crime.slots || [])) {
                 const uid = String(slot.user_id ?? slot.user?.id ?? '');
                 if (!uid) continue;
@@ -2904,6 +2931,7 @@
                         crimeName: crime.name || 'Unknown',
                         position: slot.position || 'Unknown',
                         difficulty: crime.difficulty || 0,
+                        urgency,
                     });
                 }
             }
@@ -2911,12 +2939,13 @@
         if (alerts.length === 0) return '';
 
         let html = `<div style="background:#7f1d1d;border:1px solid #ef4444;border-radius:6px;padding:8px 10px;margin-bottom:8px;">`;
-        html += `<div style="font-size:11px;font-weight:700;color:#fca5a5;margin-bottom:4px;">\u2708\ufe0f ${alerts.length} member${alerts.length > 1 ? 's' : ''} traveling while in an OC</div>`;
+        html += `<div style="font-size:11px;font-weight:700;color:#fca5a5;margin-bottom:4px;">\u2708\ufe0f ${alerts.length} member${alerts.length > 1 ? 's' : ''} traveling in an OC about to start</div>`;
         for (const a of alerts) {
             html += `<div style="font-size:10px;color:#fecaca;padding:2px 0;">`;
             html += `<b style="color:#f3f4f6;">${a.memberName}</b>`;
             html += ` <span style="color:#ef4444;">\u2192</span> `;
             html += `${a.crimeName} (${a.position}) <span style="color:#9ca3af;">Lvl ${a.difficulty}</span>`;
+            html += ` <span style="color:#fbbf24;font-weight:600;">${a.urgency}</span>`;
             html += `</div>`;
         }
         html += `</div>`;
