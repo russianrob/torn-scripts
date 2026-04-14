@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.3.8
+// @version      2.3.9
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.3.9 — Member Reliability: predict scores for new members with no OC history
 // v2.3.8 — Traveling alert: only show members flying in OCs that are ready now
 // v2.3.7 — Traveling alert: include Recruiting OCs that are ready now
 // v2.3.6 — Traveling alert: only flags members flying in OCs within 30 min of starting or in Planning
@@ -138,7 +139,7 @@
             ENGINE_ITEM_ROI:         GM_getValue('eng_item_roi', false),
             ENGINE_GAP_ANALYZER:     GM_getValue('eng_gap_analyzer', false),
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
-            VERSION:           '2.3.8',
+            VERSION:           '2.3.9',
         };
     }
     let CONFIG = loadConfig();
@@ -148,7 +149,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.3.8';
+    const SCRIPT_VERSION = '2.3.9';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2558,6 +2559,7 @@
         html += `<span style="color:#e5b567;">\u{1f7e1} ${summary.tierCounts.Inconsistent || 0} Inconsistent</span>`;
         html += `<span style="color:#f97316;">\u{1f7e0} ${summary.tierCounts.Unreliable || 0} Unreliable</span>`;
         html += `<span style="color:#ef4444;">\u{1f534} ${summary.tierCounts.Inactive || 0} Inactive</span>`;
+        if (summary.tierCounts.New) html += `<span style="color:#a78bfa;">\u{1f7e3} ${summary.tierCounts.New} New</span>`;
         html += `</div>`;
 
         // Member cards
@@ -2582,6 +2584,9 @@
             if (m.successRate !== null) {
                 const srColor = m.successRate >= 90 ? '#4ade80' : m.successRate >= 70 ? '#e5b567' : '#ef4444';
                 html += `<span>Win: <b style="color:${srColor};">${m.successRate}%</b> (${m.succeeded}/${m.totalOCs})</span>`;
+            } else if (m.isNewMember) {
+                const dif = m.daysInFaction || 0;
+                html += `<span style="color:#a78bfa;">New member${dif > 0 ? ` (${dif}d in faction)` : ''}</span>`;
             } else {
                 html += `<span>No OC data</span>`;
             }
