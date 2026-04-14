@@ -1284,16 +1284,6 @@
                 high_weight_pct:      cfg.HIGH_WEIGHT_THRESHOLD,
                 high_weight_mincpr:   cfg.HIGH_WEIGHT_MIN_CPR,
                 scope:                cfg.SCOPE !== null ? cfg.SCOPE : '',
-                engine_slot_optimizer:   cfg.ENGINE_SLOT_OPTIMIZER,
-                engine_cpr_forecaster:   cfg.ENGINE_CPR_FORECASTER,
-                engine_failure_risk:     cfg.ENGINE_FAILURE_RISK,
-                engine_expiry_risk:      cfg.ENGINE_EXPIRY_RISK,
-                engine_member_reliability: cfg.ENGINE_MEMBER_RELIABILITY,
-                engine_payout_optimizer: cfg.ENGINE_PAYOUT_OPTIMIZER,
-                engine_item_roi:         cfg.ENGINE_ITEM_ROI,
-                engine_nerve_efficiency: cfg.ENGINE_NERVE_EFFICIENCY,
-                engine_gap_analyzer:     cfg.ENGINE_GAP_ANALYZER,
-                engine_member_projector: cfg.ENGINE_MEMBER_PROJECTOR,
             });
             await gmRequest(`${SERVER}/api/oc/settings/update?${p}`);
         } catch (e) {
@@ -1718,28 +1708,6 @@
                 <button id="oc-spawn-cfg-save" class="oc-setting-save-btn" disabled>Save for All Members</button>
             </div>
 
-            <div style="margin-top:12px;border-top:1px solid #374151;padding-top:10px;">
-                <div style="font-size:11px;font-weight:600;color:#f3f4f6;margin-bottom:8px;">Engines</div>
-
-                <div style="font-size:10px;color:#9ca3af;margin-bottom:6px;font-weight:600;">Optimization</div>
-                <label class="oc-engine-toggle"><input type="checkbox" id="eng-slot-optimizer"/> <span>Slot Optimizer</span><span class="oc-engine-desc">Auto-calculate best member-to-slot assignments</span></label>
-                <label class="oc-engine-toggle"><input type="checkbox" id="eng-cpr-forecaster"/> <span>CPR Forecaster</span><span class="oc-engine-desc">Project member CPR trends over time</span></label>
-
-                <div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Risk</div>
-                <label class="oc-engine-toggle"><input type="checkbox" id="eng-failure-risk"/> <span>Failure Risk</span><span class="oc-engine-desc">Score OC failure probability before launch</span></label>
-                <label class="oc-engine-toggle"><input type="checkbox" id="eng-expiry-risk"/> <span>Expiry Risk</span><span class="oc-engine-desc">Flag OCs at risk of expiring unfilled</span></label>
-                <label class="oc-engine-toggle"><input type="checkbox" id="eng-member-reliability"/> <span>Member Reliability</span><span class="oc-engine-desc">Track member availability and completion rates</span></label>
-
-                <div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Economy</div>
-                <label class="oc-engine-toggle"><input type="checkbox" id="eng-payout-optimizer"/> <span>Payout Optimizer</span><span class="oc-engine-desc">Identify highest-return crime types per nerve</span></label>
-                <label class="oc-engine-toggle"><input type="checkbox" id="eng-item-roi"/> <span>Item ROI</span><span class="oc-engine-desc">Track item costs vs OC payout returns</span></label>
-                <label class="oc-engine-toggle"><input type="checkbox" id="eng-nerve-efficiency"/> <span>Nerve Efficiency</span><span class="oc-engine-desc">Calculate cash per nerve across crime types</span></label>
-
-                <div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Recruitment</div>
-                <label class="oc-engine-toggle"><input type="checkbox" id="eng-gap-analyzer"/> <span>Gap Analyzer</span><span class="oc-engine-desc">Identify which roles/levels your faction needs</span></label>
-                <label class="oc-engine-toggle"><input type="checkbox" id="eng-member-projector"/> <span>Member Projector</span><span class="oc-engine-desc">Estimate new member OC potential</span></label>
-            </div>
-
             </div><!-- /oc-cfg-section -->
         </div>
 
@@ -1748,11 +1716,13 @@
             <button class="oc-tab" data-tab="admin" id="oc-admin-tab" style="display:none;">Admin</button>
             <button class="oc-tab" data-tab="manager" id="oc-manager-tab" style="display:none;">Manager</button>
             <button class="oc-tab" data-tab="metrics" id="oc-metrics-tab" style="display:none;">Metrics</button>
+            <button class="oc-tab" data-tab="engines" id="oc-engines-tab" style="display:none;">Engines</button>
         </div>
         <div id="oc-tab-profile"></div>
         <div id="oc-tab-admin" style="display:none;"></div>
         <div id="oc-tab-manager" style="display:none;"></div>
         <div id="oc-tab-metrics" style="display:none;"></div>
+        <div id="oc-tab-engines" style="display:none;"></div>
     `;
     document.body.appendChild(panel);
 
@@ -1831,6 +1801,7 @@
         });
         document.getElementById('oc-tab-profile').style.display = name === 'profile' ? '' : 'none';
         document.getElementById('oc-tab-admin').style.display   = name === 'admin'   ? '' : 'none';
+        document.getElementById('oc-tab-engines').style.display = name === 'engines' ? '' : 'none';
         document.getElementById('oc-tab-manager').style.display = name === 'manager' ? '' : 'none';
         document.getElementById('oc-tab-metrics').style.display = name === 'metrics' ? '' : 'none';
         // Close settings panel when switching away from admin
@@ -1861,16 +1832,6 @@
         document.getElementById('cfg-high-weight-pct').value      = CONFIG.HIGH_WEIGHT_THRESHOLD;
         document.getElementById('cfg-high-weight-mincpr').value   = CONFIG.HIGH_WEIGHT_MIN_CPR;
         // Engine toggles
-        document.getElementById('eng-slot-optimizer').checked       = CONFIG.ENGINE_SLOT_OPTIMIZER;
-        document.getElementById('eng-cpr-forecaster').checked       = CONFIG.ENGINE_CPR_FORECASTER;
-        document.getElementById('eng-failure-risk').checked         = CONFIG.ENGINE_FAILURE_RISK;
-        document.getElementById('eng-expiry-risk').checked          = CONFIG.ENGINE_EXPIRY_RISK;
-        document.getElementById('eng-member-reliability').checked   = CONFIG.ENGINE_MEMBER_RELIABILITY;
-        document.getElementById('eng-payout-optimizer').checked     = CONFIG.ENGINE_PAYOUT_OPTIMIZER;
-        document.getElementById('eng-item-roi').checked             = CONFIG.ENGINE_ITEM_ROI;
-        document.getElementById('eng-nerve-efficiency').checked     = CONFIG.ENGINE_NERVE_EFFICIENCY;
-        document.getElementById('eng-gap-analyzer').checked         = CONFIG.ENGINE_GAP_ANALYZER;
-        document.getElementById('eng-member-projector').checked     = CONFIG.ENGINE_MEMBER_PROJECTOR;
     }
 
     function checkKeyRow() {
@@ -1905,7 +1866,25 @@
         CONFIG.HIGH_WEIGHT_THRESHOLD = get('cfg-high-weight-pct');
         CONFIG.HIGH_WEIGHT_MIN_CPR   = get('cfg-high-weight-mincpr');
 
-        // Engine toggles
+        // Local persistence
+        GM_setValue('cfg_active_days',    CONFIG.ACTIVE_DAYS);
+        GM_setValue('cfg_forecast_hours', CONFIG.FORECAST_HOURS);
+        GM_setValue('cfg_mincpr',              CONFIG.MINCPR);
+        GM_setValue('cfg_cpr_boost',           CONFIG.CPR_BOOST);
+        GM_setValue('cfg_lookback_days',       CONFIG.CPR_LOOKBACK_DAYS);
+        GM_setValue('cfg_high_weight_pct',     CONFIG.HIGH_WEIGHT_THRESHOLD);
+        GM_setValue('cfg_high_weight_mincpr',  CONFIG.HIGH_WEIGHT_MIN_CPR);
+        GM_setValue('cfg_scope',               CONFIG.SCOPE);
+        document.getElementById('oc-settings-panel').style.display = 'none';
+        setStatus('Saving settings for all faction members…');
+        const apiKey = getApiKey();
+        if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') await pushFactionSettings(apiKey, CONFIG);
+        setStatus('Settings saved for all faction members. Click Refresh.');
+    });
+
+    // Engine save button — uses event delegation since button is dynamically rendered
+    document.addEventListener('click', async (e) => {
+        if (e.target.id !== 'oc-engine-save') return;
         CONFIG.ENGINE_SLOT_OPTIMIZER   = document.getElementById('eng-slot-optimizer').checked;
         CONFIG.ENGINE_CPR_FORECASTER   = document.getElementById('eng-cpr-forecaster').checked;
         CONFIG.ENGINE_FAILURE_RISK     = document.getElementById('eng-failure-risk').checked;
@@ -1917,15 +1896,6 @@
         CONFIG.ENGINE_GAP_ANALYZER     = document.getElementById('eng-gap-analyzer').checked;
         CONFIG.ENGINE_MEMBER_PROJECTOR = document.getElementById('eng-member-projector').checked;
 
-        // Local persistence
-        GM_setValue('cfg_active_days',    CONFIG.ACTIVE_DAYS);
-        GM_setValue('cfg_forecast_hours', CONFIG.FORECAST_HOURS);
-        GM_setValue('cfg_mincpr',              CONFIG.MINCPR);
-        GM_setValue('cfg_cpr_boost',           CONFIG.CPR_BOOST);
-        GM_setValue('cfg_lookback_days',       CONFIG.CPR_LOOKBACK_DAYS);
-        GM_setValue('cfg_high_weight_pct',     CONFIG.HIGH_WEIGHT_THRESHOLD);
-        GM_setValue('cfg_high_weight_mincpr',  CONFIG.HIGH_WEIGHT_MIN_CPR);
-        GM_setValue('cfg_scope',               CONFIG.SCOPE);
         GM_setValue('eng_slot_optimizer',       CONFIG.ENGINE_SLOT_OPTIMIZER);
         GM_setValue('eng_cpr_forecaster',       CONFIG.ENGINE_CPR_FORECASTER);
         GM_setValue('eng_failure_risk',         CONFIG.ENGINE_FAILURE_RISK);
@@ -1937,11 +1907,24 @@
         GM_setValue('eng_gap_analyzer',         CONFIG.ENGINE_GAP_ANALYZER);
         GM_setValue('eng_member_projector',     CONFIG.ENGINE_MEMBER_PROJECTOR);
 
-        document.getElementById('oc-settings-panel').style.display = 'none';
-        setStatus('Saving settings for all faction members…');
         const apiKey = getApiKey();
-        if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') await pushFactionSettings(apiKey, CONFIG);
-        setStatus('Settings saved for all faction members. Click Refresh.');
+        if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') {
+            const p = new URLSearchParams({
+                key: apiKey,
+                engine_slot_optimizer:   CONFIG.ENGINE_SLOT_OPTIMIZER,
+                engine_cpr_forecaster:   CONFIG.ENGINE_CPR_FORECASTER,
+                engine_failure_risk:     CONFIG.ENGINE_FAILURE_RISK,
+                engine_expiry_risk:      CONFIG.ENGINE_EXPIRY_RISK,
+                engine_member_reliability: CONFIG.ENGINE_MEMBER_RELIABILITY,
+                engine_payout_optimizer: CONFIG.ENGINE_PAYOUT_OPTIMIZER,
+                engine_item_roi:         CONFIG.ENGINE_ITEM_ROI,
+                engine_nerve_efficiency: CONFIG.ENGINE_NERVE_EFFICIENCY,
+                engine_gap_analyzer:     CONFIG.ENGINE_GAP_ANALYZER,
+                engine_member_projector: CONFIG.ENGINE_MEMBER_PROJECTOR,
+            });
+            await gmRequest(`${SERVER}/api/oc/engines/update?${p}`);
+        }
+        setStatus('Engines saved for all faction members. Click Refresh.');
     });
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2279,6 +2262,44 @@
     // ═══════════════════════════════════════════════════════════════════════
     //  ENGINE RENDERERS
     // ═══════════════════════════════════════════════════════════════════════
+    function renderEnginesTab(engines) {
+        engines = engines || {};
+        let html = `<div style="padding:4px 0;">`;
+
+        // Engine toggles
+        html += `<div style="font-size:11px;font-weight:600;color:#f3f4f6;margin-bottom:8px;">Enable/Disable Engines</div>`;
+
+        html += `<div style="font-size:10px;color:#9ca3af;margin-bottom:6px;font-weight:600;">Optimization</div>`;
+        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-slot-optimizer" ${CONFIG.ENGINE_SLOT_OPTIMIZER ? 'checked' : ''}/> <span>Slot Optimizer</span><span class="oc-engine-desc">Auto-calculate best member-to-slot assignments</span></label>`;
+        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-cpr-forecaster" ${CONFIG.ENGINE_CPR_FORECASTER ? 'checked' : ''}/> <span>CPR Forecaster</span><span class="oc-engine-desc">Project member CPR trends over time</span></label>`;
+
+        html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Risk</div>`;
+        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-failure-risk" ${CONFIG.ENGINE_FAILURE_RISK ? 'checked' : ''}/> <span>Failure Risk</span><span class="oc-engine-desc">Score OC failure probability before launch</span></label>`;
+        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-expiry-risk" ${CONFIG.ENGINE_EXPIRY_RISK ? 'checked' : ''}/> <span>Expiry Risk</span><span class="oc-engine-desc">Flag OCs at risk of expiring unfilled</span></label>`;
+        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-member-reliability" ${CONFIG.ENGINE_MEMBER_RELIABILITY ? 'checked' : ''}/> <span>Member Reliability</span><span class="oc-engine-desc">Track member availability and completion rates</span></label>`;
+
+        html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Economy</div>`;
+        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-payout-optimizer" ${CONFIG.ENGINE_PAYOUT_OPTIMIZER ? 'checked' : ''}/> <span>Payout Optimizer</span><span class="oc-engine-desc">Identify highest-return crime types per nerve</span></label>`;
+        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-item-roi" ${CONFIG.ENGINE_ITEM_ROI ? 'checked' : ''}/> <span>Item ROI</span><span class="oc-engine-desc">Track item costs vs OC payout returns</span></label>`;
+        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-nerve-efficiency" ${CONFIG.ENGINE_NERVE_EFFICIENCY ? 'checked' : ''}/> <span>Nerve Efficiency</span><span class="oc-engine-desc">Calculate cash per nerve across crime types</span></label>`;
+
+        html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Recruitment</div>`;
+        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-gap-analyzer" ${CONFIG.ENGINE_GAP_ANALYZER ? 'checked' : ''}/> <span>Gap Analyzer</span><span class="oc-engine-desc">Identify which roles/levels your faction needs</span></label>`;
+        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-member-projector" ${CONFIG.ENGINE_MEMBER_PROJECTOR ? 'checked' : ''}/> <span>Member Projector</span><span class="oc-engine-desc">Estimate new member OC potential</span></label>`;
+
+        html += `<div style="text-align:right;margin-top:8px;"><button id="oc-engine-save" class="oc-setting-save-btn">Save Engines</button></div>`;
+
+        // Engine results
+        if (engines.slotOptimizer) {
+            html += `<div style="margin-top:12px;border-top:1px solid #374151;padding-top:10px;">`;
+            html += renderSlotOptimizer(engines.slotOptimizer);
+            html += `</div>`;
+        }
+
+        html += `</div>`;
+        return html;
+    }
+
     function renderSlotOptimizer(engineData) {
         if (!engineData || !engineData.assignments) return '';
         const { assignments, stats } = engineData;
@@ -3010,13 +3031,19 @@
 
             // Show Manager tab for admins (same check as Admin tab)
             const metricsTab = document.getElementById('oc-metrics-tab');
+            const enginesTab = document.getElementById('oc-engines-tab');
             if (canViewAdmin(viewer)) {
                 managerTab.style.display = '';
                 if (metricsTab) metricsTab.style.display = '';
+                if (enginesTab) enginesTab.style.display = '';
             } else {
                 managerTab.style.display = 'none';
                 if (metricsTab) metricsTab.style.display = 'none';
+                if (enginesTab) enginesTab.style.display = 'none';
             }
+
+            // Render Engines tab content
+            document.getElementById('oc-tab-engines').innerHTML = renderEnginesTab(engines);
 
             // Lock admin tab content if viewer can't admin
             const settingsGear = document.getElementById('oc-spawn-settings');
