@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.4.3
+// @version      2.4.4
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -137,7 +137,7 @@
             ENGINE_SLOT_OPTIMIZER:   GM_getValue('eng_slot_optimizer', false),
             ENGINE_CPR_FORECASTER:   GM_getValue('eng_cpr_forecaster', false),
             ENGINE_FAILURE_RISK:     GM_getValue('eng_failure_risk', false),
-            ENGINE_EXPIRY_RISK:      GM_getValue('eng_expiry_risk', false),
+
             ENGINE_MEMBER_RELIABILITY: GM_getValue('eng_member_reliability', false),
             ENGINE_PAYOUT_OPTIMIZER: GM_getValue('eng_payout_optimizer', false),
             ENGINE_ITEM_ROI:         GM_getValue('eng_item_roi', false),
@@ -1937,7 +1937,7 @@
         CONFIG.ENGINE_SLOT_OPTIMIZER   = document.getElementById('eng-slot-optimizer').checked;
         CONFIG.ENGINE_CPR_FORECASTER   = document.getElementById('eng-cpr-forecaster').checked;
         CONFIG.ENGINE_FAILURE_RISK     = document.getElementById('eng-failure-risk').checked;
-        CONFIG.ENGINE_EXPIRY_RISK      = document.getElementById('eng-expiry-risk').checked;
+
         CONFIG.ENGINE_MEMBER_RELIABILITY = document.getElementById('eng-member-reliability').checked;
         CONFIG.ENGINE_PAYOUT_OPTIMIZER = document.getElementById('eng-payout-optimizer').checked;
         CONFIG.ENGINE_ITEM_ROI         = document.getElementById('eng-item-roi').checked;
@@ -1947,7 +1947,6 @@
         GM_setValue('eng_slot_optimizer',       CONFIG.ENGINE_SLOT_OPTIMIZER);
         GM_setValue('eng_cpr_forecaster',       CONFIG.ENGINE_CPR_FORECASTER);
         GM_setValue('eng_failure_risk',         CONFIG.ENGINE_FAILURE_RISK);
-        GM_setValue('eng_expiry_risk',          CONFIG.ENGINE_EXPIRY_RISK);
         GM_setValue('eng_member_reliability',   CONFIG.ENGINE_MEMBER_RELIABILITY);
         GM_setValue('eng_payout_optimizer',     CONFIG.ENGINE_PAYOUT_OPTIMIZER);
         GM_setValue('eng_item_roi',             CONFIG.ENGINE_ITEM_ROI);
@@ -1961,7 +1960,7 @@
                 engine_slot_optimizer:   CONFIG.ENGINE_SLOT_OPTIMIZER,
                 engine_cpr_forecaster:   CONFIG.ENGINE_CPR_FORECASTER,
                 engine_failure_risk:     CONFIG.ENGINE_FAILURE_RISK,
-                engine_expiry_risk:      CONFIG.ENGINE_EXPIRY_RISK,
+
                 engine_member_reliability: CONFIG.ENGINE_MEMBER_RELIABILITY,
                 engine_payout_optimizer: CONFIG.ENGINE_PAYOUT_OPTIMIZER,
                 engine_item_roi:         CONFIG.ENGINE_ITEM_ROI,
@@ -2321,7 +2320,7 @@
 
         html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Risk</div>`;
         html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-failure-risk" ${CONFIG.ENGINE_FAILURE_RISK ? 'checked' : ''}/> <span>Failure Risk</span><span class="oc-engine-desc">Score OC failure probability before launch</span></label>`;
-        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-expiry-risk" disabled/> <span>Expiry Risk</span><span class="oc-engine-desc">Flag OCs at risk of expiring unfilled</span></label>`;
+
         html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-member-reliability" ${CONFIG.ENGINE_MEMBER_RELIABILITY ? 'checked' : ''}/> <span>Member Reliability</span><span class="oc-engine-desc">Track member availability, completion rates, and consistency</span></label>`;
 
         html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Economy</div>`;
@@ -3295,7 +3294,7 @@
                 CONFIG.ENGINE_SLOT_OPTIMIZER   = srvSettings.engine_slot_optimizer   ?? CONFIG.ENGINE_SLOT_OPTIMIZER;
                 CONFIG.ENGINE_CPR_FORECASTER   = srvSettings.engine_cpr_forecaster   ?? CONFIG.ENGINE_CPR_FORECASTER;
                 CONFIG.ENGINE_FAILURE_RISK     = srvSettings.engine_failure_risk     ?? CONFIG.ENGINE_FAILURE_RISK;
-                CONFIG.ENGINE_EXPIRY_RISK      = srvSettings.engine_expiry_risk      ?? CONFIG.ENGINE_EXPIRY_RISK;
+
                 CONFIG.ENGINE_MEMBER_RELIABILITY = srvSettings.engine_member_reliability ?? CONFIG.ENGINE_MEMBER_RELIABILITY;
                 CONFIG.ENGINE_PAYOUT_OPTIMIZER = srvSettings.engine_payout_optimizer ?? CONFIG.ENGINE_PAYOUT_OPTIMIZER;
                 CONFIG.ENGINE_ITEM_ROI         = srvSettings.engine_item_roi         ?? CONFIG.ENGINE_ITEM_ROI;
@@ -3314,7 +3313,6 @@
                 GM_setValue('eng_slot_optimizer',       CONFIG.ENGINE_SLOT_OPTIMIZER);
                         GM_setValue('eng_cpr_forecaster',       CONFIG.ENGINE_CPR_FORECASTER);
                 GM_setValue('eng_failure_risk',         CONFIG.ENGINE_FAILURE_RISK);
-                GM_setValue('eng_expiry_risk',          CONFIG.ENGINE_EXPIRY_RISK);
                 GM_setValue('eng_member_reliability',   CONFIG.ENGINE_MEMBER_RELIABILITY);
                 GM_setValue('eng_payout_optimizer',     CONFIG.ENGINE_PAYOUT_OPTIMIZER);
                 GM_setValue('eng_item_roi',             CONFIG.ENGINE_ITEM_ROI);
