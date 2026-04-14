@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.2.0
+// @version      2.2.1
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.2.1 — Slot Optimizer engine: auto-calculate best member-to-slot assignments
 // v2.2.0 — Engine toggle system: 11 engines across Optimization, Risk, Economy, Recruitment categories
 // v2.1.27 — Recommendations search downward through lower levels if none at joinable level
 // v2.1.26 — Settings gear always visible so all members can change their API key
@@ -135,7 +136,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.2.0';
+    const SCRIPT_VERSION = '2.2.1';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2282,6 +2283,45 @@
         return `${d.getMonth()+1}/${d.getDate()} ${h}:${m}`;
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    //  ENGINE RENDERERS
+    // ═══════════════════════════════════════════════════════════════════════
+    function renderSlotOptimizer(engineData) {
+        if (!engineData || !engineData.assignments) return '';
+        const { assignments, stats } = engineData;
+        let html = `<div style="margin:12px 0;border:1px solid #2d6a4f;border-radius:8px;padding:10px;background:#0a1f14;">`;
+        html += `<div style="font-size:12px;font-weight:700;color:#4ade80;margin-bottom:6px;">\u2699\ufe0f Slot Optimizer</div>`;
+        html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:10px;color:#9ca3af;">`;
+        html += `<span>\u{1f4ca} <b style="color:#f3f4f6;">${stats.openSlots}</b> open slots</span>`;
+        html += `<span>\u{1f465} <b style="color:#f3f4f6;">${stats.freeMembers}</b> free members</span>`;
+        html += `<span>\u2705 <b style="color:#4ade80;">${stats.assigned}</b> assigned</span>`;
+        if (stats.unfilledSlots > 0) html += `<span>\u26a0\ufe0f <b style="color:#e5b567;">${stats.unfilledSlots}</b> unfilled</span>`;
+        html += `</div>`;
+
+        if (assignments.length === 0) {
+            html += `<div style="color:#6b7280;font-size:11px;">No assignments possible — all slots filled or no eligible free members.</div>`;
+        } else {
+            html += `<div style="display:flex;flex-direction:column;gap:4px;">`;
+            for (const a of assignments) {
+                const urgency = a.hoursToExpiry < 6 ? '#ef4444' : a.hoursToExpiry < 12 ? '#e5b567' : '#4ade80';
+                const cprColor = (a.positionCpr || a.memberCpr) >= 80 ? '#4ade80' : (a.positionCpr || a.memberCpr) >= 60 ? '#e5b567' : '#ef4444';
+                html += `<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:#111b14;border-radius:4px;font-size:10px;flex-wrap:wrap;">`;
+                html += `<span style="color:#f3f4f6;font-weight:600;min-width:90px;">${a.memberName}</span>`;
+                html += `<span style="color:#6b7280;">\u2192</span>`;
+                html += `<span style="color:#74c69d;font-weight:600;">${a.crimeName}</span>`;
+                html += `<span style="color:#9ca3af;">${a.position}</span>`;
+                html += `<span style="color:${cprColor};font-weight:600;">${a.positionCpr ? a.positionCpr.toFixed(0) + '%' : a.memberCpr.toFixed(0) + '%'}</span>`;
+                html += `<span style="color:#6b7280;">Lvl ${a.difficulty}</span>`;
+                html += `<span style="color:${urgency};font-size:9px;">${a.hoursToExpiry < 999 ? a.hoursToExpiry + 'h' : ''}</span>`;
+                html += `<span style="color:#374151;font-size:9px;">score:${a.score}</span>`;
+                html += `</div>`;
+            }
+            html += `</div>`;
+        }
+        html += `</div>`;
+        return html;
+    }
+
     function renderScopeStrip(scopeProjection) {
         if (!scopeProjection) {
             return `<div class="oc-scope-strip" style="color:#6b7280;font-size:10px;">
@@ -2554,7 +2594,7 @@
         </div>`;
     }
 
-    function renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes, weights) {
+    function renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes, weights, engines) {
         const total = eligible.length + skipped.length;
         const eli   = eligible.length;
         const free  = eligible.filter(m => !m.inOC).length;
@@ -2588,6 +2628,7 @@
             </div>
             ${renderScopeStrip(scopeProjection)}
             ${banner}
+            ${engines?.slotOptimizer ? renderSlotOptimizer(engines.slotOptimizer) : ''}
             <h3>Spawn Recommendations — High Priority First</h3>
             ${renderRecommendations(recs, scopeProjection)}
             <h3>Eligible Members</h3>
@@ -2909,10 +2950,11 @@
 
             // Fetch OC data from server
             setStatus('Fetching OC data…');
-            let members, availableCrimes, rawCprCache, viewer, weights, serverResp;
+            let members, availableCrimes, rawCprCache, viewer, weights, serverResp, engines;
             try {
                 serverResp = await fetchServerOcData(apiKey);
-                ({ members, availableCrimes, cprCache: rawCprCache, viewer, weights } = serverResp);
+                ({ members, availableCrimes, cprCache: rawCprCache, viewer, weights, engines } = serverResp);
+                engines = engines || {};
             } catch (err) {
                 if (err.status === 403) {
                     document.getElementById('oc-tab-profile').innerHTML =
@@ -2966,7 +3008,7 @@
             lastScopeProjection         = scopeProjection; // cache for tooltip
             const recs                  = buildRecommendations(eligible, slotMap, scopeProjection);
 
-            renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes, weights);
+            renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes, weights, engines);
 
             // Always show tab bar with both tabs
             const tabBar   = document.getElementById('oc-tab-bar');
