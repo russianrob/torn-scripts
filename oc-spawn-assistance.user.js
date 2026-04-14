@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.4.2
+// @version      2.4.3
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.4.3 — Slot Optimizer: show ~ prefix when using overall CPR instead of position-specific CPR
 // v2.4.2 — Fix fetch interceptor causing uncaught promise rejections (red globe in TornPDA)
 // v2.4.1 — Member Projector: stricter readiness tiers (Building 60-69%, Developing 70-74%, Ready 75%+)
 // v2.4.0 — Rate limiting: 15s cooldown per user, countdown on Refresh button, 429 handling
@@ -142,7 +143,7 @@
             ENGINE_ITEM_ROI:         GM_getValue('eng_item_roi', false),
             ENGINE_GAP_ANALYZER:     GM_getValue('eng_gap_analyzer', false),
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
-            VERSION:           '2.4.2',
+            VERSION:           '2.4.3',
         };
     }
     let CONFIG = loadConfig();
@@ -152,7 +153,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.4.2';
+    const SCRIPT_VERSION = '2.4.3';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2459,7 +2460,9 @@
                 html += `<span style="color:#6b7280;">\u2192</span>`;
                 html += `<span style="color:#74c69d;font-weight:600;">${a.crimeName}</span>`;
                 html += `<span style="color:#9ca3af;">${a.position}</span>`;
-                html += `<span style="color:${cprColor};font-weight:600;">${a.positionCpr ? a.positionCpr.toFixed(0) + '%' : a.memberCpr.toFixed(0) + '%'}</span>`;
+                const displayCpr = a.positionCpr || a.memberCpr;
+                const cprPrefix = a.isEstimatedCpr ? '~' : '';
+                html += `<span style="color:${cprColor};font-weight:600;">${cprPrefix}${displayCpr.toFixed(0)}%</span>`;
                 html += `<span style="color:#6b7280;">Lvl ${a.difficulty}</span>`;
 
                 const cprVal = a.positionCpr || a.memberCpr;
