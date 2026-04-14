@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.4.4
+// @version      2.5.0
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -2324,23 +2324,26 @@
         html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-member-reliability" ${CONFIG.ENGINE_MEMBER_RELIABILITY ? 'checked' : ''}/> <span>Member Reliability</span><span class="oc-engine-desc">Track member availability, completion rates, and consistency</span></label>`;
 
         html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Economy</div>`;
-        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-payout-optimizer" disabled/> <span>OC Payout Tracker</span><span class="oc-engine-desc">Track payout per hour across OC types</span></label>`;
-        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-item-roi" disabled/> <span>Item ROI</span><span class="oc-engine-desc">Track item costs vs OC payout returns</span></label>`;
+        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-payout-optimizer" ${CONFIG.ENGINE_PAYOUT_OPTIMIZER ? 'checked' : ''}/> <span>OC Payout Tracker</span><span class="oc-engine-desc">Track payout per hour across OC types</span></label>`;
+        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-item-roi" ${CONFIG.ENGINE_ITEM_ROI ? 'checked' : ''}/> <span>Item ROI</span><span class="oc-engine-desc">Track item costs vs OC payout returns</span></label>`;
 
         html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Recruitment</div>`;
-        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-gap-analyzer" disabled/> <span>Gap Analyzer</span><span class="oc-engine-desc">Identify which roles/levels your faction needs</span></label>`;
+        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-gap-analyzer" ${CONFIG.ENGINE_GAP_ANALYZER ? 'checked' : ''}/> <span>Gap Analyzer</span><span class="oc-engine-desc">Identify which roles/levels your faction needs</span></label>`;
         html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-member-projector" ${CONFIG.ENGINE_MEMBER_PROJECTOR ? 'checked' : ''}/> <span>Member Projector</span><span class="oc-engine-desc">Estimate member OC potential and project readiness for higher levels</span></label>`;
 
         html += `<div style="text-align:right;margin-top:8px;"><button id="oc-engine-save" class="oc-setting-save-btn">Save Engines</button></div>`;
 
         // Engine results
-        if (engines.slotOptimizer || engines.failureRisk || engines.cprForecaster || engines.memberProjector || engines.memberReliability) {
+        if (engines.slotOptimizer || engines.failureRisk || engines.cprForecaster || engines.memberProjector || engines.memberReliability || engines.gapAnalyzer || engines.payoutTracker || engines.itemRoi) {
             html += `<div style="margin-top:12px;border-top:1px solid #374151;padding-top:10px;">`;
             if (engines.slotOptimizer) html += renderSlotOptimizer(engines.slotOptimizer);
             if (engines.failureRisk) html += renderFailureRisk(engines.failureRisk);
             if (engines.cprForecaster) html += renderCprForecaster(engines.cprForecaster);
             if (engines.memberProjector) html += renderMemberProjector(engines.memberProjector);
             if (engines.memberReliability) html += renderMemberReliability(engines.memberReliability);
+            if (engines.gapAnalyzer) html += renderGapAnalyzer(engines.gapAnalyzer);
+            if (engines.payoutTracker) html += renderPayoutTracker(engines.payoutTracker);
+            if (engines.itemRoi) html += renderItemRoi(engines.itemRoi);
             html += `</div>`;
         }
 
@@ -2635,6 +2638,172 @@
             html += `</div>`;
         }
         html += `</div></div>`;
+        return html;
+    }
+
+    function renderGapAnalyzer(engineData) {
+        if (!engineData || !engineData.gaps) return '';
+        const { gaps, levelCoverage, crossTraining, summary } = engineData;
+
+        let html = `<div style="margin:12px 0;border:1px solid #b45309;border-radius:8px;padding:10px;background:#1a0f00;">`;
+        html += `<div style="font-size:12px;font-weight:700;color:#f59e0b;margin-bottom:6px;">\u{1f50d} Gap Analyzer</div>`;
+
+        // Summary
+        html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:10px;color:#9ca3af;">`;
+        if (summary.criticalGaps > 0) html += `<span style="color:#ef4444;">\u{1f6a8} <b>${summary.criticalGaps}</b> critical</span>`;
+        if (summary.highGaps > 0) html += `<span style="color:#f97316;">\u26a0\ufe0f <b>${summary.highGaps}</b> high</span>`;
+        html += `<span><b style="color:#f3f4f6;">${summary.totalGaps}</b> total gaps</span>`;
+        html += `</div>`;
+
+        if (gaps.length === 0) {
+            html += `<div style="color:#4ade80;font-size:11px;">\u2705 All open positions have sufficient coverage.</div>`;
+        } else {
+            html += `<div style="display:flex;flex-direction:column;gap:3px;">`;
+            for (const g of gaps) {
+                const sevColor = g.severity === 'critical' ? '#ef4444' : g.severity === 'high' ? '#f97316' : g.severity === 'medium' ? '#e5b567' : '#6b7280';
+                html += `<div style="padding:5px 8px;background:#111;border-left:3px solid ${sevColor};border-radius:4px;">`;
+                html += `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:10px;">`;
+                html += `<span style="color:#f59e0b;font-weight:600;">${g.crimeName}</span>`;
+                html += `<span style="color:#9ca3af;">${g.position}</span>`;
+                html += `<span style="color:#6b7280;">Lvl ${g.difficulty}</span>`;
+                html += `<span style="color:${sevColor};font-weight:700;text-transform:uppercase;font-size:9px;">${g.severity}</span>`;
+                html += `<span style="color:#6b7280;">${g.openSlots} open / ${g.activeAvailable} available</span>`;
+                html += `</div>`;
+                if (g.candidates.length > 0) {
+                    html += `<div style="margin-top:2px;font-size:9px;color:#6b7280;">Candidates: `;
+                    html += g.candidates.map(c => `<span style="color:${c.hasExperience ? '#4ade80' : '#e5b567'};">${c.name}${c.hasExperience ? '' : ' \u{1f331}'}</span>`).join(', ');
+                    html += `</div>`;
+                }
+                html += `</div>`;
+            }
+            html += `</div>`;
+        }
+
+        // Cross-training suggestions
+        if (crossTraining && crossTraining.length > 0) {
+            html += `<div style="margin-top:8px;border-top:1px solid #374151;padding-top:6px;">`;
+            html += `<div style="font-size:10px;color:#f59e0b;font-weight:600;margin-bottom:4px;">Cross-Training Suggestions</div>`;
+            for (const ct of crossTraining.slice(0, 5)) {
+                html += `<div style="font-size:9px;color:#9ca3af;padding:2px 0;">`;
+                html += `<span style="color:#f3f4f6;">${ct.memberName}</span> \u2192 ${ct.targetCrime} ${ct.targetPosition}`;
+                html += ` <span style="color:#6b7280;">(exp: ${ct.relatedExperience.join(', ')})</span>`;
+                html += `</div>`;
+            }
+            html += `</div>`;
+        }
+
+        // Level coverage bar
+        if (levelCoverage && Object.keys(levelCoverage).length > 0) {
+            html += `<div style="margin-top:8px;border-top:1px solid #374151;padding-top:6px;">`;
+            html += `<div style="font-size:10px;color:#f59e0b;font-weight:600;margin-bottom:4px;">Level Coverage</div>`;
+            html += `<div style="display:flex;gap:4px;flex-wrap:wrap;">`;
+            for (const [lvl, lc] of Object.entries(levelCoverage).sort((a, b) => Number(b[0]) - Number(a[0]))) {
+                const pct = Math.min(100, Math.round(lc.active / Math.max(1, lc.total) * 100));
+                const color = pct >= 50 ? '#4ade80' : pct >= 25 ? '#e5b567' : '#ef4444';
+                html += `<div style="text-align:center;font-size:9px;">`;
+                html += `<div style="color:#9ca3af;">L${lvl}</div>`;
+                html += `<div style="color:${color};font-weight:600;">${lc.active}/${lc.total}</div>`;
+                html += `</div>`;
+            }
+            html += `</div></div>`;
+        }
+
+        html += `</div>`;
+        return html;
+    }
+
+    function renderPayoutTracker(engineData) {
+        if (!engineData || !engineData.crimeTypes || engineData.crimeTypes.length === 0)
+            return '<div style="color:#6b7280;font-size:11px;padding:8px;">No payout data available. Needs completed OCs with payout data.</div>';
+        const { crimeTypes, leaderboard, summary } = engineData;
+
+        let html = `<div style="margin:12px 0;border:1px solid #047857;border-radius:8px;padding:10px;background:#001a0f;">`;
+        html += `<div style="font-size:12px;font-weight:700;color:#10b981;margin-bottom:6px;">\u{1f4b0} OC Payout Tracker</div>`;
+
+        // Summary
+        html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:10px;color:#9ca3af;">`;
+        html += `<span>Total earned: <b style="color:#10b981;">$${(summary.totalMoney || 0).toLocaleString()}</b></span>`;
+        html += `<span>Respect: <b style="color:#60a5fa;">${(summary.totalRespect || 0).toLocaleString()}</b></span>`;
+        html += `<span>OCs: <b style="color:#f3f4f6;">${summary.totalCompleted || 0}</b></span>`;
+        if (summary.bestMoneyPerHour) html += `<span>Best: <b style="color:#10b981;">$${summary.bestMoneyPerHour.moneyPerHour?.toLocaleString()}/hr</b> (${summary.bestMoneyPerHour.crimeName})</span>`;
+        html += `</div>`;
+
+        // Crime type table
+        html += `<div style="display:flex;flex-direction:column;gap:3px;">`;
+        for (const c of crimeTypes) {
+            html += `<div style="padding:5px 8px;background:#0a1f14;border-radius:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:10px;">`;
+            html += `<span style="color:#10b981;font-weight:600;min-width:120px;">${c.crimeName}</span>`;
+            html += `<span style="color:#6b7280;">Lvl ${c.difficulty}</span>`;
+            html += `<span style="color:#f3f4f6;">$${c.avgMoney.toLocaleString()}</span>`;
+            if (c.moneyPerHour !== null) html += `<span style="color:#10b981;font-weight:600;">$${c.moneyPerHour.toLocaleString()}/hr</span>`;
+            html += `<span style="color:#6b7280;">${c.succeeded}/${c.completed} (${c.successRate}%)</span>`;
+            if (c.avgDurationHrs) html += `<span style="color:#6b7280;">${c.avgDurationHrs}h avg</span>`;
+            html += `</div>`;
+        }
+        html += `</div>`;
+
+        // Leaderboard
+        if (leaderboard && leaderboard.length > 0) {
+            html += `<div style="margin-top:8px;border-top:1px solid #374151;padding-top:6px;">`;
+            html += `<div style="font-size:10px;color:#10b981;font-weight:600;margin-bottom:4px;">Top Earners</div>`;
+            for (const m of leaderboard.slice(0, 5)) {
+                html += `<div style="font-size:9px;color:#9ca3af;padding:1px 0;display:flex;gap:6px;">`;
+                html += `<span style="color:#f3f4f6;min-width:80px;">${m.name}</span>`;
+                html += `<span style="color:#10b981;">$${m.totalMoney.toLocaleString()}</span>`;
+                html += `<span>${m.ocCount} OCs</span>`;
+                html += `</div>`;
+            }
+            html += `</div>`;
+        }
+
+        html += `</div>`;
+        return html;
+    }
+
+    function renderItemRoi(engineData) {
+        if (!engineData || !engineData.crimes || engineData.crimes.length === 0)
+            return '<div style="color:#6b7280;font-size:11px;padding:8px;">No item ROI data available. Needs completed OCs to analyze.</div>';
+        const { crimes, topItems, summary } = engineData;
+
+        let html = `<div style="margin:12px 0;border:1px solid #7c3aed;border-radius:8px;padding:10px;background:#0f0520;">`;
+        html += `<div style="font-size:12px;font-weight:700;color:#c084fc;margin-bottom:6px;">\u{1f4e6} Item ROI</div>`;
+
+        // Summary
+        html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:10px;color:#9ca3af;">`;
+        html += `<span><b style="color:#f3f4f6;">${summary.totalCrimeTypes}</b> crime types</span>`;
+        if (summary.bestRoi) html += `<span>Best ROI: <b style="color:#c084fc;">${summary.bestRoi.crimeName}</b> (score ${summary.bestRoi.roiScore.toLocaleString()})</span>`;
+        html += `</div>`;
+
+        // Crime ROI table
+        html += `<div style="display:flex;flex-direction:column;gap:3px;">`;
+        for (const c of crimes) {
+            const roiColor = c.roiScore > 50000 ? '#4ade80' : c.roiScore > 10000 ? '#e5b567' : '#ef4444';
+            html += `<div style="padding:5px 8px;background:#111;border-radius:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:10px;">`;
+            html += `<span style="color:#c084fc;font-weight:600;min-width:120px;">${c.crimeName}</span>`;
+            html += `<span style="color:#6b7280;">Lvl ${c.difficulty}</span>`;
+            html += `<span style="color:#f3f4f6;">$${c.expectedPayout.toLocaleString()} expected</span>`;
+            html += `<span style="color:${roiColor};font-weight:600;">ROI: ${c.roiScore.toLocaleString()}</span>`;
+            html += `<span style="color:#6b7280;">${c.successRate}% success</span>`;
+            if (c.itemsPerRun > 0) html += `<span style="color:#e5b567;">${c.itemsPerRun} item${c.itemsPerRun > 1 ? 's' : ''} consumed</span>`;
+            else html += `<span style="color:#4ade80;">No items</span>`;
+            html += `</div>`;
+        }
+        html += `</div>`;
+
+        // Top consumed items
+        if (topItems && topItems.length > 0) {
+            html += `<div style="margin-top:8px;border-top:1px solid #374151;padding-top:6px;">`;
+            html += `<div style="font-size:10px;color:#c084fc;font-weight:600;margin-bottom:4px;">Most Used Items</div>`;
+            for (const i of topItems.slice(0, 5)) {
+                html += `<div style="font-size:9px;color:#9ca3af;padding:1px 0;">`;
+                html += `<span style="color:#f3f4f6;">${i.itemName}</span>`;
+                html += ` \u2014 needed ${i.totalNeeded}x across ${i.usedIn.length} crime${i.usedIn.length > 1 ? 's' : ''}`;
+                html += `</div>`;
+            }
+            html += `</div>`;
+        }
+
+        html += `</div>`;
         return html;
     }
 
