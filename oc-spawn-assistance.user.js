@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.3.3
+// @version      2.3.4
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.3.4 — Member Reliability engine: track success rates, consistency, activity, and reliability scores
 // v2.3.3 — Member Projector engine: estimate OC potential, readiness, and progression timeline
 // v2.3.2 — Slot Optimizer recommendation shown in My OC viewer card
 // v2.3.1 — CPR Forecaster: per-level, per-role breakdown
@@ -133,7 +134,7 @@
             ENGINE_ITEM_ROI:         GM_getValue('eng_item_roi', false),
             ENGINE_GAP_ANALYZER:     GM_getValue('eng_gap_analyzer', false),
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
-            VERSION:           '2.3.3',
+            VERSION:           '2.3.4',
         };
     }
     let CONFIG = loadConfig();
@@ -2286,7 +2287,7 @@
         html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Risk</div>`;
         html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-failure-risk" ${CONFIG.ENGINE_FAILURE_RISK ? 'checked' : ''}/> <span>Failure Risk</span><span class="oc-engine-desc">Score OC failure probability before launch</span></label>`;
         html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-expiry-risk" disabled/> <span>Expiry Risk</span><span class="oc-engine-desc">Flag OCs at risk of expiring unfilled</span></label>`;
-        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-member-reliability" disabled/> <span>Member Reliability</span><span class="oc-engine-desc">Track member availability and completion rates</span></label>`;
+        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-member-reliability" ${CONFIG.ENGINE_MEMBER_RELIABILITY ? 'checked' : ''}/> <span>Member Reliability</span><span class="oc-engine-desc">Track member availability, completion rates, and consistency</span></label>`;
 
         html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Economy</div>`;
         html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-payout-optimizer" disabled/> <span>OC Payout Tracker</span><span class="oc-engine-desc">Track payout per hour across OC types</span></label>`;
@@ -2299,12 +2300,13 @@
         html += `<div style="text-align:right;margin-top:8px;"><button id="oc-engine-save" class="oc-setting-save-btn">Save Engines</button></div>`;
 
         // Engine results
-        if (engines.slotOptimizer || engines.failureRisk || engines.cprForecaster || engines.memberProjector) {
+        if (engines.slotOptimizer || engines.failureRisk || engines.cprForecaster || engines.memberProjector || engines.memberReliability) {
             html += `<div style="margin-top:12px;border-top:1px solid #374151;padding-top:10px;">`;
             if (engines.slotOptimizer) html += renderSlotOptimizer(engines.slotOptimizer);
             if (engines.failureRisk) html += renderFailureRisk(engines.failureRisk);
             if (engines.cprForecaster) html += renderCprForecaster(engines.cprForecaster);
             if (engines.memberProjector) html += renderMemberProjector(engines.memberProjector);
+            if (engines.memberReliability) html += renderMemberReliability(engines.memberReliability);
             html += `</div>`;
         }
 
@@ -2529,6 +2531,63 @@
                 }
                 html += `</div>`;
             }
+
+            html += `</div>`;
+        }
+        html += `</div></div>`;
+        return html;
+    }
+
+    function renderMemberReliability(engineData) {
+        if (!engineData || !engineData.members || engineData.members.length === 0)
+            return '<div style="color:#6b7280;font-size:11px;padding:8px;">No reliability data available. Members need OC history to generate scores.</div>';
+        const { members, summary } = engineData;
+
+        let html = `<div style="margin:12px 0;border:1px solid #7c3aed;border-radius:8px;padding:10px;background:#0f0a25;">`;
+        html += `<div style="font-size:12px;font-weight:700;color:#a78bfa;margin-bottom:8px;">\u{1f4ca} Member Reliability</div>`;
+
+        // Summary bar
+        html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:10px;color:#9ca3af;">`;
+        html += `<span>Avg: <b style="color:#f3f4f6;">${summary.avgReliability}</b>/100</span>`;
+        html += `<span style="color:#4ade80;">\u{1f7e2} ${summary.tierCounts.Reliable || 0} Reliable</span>`;
+        html += `<span style="color:#60a5fa;">\u{1f535} ${summary.tierCounts.Dependable || 0} Dependable</span>`;
+        html += `<span style="color:#e5b567;">\u{1f7e1} ${summary.tierCounts.Inconsistent || 0} Inconsistent</span>`;
+        html += `<span style="color:#f97316;">\u{1f7e0} ${summary.tierCounts.Unreliable || 0} Unreliable</span>`;
+        html += `<span style="color:#ef4444;">\u{1f534} ${summary.tierCounts.Inactive || 0} Inactive</span>`;
+        html += `</div>`;
+
+        // Member cards
+        html += `<div style="display:flex;flex-direction:column;gap:3px;">`;
+        for (const m of members) {
+            // Score bar width
+            const barWidth = Math.max(2, m.reliabilityScore);
+
+            html += `<div style="padding:5px 8px;background:#111827;border-left:3px solid ${m.tierColor};border-radius:4px;">`;
+
+            // Row 1: Name, score, tier
+            html += `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">`;
+            html += `<span style="color:#f3f4f6;font-weight:600;font-size:11px;min-width:90px;">${m.name}</span>`;
+            html += `<span style="color:${m.tierColor};font-weight:700;font-size:11px;">${m.reliabilityScore}</span>`;
+            html += `<div style="flex:1;min-width:40px;max-width:80px;height:4px;background:#1f2937;border-radius:2px;overflow:hidden;">`;
+            html += `<div style="width:${barWidth}%;height:100%;background:${m.tierColor};border-radius:2px;"></div></div>`;
+            html += `<span style="color:${m.tierColor};font-size:10px;font-weight:600;">${m.tier}</span>`;
+            html += `</div>`;
+
+            // Row 2: Stats
+            html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px;font-size:9px;color:#6b7280;">`;
+            if (m.successRate !== null) {
+                const srColor = m.successRate >= 90 ? '#4ade80' : m.successRate >= 70 ? '#e5b567' : '#ef4444';
+                html += `<span>Win: <b style="color:${srColor};">${m.successRate}%</b> (${m.succeeded}/${m.totalOCs})</span>`;
+            } else {
+                html += `<span>No OC data</span>`;
+            }
+            if (m.ocsPerMonth > 0) html += `<span>${m.ocsPerMonth}/mo</span>`;
+            if (m.consistency > 0) html += `<span>Consist: ${m.consistency}%</span>`;
+            if (m.currentStreak > 0) html += `<span style="color:#4ade80;">\u{1f525} ${m.currentStreak} streak</span>`;
+            html += `<span style="color:${m.activityScore >= 60 ? '#4ade80' : m.activityScore >= 30 ? '#e5b567' : '#ef4444'};">${m.activityLabel}</span>`;
+            if (m.topRole) html += `<span>${m.topRole.role} (${m.topRole.count}x)</span>`;
+            if (m.daysSinceLastOC !== null && m.daysSinceLastOC > 14) html += `<span style="color:#ef4444;">last OC ${m.daysSinceLastOC}d ago</span>`;
+            html += `</div>`;
 
             html += `</div>`;
         }
