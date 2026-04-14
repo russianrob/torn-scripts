@@ -2361,8 +2361,9 @@
                 html += `<span style="color:${cprColor};font-weight:600;">${a.positionCpr ? a.positionCpr.toFixed(0) + '%' : a.memberCpr.toFixed(0) + '%'}</span>`;
                 html += `<span style="color:#6b7280;">Lvl ${a.difficulty}</span>`;
                 if (a.hoursToExpiry < 999) html += `<span style="color:${urgency};font-size:9px;">${a.hoursToExpiry}h</span>`;
-                const fitLabel = a.score >= 150 ? 'Strong Fit' : a.score >= 100 ? 'Good Fit' : 'Weak Fit';
-                const fitColor = a.score >= 150 ? '#4ade80' : a.score >= 100 ? '#e5b567' : '#ef4444';
+                const cprVal = a.positionCpr || a.memberCpr;
+                const fitLabel = cprVal >= 80 ? 'Strong Fit' : cprVal >= 60 ? 'Good Fit' : 'Weak Fit';
+                const fitColor = cprVal >= 80 ? '#4ade80' : cprVal >= 60 ? '#e5b567' : '#ef4444';
                 html += `<span style="color:${fitColor};font-size:9px;font-weight:600;">${fitLabel}</span>`;
                 html += `</div>`;
             }
