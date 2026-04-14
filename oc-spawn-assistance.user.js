@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.3.2
+// @version      2.3.3
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.3.3 — Member Projector engine: estimate OC potential, readiness, and progression timeline
 // v2.3.2 — Slot Optimizer recommendation shown in My OC viewer card
 // v2.3.1 — CPR Forecaster: per-level, per-role breakdown
 // v2.3.0 — Remember active tab across refreshes
@@ -132,7 +133,7 @@
             ENGINE_ITEM_ROI:         GM_getValue('eng_item_roi', false),
             ENGINE_GAP_ANALYZER:     GM_getValue('eng_gap_analyzer', false),
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
-            VERSION:           '1.5.4',
+            VERSION:           '2.3.3',
         };
     }
     let CONFIG = loadConfig();
@@ -2293,16 +2294,17 @@
 
         html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Recruitment</div>`;
         html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-gap-analyzer" disabled/> <span>Gap Analyzer</span><span class="oc-engine-desc">Identify which roles/levels your faction needs</span></label>`;
-        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-member-projector" disabled/> <span>Member Projector</span><span class="oc-engine-desc">Estimate new member OC potential</span></label>`;
+        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-member-projector" ${CONFIG.ENGINE_MEMBER_PROJECTOR ? 'checked' : ''}/> <span>Member Projector</span><span class="oc-engine-desc">Estimate member OC potential and project readiness for higher levels</span></label>`;
 
         html += `<div style="text-align:right;margin-top:8px;"><button id="oc-engine-save" class="oc-setting-save-btn">Save Engines</button></div>`;
 
         // Engine results
-        if (engines.slotOptimizer || engines.failureRisk || engines.cprForecaster) {
+        if (engines.slotOptimizer || engines.failureRisk || engines.cprForecaster || engines.memberProjector) {
             html += `<div style="margin-top:12px;border-top:1px solid #374151;padding-top:10px;">`;
             if (engines.slotOptimizer) html += renderSlotOptimizer(engines.slotOptimizer);
             if (engines.failureRisk) html += renderFailureRisk(engines.failureRisk);
             if (engines.cprForecaster) html += renderCprForecaster(engines.cprForecaster);
+            if (engines.memberProjector) html += renderMemberProjector(engines.memberProjector);
             html += `</div>`;
         }
 
@@ -2433,6 +2435,104 @@
             html += `</div>`;
         }
         html += `</div>`;
+        return html;
+    }
+
+    function renderMemberProjector(engineData) {
+        if (!engineData || !engineData.members || engineData.members.length === 0)
+            return '<div style="color:#6b7280;font-size:11px;padding:8px;">No member data available for projection. Members need OC history to generate projections.</div>';
+        const { members, benchmarks, progressionTimes } = engineData;
+
+        let html = `<div style="margin:12px 0;border:1px solid #1d4ed8;border-radius:8px;padding:10px;background:#0a1425;">`;
+        html += `<div style="font-size:12px;font-weight:700;color:#60a5fa;margin-bottom:8px;">\u{1f52e} Member Projector</div>`;
+
+        // Summary stats
+        const ready = members.filter(m => m.projection?.readiness === 'ready').length;
+        const developing = members.filter(m => m.projection?.readiness === 'developing').length;
+        const notReady = members.filter(m => m.projection?.readiness === 'not_ready').length;
+        const estimated = members.filter(m => m.isEstimated).length;
+
+        html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;font-size:10px;color:#9ca3af;">`;
+        html += `<span>\u{1f7e2} <b style="color:#4ade80;">${ready}</b> ready</span>`;
+        html += `<span>\u{1f7e1} <b style="color:#e5b567;">${developing}</b> developing</span>`;
+        html += `<span>\u{1f534} <b style="color:#ef4444;">${notReady}</b> not ready</span>`;
+        if (estimated > 0) html += `<span>\u{1f535} <b style="color:#60a5fa;">${estimated}</b> estimated (no OC data)</span>`;
+        html += `</div>`;
+
+        // Benchmarks bar
+        if (benchmarks && Object.keys(benchmarks).length > 0) {
+            html += `<div style="margin-bottom:10px;padding:6px 8px;background:#111827;border-radius:4px;">`;
+            html += `<div style="font-size:10px;color:#6b7280;margin-bottom:4px;">Faction OC Level Benchmarks (avg CPR)</div>`;
+            html += `<div style="display:flex;gap:6px;flex-wrap:wrap;">`;
+            for (const lvl of Object.keys(benchmarks).sort((a, b) => Number(a) - Number(b))) {
+                const b = benchmarks[lvl];
+                html += `<span style="background:#1e293b;padding:2px 6px;border-radius:3px;font-size:10px;color:#d1d5db;">`;
+                html += `Lvl ${lvl}: <b style="color:#60a5fa;">${b.avgCpr}%</b>`;
+                html += `<span style="color:#4b5563;"> (${b.minCpr}-${b.maxCpr}%)</span>`;
+                html += `</span>`;
+            }
+            html += `</div></div>`;
+        }
+
+        // Member cards
+        html += `<div style="display:flex;flex-direction:column;gap:4px;">`;
+        for (const m of members) {
+            const proj = m.projection;
+            // Border color by readiness
+            let borderColor = '#374151'; // default grey
+            if (proj?.readiness === 'ready') borderColor = '#2d6a4f';
+            else if (proj?.readiness === 'developing') borderColor = '#92400e';
+            else if (proj?.readiness === 'not_ready') borderColor = '#7f1d1d';
+
+            html += `<div style="padding:6px 8px;background:#111827;border-left:3px solid ${borderColor};border-radius:4px;">`;
+
+            // Header row: name, current level, CPR
+            const cprColor = m.currentLevelCpr >= 75 ? '#4ade80' : m.currentLevelCpr >= 60 ? '#e5b567' : '#ef4444';
+            html += `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">`;
+            html += `<span style="color:#f3f4f6;font-weight:600;font-size:11px;min-width:90px;">${m.name}</span>`;
+            html += `<span style="color:#9ca3af;font-size:10px;">Lvl ${m.level}</span>`;
+            html += `<span style="color:#6b7280;font-size:10px;">OC Lvl ${m.currentOcLevel}</span>`;
+            html += `<span style="color:${cprColor};font-weight:600;font-size:10px;">${m.currentLevelCpr}%</span>`;
+            if (m.isEstimated) html += `<span style="color:#60a5fa;font-size:9px;font-style:italic;">est.</span>`;
+            html += `</div>`;
+
+            // Detail row: OC experience + best roles
+            html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px;font-size:9px;color:#6b7280;">`;
+            if (m.totalOCs > 0) {
+                html += `<span>${m.totalOCs} OCs over ${m.daysSinceFirstOC}d</span>`;
+                if (m.daysSinceLastOC > 7) html += `<span style="color:#ef4444;">inactive ${m.daysSinceLastOC}d</span>`;
+            } else {
+                html += `<span>No OC history</span>`;
+            }
+            if (m.bestRoles.length > 0) {
+                html += `<span>Best: ${m.bestRoles.map(r => `${r.role} (${r.cpr}%)`).join(', ')}</span>`;
+            }
+            html += `</div>`;
+
+            // Projection row
+            if (proj) {
+                const readinessColor = proj.readiness === 'ready' ? '#4ade80' : proj.readiness === 'developing' ? '#e5b567' : '#ef4444';
+                html += `<div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap;">`;
+                html += `<span style="color:${readinessColor};font-weight:600;font-size:10px;">${proj.readinessLabel}</span>`;
+                html += `<span style="color:#9ca3af;font-size:10px;">for Lvl ${proj.nextLevel}</span>`;
+                if (proj.benchmarkCpr !== null) {
+                    html += `<span style="color:#6b7280;font-size:9px;">bench: ${proj.benchmarkCpr}%</span>`;
+                }
+                if (proj.gapToBenchmark !== null && proj.gapToBenchmark > 0) {
+                    html += `<span style="color:#ef4444;font-size:9px;">gap: -${proj.gapToBenchmark}%</span>`;
+                }
+                if (proj.estimatedDays !== null && proj.estimatedDays > 0) {
+                    html += `<span style="color:#60a5fa;font-size:9px;">~${proj.estimatedDays}d</span>`;
+                }
+                if (proj.suggestedRoles.length > 0) {
+                    html += `<span style="color:#4b5563;font-size:9px;">try: ${proj.suggestedRoles.join(', ')}</span>`;
+                }
+                html += `</div>`;
+            }
+
+            html += `</div>`;
+        }
+        html += `</div></div>`;
         return html;
     }
 
