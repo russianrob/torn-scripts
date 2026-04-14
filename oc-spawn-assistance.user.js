@@ -836,21 +836,7 @@
         const scopeEl = document.getElementById('cfg-scope');
         if (scopeEl) scopeEl.value = scope;
 
-        // Auto-push scope ONLY (lightweight endpoint — doesn't touch other settings)
-        // Guard: don't push if lower than current server value (prevents stale cached data overwriting)
-        clearTimeout(scopePushTimer);
-        scopePushTimer = setTimeout(async () => {
-            if (!settingsReady) return;
-            const apiKey = getApiKey();
-            if (!apiKey || apiKey === 'YOUR_API_KEY_HERE') return;
-            try {
-                const srv = await gmRequest(`${SERVER}/api/oc/settings?key=${encodeURIComponent(apiKey)}`);
-                const serverScope = srv?.scope ?? 0;
-                if (scope < serverScope) return; // don't overwrite with a lower stale value
-            } catch (_) {}
-            const p = new URLSearchParams({ key: apiKey, scope: scope });
-            gmRequest(`${SERVER}/api/oc/scope?${p}`).catch(() => {});
-        }, 2000);
+        // Scope auto-push removed — scope is saved manually via Settings
     }
 
     // ═══════════════════════════════════════════════════════════════════════
