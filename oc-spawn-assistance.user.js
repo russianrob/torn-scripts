@@ -2319,16 +2319,12 @@
         html += `<div style="display:flex;flex-direction:column;gap:6px;">`;
 
         for (const m of members) {
-            const trendIcon = m.trend === 'improving' ? '\u25b2' : m.trend === 'declining' ? '\u25bc' : '\u25ac';
-            const trendColor = m.trend === 'improving' ? '#4ade80' : m.trend === 'declining' ? '#ef4444' : '#6b7280';
-            const cprColor = m.currentCpr >= 80 ? '#4ade80' : m.currentCpr >= 60 ? '#e5b567' : '#ef4444';
+            // Use highest level trend for the border color
+            const topLvl = (m.levels || [])[0];
+            const borderColor = topLvl ? (topLvl.trend === 'improving' ? '#4ade80' : topLvl.trend === 'declining' ? '#ef4444' : '#374151') : '#374151';
 
-            html += `<div style="background:#111820;border-radius:4px;padding:6px 8px;border-left:3px solid ${trendColor};">`;
-            html += `<div style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:4px;">`;
-            html += `<span style="color:#f3f4f6;font-weight:600;">${m.name}</span>`;
-            html += `<span style="color:${cprColor};font-weight:600;">${m.currentCpr.toFixed(0)}%</span>`;
-            html += `<span style="color:${trendColor};font-weight:700;">${trendIcon}</span>`;
-            html += `</div>`;
+            html += `<div style="background:#111820;border-radius:4px;padding:6px 8px;border-left:3px solid ${borderColor};">`;
+            html += `<div style="font-size:11px;margin-bottom:4px;"><span style="color:#f3f4f6;font-weight:600;">${m.name}</span></div>`;
 
             // Per-level breakdown with roles
             for (const lvl of (m.levels || [])) {
