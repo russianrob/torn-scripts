@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.1.27
+// @version      2.2.0
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.2.0 — Engine toggle system: 11 engines across Optimization, Risk, Economy, Recruitment categories
 // v2.1.27 — Recommendations search downward through lower levels if none at joinable level
 // v2.1.26 — Settings gear always visible so all members can change their API key
 // v2.1.25 — API key guidance (Limited Access required), subscription timer in header
@@ -112,6 +113,18 @@
             HIGH_WEIGHT_THRESHOLD:   Number(GM_getValue('cfg_high_weight_pct',    25)),
             HIGH_WEIGHT_MIN_CPR:     Number(GM_getValue('cfg_high_weight_mincpr', 75)),
             SCOPE:             GM_getValue('cfg_scope', null),  // null = not configured
+            // Engine toggles
+            ENGINE_SLOT_OPTIMIZER:   GM_getValue('eng_slot_optimizer', false),
+            ENGINE_SPAWN_PREDICTOR:  GM_getValue('eng_spawn_predictor', false),
+            ENGINE_CPR_FORECASTER:   GM_getValue('eng_cpr_forecaster', false),
+            ENGINE_FAILURE_RISK:     GM_getValue('eng_failure_risk', false),
+            ENGINE_EXPIRY_RISK:      GM_getValue('eng_expiry_risk', false),
+            ENGINE_MEMBER_RELIABILITY: GM_getValue('eng_member_reliability', false),
+            ENGINE_PAYOUT_OPTIMIZER: GM_getValue('eng_payout_optimizer', false),
+            ENGINE_ITEM_ROI:         GM_getValue('eng_item_roi', false),
+            ENGINE_NERVE_EFFICIENCY: GM_getValue('eng_nerve_efficiency', false),
+            ENGINE_GAP_ANALYZER:     GM_getValue('eng_gap_analyzer', false),
+            ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
             VERSION:           '1.5.4',
         };
     }
@@ -122,7 +135,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.1.27';
+    const SCRIPT_VERSION = '2.2.0';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1285,6 +1298,17 @@
                 high_weight_pct:      cfg.HIGH_WEIGHT_THRESHOLD,
                 high_weight_mincpr:   cfg.HIGH_WEIGHT_MIN_CPR,
                 scope:                cfg.SCOPE !== null ? cfg.SCOPE : '',
+                engine_slot_optimizer:   cfg.ENGINE_SLOT_OPTIMIZER,
+                engine_spawn_predictor:  cfg.ENGINE_SPAWN_PREDICTOR,
+                engine_cpr_forecaster:   cfg.ENGINE_CPR_FORECASTER,
+                engine_failure_risk:     cfg.ENGINE_FAILURE_RISK,
+                engine_expiry_risk:      cfg.ENGINE_EXPIRY_RISK,
+                engine_member_reliability: cfg.ENGINE_MEMBER_RELIABILITY,
+                engine_payout_optimizer: cfg.ENGINE_PAYOUT_OPTIMIZER,
+                engine_item_roi:         cfg.ENGINE_ITEM_ROI,
+                engine_nerve_efficiency: cfg.ENGINE_NERVE_EFFICIENCY,
+                engine_gap_analyzer:     cfg.ENGINE_GAP_ANALYZER,
+                engine_member_projector: cfg.ENGINE_MEMBER_PROJECTOR,
             });
             await gmRequest(`${SERVER}/api/oc/settings/update?${p}`);
         } catch (e) {
@@ -1347,6 +1371,10 @@
         .oc-setting-key-input { flex: 1; padding: 4px 8px; background: #0d1b2a; color: #f3f4f6; border: 1px solid #2d4a3e; border-radius: 4px; font-size: 11px; font-family: monospace; }
         .oc-setting-save-btn { padding: 5px 12px; background: #2d6a4f; color: #fff; border: none; border-radius: 5px; font-size: 11px; cursor: pointer; font-family: inherit; font-weight: 600; }
         .oc-setting-save-btn:hover { background: #1b4332; }
+        .oc-engine-toggle { display:flex; align-items:center; gap:6px; padding:4px 0; font-size:11px; color:#d1d5db; cursor:pointer; flex-wrap:wrap; }
+        .oc-engine-toggle input[type=checkbox] { accent-color:#2d6a4f; width:14px; height:14px; cursor:pointer; }
+        .oc-engine-toggle span:first-of-type { font-weight:600; min-width:120px; }
+        .oc-engine-desc { color:#6b7280; font-size:10px; font-weight:400; }
         /* Stats & banners */
         .oc-stats-strip { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
         .oc-stat-chip { background: #131f18; border: 1px solid #253525; border-radius: 20px; padding: 3px 10px; font-size: 11px; color: #9ca3af; }
@@ -1704,6 +1732,30 @@
             <div style="text-align:right;margin-top:4px;">
                 <button id="oc-spawn-cfg-save" class="oc-setting-save-btn" disabled>Save for All Members</button>
             </div>
+
+            <div style="margin-top:12px;border-top:1px solid #374151;padding-top:10px;">
+                <div style="font-size:11px;font-weight:600;color:#f3f4f6;margin-bottom:8px;">Engines</div>
+
+                <div style="font-size:10px;color:#9ca3af;margin-bottom:6px;font-weight:600;">Optimization</div>
+                <label class="oc-engine-toggle"><input type="checkbox" id="eng-slot-optimizer"/> <span>Slot Optimizer</span><span class="oc-engine-desc">Auto-calculate best member-to-slot assignments</span></label>
+                <label class="oc-engine-toggle"><input type="checkbox" id="eng-spawn-predictor"/> <span>Spawn Predictor</span><span class="oc-engine-desc">Predict when next OCs will spawn based on history</span></label>
+                <label class="oc-engine-toggle"><input type="checkbox" id="eng-cpr-forecaster"/> <span>CPR Forecaster</span><span class="oc-engine-desc">Project member CPR trends over time</span></label>
+
+                <div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Risk</div>
+                <label class="oc-engine-toggle"><input type="checkbox" id="eng-failure-risk"/> <span>Failure Risk</span><span class="oc-engine-desc">Score OC failure probability before launch</span></label>
+                <label class="oc-engine-toggle"><input type="checkbox" id="eng-expiry-risk"/> <span>Expiry Risk</span><span class="oc-engine-desc">Flag OCs at risk of expiring unfilled</span></label>
+                <label class="oc-engine-toggle"><input type="checkbox" id="eng-member-reliability"/> <span>Member Reliability</span><span class="oc-engine-desc">Track member availability and completion rates</span></label>
+
+                <div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Economy</div>
+                <label class="oc-engine-toggle"><input type="checkbox" id="eng-payout-optimizer"/> <span>Payout Optimizer</span><span class="oc-engine-desc">Identify highest-return crime types per nerve</span></label>
+                <label class="oc-engine-toggle"><input type="checkbox" id="eng-item-roi"/> <span>Item ROI</span><span class="oc-engine-desc">Track item costs vs OC payout returns</span></label>
+                <label class="oc-engine-toggle"><input type="checkbox" id="eng-nerve-efficiency"/> <span>Nerve Efficiency</span><span class="oc-engine-desc">Calculate cash per nerve across crime types</span></label>
+
+                <div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Recruitment</div>
+                <label class="oc-engine-toggle"><input type="checkbox" id="eng-gap-analyzer"/> <span>Gap Analyzer</span><span class="oc-engine-desc">Identify which roles/levels your faction needs</span></label>
+                <label class="oc-engine-toggle"><input type="checkbox" id="eng-member-projector"/> <span>Member Projector</span><span class="oc-engine-desc">Estimate new member OC potential</span></label>
+            </div>
+
             </div><!-- /oc-cfg-section -->
         </div>
 
@@ -1824,6 +1876,18 @@
         document.getElementById('cfg-lookback-days').value        = CONFIG.CPR_LOOKBACK_DAYS;
         document.getElementById('cfg-high-weight-pct').value      = CONFIG.HIGH_WEIGHT_THRESHOLD;
         document.getElementById('cfg-high-weight-mincpr').value   = CONFIG.HIGH_WEIGHT_MIN_CPR;
+        // Engine toggles
+        document.getElementById('eng-slot-optimizer').checked       = CONFIG.ENGINE_SLOT_OPTIMIZER;
+        document.getElementById('eng-spawn-predictor').checked      = CONFIG.ENGINE_SPAWN_PREDICTOR;
+        document.getElementById('eng-cpr-forecaster').checked       = CONFIG.ENGINE_CPR_FORECASTER;
+        document.getElementById('eng-failure-risk').checked         = CONFIG.ENGINE_FAILURE_RISK;
+        document.getElementById('eng-expiry-risk').checked          = CONFIG.ENGINE_EXPIRY_RISK;
+        document.getElementById('eng-member-reliability').checked   = CONFIG.ENGINE_MEMBER_RELIABILITY;
+        document.getElementById('eng-payout-optimizer').checked     = CONFIG.ENGINE_PAYOUT_OPTIMIZER;
+        document.getElementById('eng-item-roi').checked             = CONFIG.ENGINE_ITEM_ROI;
+        document.getElementById('eng-nerve-efficiency').checked     = CONFIG.ENGINE_NERVE_EFFICIENCY;
+        document.getElementById('eng-gap-analyzer').checked         = CONFIG.ENGINE_GAP_ANALYZER;
+        document.getElementById('eng-member-projector').checked     = CONFIG.ENGINE_MEMBER_PROJECTOR;
     }
 
     function checkKeyRow() {
@@ -1867,6 +1931,17 @@
         GM_setValue('cfg_high_weight_pct',     CONFIG.HIGH_WEIGHT_THRESHOLD);
         GM_setValue('cfg_high_weight_mincpr',  CONFIG.HIGH_WEIGHT_MIN_CPR);
         GM_setValue('cfg_scope',               CONFIG.SCOPE);
+        GM_setValue('eng_slot_optimizer',       CONFIG.ENGINE_SLOT_OPTIMIZER);
+        GM_setValue('eng_spawn_predictor',      CONFIG.ENGINE_SPAWN_PREDICTOR);
+        GM_setValue('eng_cpr_forecaster',       CONFIG.ENGINE_CPR_FORECASTER);
+        GM_setValue('eng_failure_risk',         CONFIG.ENGINE_FAILURE_RISK);
+        GM_setValue('eng_expiry_risk',          CONFIG.ENGINE_EXPIRY_RISK);
+        GM_setValue('eng_member_reliability',   CONFIG.ENGINE_MEMBER_RELIABILITY);
+        GM_setValue('eng_payout_optimizer',     CONFIG.ENGINE_PAYOUT_OPTIMIZER);
+        GM_setValue('eng_item_roi',             CONFIG.ENGINE_ITEM_ROI);
+        GM_setValue('eng_nerve_efficiency',     CONFIG.ENGINE_NERVE_EFFICIENCY);
+        GM_setValue('eng_gap_analyzer',         CONFIG.ENGINE_GAP_ANALYZER);
+        GM_setValue('eng_member_projector',     CONFIG.ENGINE_MEMBER_PROJECTOR);
 
         document.getElementById('oc-settings-panel').style.display = 'none';
         setStatus('Saving settings for all faction members…');
@@ -2792,6 +2867,19 @@
                 CONFIG.HIGH_WEIGHT_MIN_CPR     = srvSettings.high_weight_mincpr   ?? CONFIG.HIGH_WEIGHT_MIN_CPR;
                 CONFIG.SCOPE                   = srvSettings.scope;
 
+                // Engine toggles
+                CONFIG.ENGINE_SLOT_OPTIMIZER   = srvSettings.engine_slot_optimizer   ?? CONFIG.ENGINE_SLOT_OPTIMIZER;
+                CONFIG.ENGINE_SPAWN_PREDICTOR  = srvSettings.engine_spawn_predictor  ?? CONFIG.ENGINE_SPAWN_PREDICTOR;
+                CONFIG.ENGINE_CPR_FORECASTER   = srvSettings.engine_cpr_forecaster   ?? CONFIG.ENGINE_CPR_FORECASTER;
+                CONFIG.ENGINE_FAILURE_RISK     = srvSettings.engine_failure_risk     ?? CONFIG.ENGINE_FAILURE_RISK;
+                CONFIG.ENGINE_EXPIRY_RISK      = srvSettings.engine_expiry_risk      ?? CONFIG.ENGINE_EXPIRY_RISK;
+                CONFIG.ENGINE_MEMBER_RELIABILITY = srvSettings.engine_member_reliability ?? CONFIG.ENGINE_MEMBER_RELIABILITY;
+                CONFIG.ENGINE_PAYOUT_OPTIMIZER = srvSettings.engine_payout_optimizer ?? CONFIG.ENGINE_PAYOUT_OPTIMIZER;
+                CONFIG.ENGINE_ITEM_ROI         = srvSettings.engine_item_roi         ?? CONFIG.ENGINE_ITEM_ROI;
+                CONFIG.ENGINE_NERVE_EFFICIENCY = srvSettings.engine_nerve_efficiency ?? CONFIG.ENGINE_NERVE_EFFICIENCY;
+                CONFIG.ENGINE_GAP_ANALYZER     = srvSettings.engine_gap_analyzer     ?? CONFIG.ENGINE_GAP_ANALYZER;
+                CONFIG.ENGINE_MEMBER_PROJECTOR = srvSettings.engine_member_projector ?? CONFIG.ENGINE_MEMBER_PROJECTOR;
+
                 // Sync local storage with server values
                 GM_setValue('cfg_active_days',         CONFIG.ACTIVE_DAYS);
                 GM_setValue('cfg_forecast_hours',      CONFIG.FORECAST_HOURS);
@@ -2801,6 +2889,17 @@
                 GM_setValue('cfg_high_weight_pct',     CONFIG.HIGH_WEIGHT_THRESHOLD);
                 GM_setValue('cfg_high_weight_mincpr',  CONFIG.HIGH_WEIGHT_MIN_CPR);
                 GM_setValue('cfg_scope',               CONFIG.SCOPE);
+                GM_setValue('eng_slot_optimizer',       CONFIG.ENGINE_SLOT_OPTIMIZER);
+                GM_setValue('eng_spawn_predictor',      CONFIG.ENGINE_SPAWN_PREDICTOR);
+                GM_setValue('eng_cpr_forecaster',       CONFIG.ENGINE_CPR_FORECASTER);
+                GM_setValue('eng_failure_risk',         CONFIG.ENGINE_FAILURE_RISK);
+                GM_setValue('eng_expiry_risk',          CONFIG.ENGINE_EXPIRY_RISK);
+                GM_setValue('eng_member_reliability',   CONFIG.ENGINE_MEMBER_RELIABILITY);
+                GM_setValue('eng_payout_optimizer',     CONFIG.ENGINE_PAYOUT_OPTIMIZER);
+                GM_setValue('eng_item_roi',             CONFIG.ENGINE_ITEM_ROI);
+                GM_setValue('eng_nerve_efficiency',     CONFIG.ENGINE_NERVE_EFFICIENCY);
+                GM_setValue('eng_gap_analyzer',         CONFIG.ENGINE_GAP_ANALYZER);
+                GM_setValue('eng_member_projector',     CONFIG.ENGINE_MEMBER_PROJECTOR);
 
                 populateSettings();
                 settingsReady = true;
