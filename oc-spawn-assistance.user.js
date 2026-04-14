@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.2.8
+// @version      2.2.9
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.2.9 — CPR Forecaster: per-level trends instead of flat average
 // v2.2.8 — CPR Forecaster engine: 90-day trends, 30-day projections per member
 // v2.2.4 — Failure Risk engine + Slot Optimizer fit labels (Strong/Good/Weak Fit)
 // v2.2.3 — Engines tab: greyed-out coming soon engines, removed Nerve Efficiency, renamed OC Payout Tracker
@@ -138,7 +139,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.2.8';
+    const SCRIPT_VERSION = '2.2.9';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2309,31 +2310,36 @@
         const { members } = engineData;
         let html = `<div style="margin:12px 0;border:1px solid #1e3a5f;border-radius:8px;padding:10px;background:#0a141f;">`;
         html += `<div style="font-size:12px;font-weight:700;color:#60a5fa;margin-bottom:8px;">\u{1f4c8} CPR Forecaster</div>`;
-        html += `<div style="display:flex;flex-direction:column;gap:3px;">`;
-
-        // Header row
-        html += `<div style="display:flex;align-items:center;gap:4px;padding:4px 8px;font-size:9px;color:#6b7280;font-weight:600;">`;
-        html += `<span style="min-width:90px;">Member</span>`;
-        html += `<span style="min-width:45px;">Now</span>`;
-        html += `<span style="min-width:35px;">Lvl</span>`;
-        html += `<span style="min-width:50px;">Trend</span>`;
-        html += `<span style="min-width:55px;">/month</span>`;
-        html += `<span style="min-width:70px;">30d Forecast</span>`;
-        html += `</div>`;
+        html += `<div style="display:flex;flex-direction:column;gap:6px;">`;
 
         for (const m of members) {
             const trendIcon = m.trend === 'improving' ? '\u25b2' : m.trend === 'declining' ? '\u25bc' : '\u25ac';
             const trendColor = m.trend === 'improving' ? '#4ade80' : m.trend === 'declining' ? '#ef4444' : '#6b7280';
             const cprColor = m.currentCpr >= 80 ? '#4ade80' : m.currentCpr >= 60 ? '#e5b567' : '#ef4444';
-            const changeStr = m.changePerMonth > 0 ? `+${m.changePerMonth}` : `${m.changePerMonth}`;
 
-            html += `<div style="display:flex;align-items:center;gap:4px;padding:3px 8px;background:#111820;border-radius:3px;font-size:10px;">`;
-            html += `<span style="color:#f3f4f6;font-weight:600;min-width:90px;">${m.name}</span>`;
-            html += `<span style="color:${cprColor};font-weight:600;min-width:45px;">${m.currentCpr.toFixed(0)}%</span>`;
-            html += `<span style="color:#6b7280;min-width:35px;">Lvl ${m.joinable}</span>`;
-            html += `<span style="color:${trendColor};font-weight:700;min-width:50px;">${trendIcon} ${m.trend}</span>`;
-            html += `<span style="color:${trendColor};min-width:55px;">${changeStr}%</span>`;
-            html += `<span style="color:#9ca3af;min-width:70px;">${m.projectedMin}%-${m.projectedMax}%</span>`;
+            html += `<div style="background:#111820;border-radius:4px;padding:6px 8px;border-left:3px solid ${trendColor};">`;
+            html += `<div style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:4px;">`;
+            html += `<span style="color:#f3f4f6;font-weight:600;">${m.name}</span>`;
+            html += `<span style="color:${cprColor};font-weight:600;">${m.currentCpr.toFixed(0)}%</span>`;
+            html += `<span style="color:${trendColor};font-weight:700;">${trendIcon}</span>`;
+            html += `</div>`;
+
+            // Per-level breakdown
+            for (const lvl of (m.levels || [])) {
+                const lTrendIcon = lvl.trend === 'improving' ? '\u25b2' : lvl.trend === 'declining' ? '\u25bc' : '\u25ac';
+                const lTrendColor = lvl.trend === 'improving' ? '#4ade80' : lvl.trend === 'declining' ? '#ef4444' : '#6b7280';
+                const lCprColor = lvl.currentCpr >= 80 ? '#4ade80' : lvl.currentCpr >= 60 ? '#e5b567' : '#ef4444';
+                const changeStr = lvl.changePerMonth > 0 ? `+${lvl.changePerMonth}` : `${lvl.changePerMonth}`;
+
+                html += `<div style="display:flex;align-items:center;gap:6px;font-size:10px;padding:1px 0;">`;
+                html += `<span style="color:#6b7280;min-width:35px;">Lvl ${lvl.level}</span>`;
+                html += `<span style="color:${lCprColor};font-weight:600;min-width:35px;">${lvl.currentCpr.toFixed(0)}%</span>`;
+                html += `<span style="color:${lTrendColor};min-width:20px;">${lTrendIcon}</span>`;
+                html += `<span style="color:${lTrendColor};min-width:45px;">${changeStr}%/mo</span>`;
+                html += `<span style="color:#9ca3af;">${lvl.projectedMin}%-${lvl.projectedMax}%</span>`;
+                html += `<span style="color:#374151;font-size:9px;">(${lvl.count} OCs)</span>`;
+                html += `</div>`;
+            }
             html += `</div>`;
         }
 
