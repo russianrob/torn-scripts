@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.4.1
+// @version      2.4.2
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.4.2 — Fix fetch interceptor causing uncaught promise rejections (red globe in TornPDA)
 // v2.4.1 — Member Projector: stricter readiness tiers (Building 60-69%, Developing 70-74%, Ready 75%+)
 // v2.4.0 — Rate limiting: 15s cooldown per user, countdown on Refresh button, 429 handling
 // v2.3.9 — Member Reliability: predict scores for new members with no OC history
@@ -141,7 +142,7 @@
             ENGINE_ITEM_ROI:         GM_getValue('eng_item_roi', false),
             ENGINE_GAP_ANALYZER:     GM_getValue('eng_gap_analyzer', false),
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
-            VERSION:           '2.4.1',
+            VERSION:           '2.4.2',
         };
     }
     let CONFIG = loadConfig();
@@ -151,7 +152,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.4.1';
+    const SCRIPT_VERSION = '2.4.2';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -876,18 +877,21 @@
 
         // Intercept Fetch
         const oldFetch = window.fetch;
-        window.fetch = async function() {
-            const res = await oldFetch.apply(this, arguments);
-            const url = arguments[0] instanceof Request ? arguments[0].url : arguments[0];
-            if (url && url.includes('step=getCrimesData')) {
+        window.fetch = function() {
+            const args = arguments;
+            const p = oldFetch.apply(this, args);
+            p.then(res => {
                 try {
-                    const cloned = res.clone();
-                    const data = await cloned.json();
-                    const s = data?.scope_balance ?? data?.scope;
-                    if (typeof s === 'number') handleDetectedScope(s, 'AJAX (Fetch)');
+                    const url = args[0] instanceof Request ? args[0].url : args[0];
+                    if (url && url.includes('step=getCrimesData')) {
+                        res.clone().json().then(data => {
+                            const s = data?.scope_balance ?? data?.scope;
+                            if (typeof s === 'number') handleDetectedScope(s, 'AJAX (Fetch)');
+                        }).catch(() => {});
+                    }
                 } catch (e) {}
-            }
-            return res;
+            }).catch(() => {}); // never swallow the original rejection
+            return p; // return original promise chain untouched
         };
     }
 
