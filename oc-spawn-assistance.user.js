@@ -2678,7 +2678,6 @@
             </div>
             ${renderScopeStrip(scopeProjection)}
             ${banner}
-            ${engines?.slotOptimizer ? renderSlotOptimizer(engines.slotOptimizer) : ''}
             <h3>Spawn Recommendations — High Priority First</h3>
             ${renderRecommendations(recs, scopeProjection)}
             <h3>Eligible Members</h3>
