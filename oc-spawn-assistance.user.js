@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.2.9
+// @version      2.3.0
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.3.0 — Remember active tab across refreshes
 // v2.2.9 — CPR Forecaster: per-level trends instead of flat average
 // v2.2.8 — CPR Forecaster engine: 90-day trends, 30-day projections per member
 // v2.2.4 — Failure Risk engine + Slot Optimizer fit labels (Strong/Good/Weak Fit)
@@ -139,7 +140,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.2.9';
+    const SCRIPT_VERSION = '2.3.0';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1819,7 +1820,10 @@
     }
 
     document.querySelectorAll('.oc-tab').forEach(btn => {
-        btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+        btn.addEventListener('click', () => {
+            switchTab(btn.dataset.tab);
+            GM_setValue('oc_last_tab', btn.dataset.tab);
+        });
     });
 
     function populateSettings() {
@@ -3132,7 +3136,9 @@
             const cfgSection = document.getElementById('oc-cfg-section');
             if (cfgSection) cfgSection.style.display = (isDev(viewer) || canViewAdmin(viewer)) ? '' : 'none';
             if (canViewAdmin(viewer)) {
-                switchTab('admin');
+                const lastTab = GM_getValue('oc_last_tab', 'admin');
+                const validTabs = ['profile', 'admin', 'manager', 'metrics', 'engines'];
+                switchTab(validTabs.includes(lastTab) ? lastTab : 'admin');
             } else {
                 // Replace admin content with locked message
                 document.getElementById('oc-tab-admin').innerHTML =
