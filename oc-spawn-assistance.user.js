@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.2.7
+// @version      2.2.8
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.2.8 — CPR Forecaster engine: 90-day trends, 30-day projections per member
 // v2.2.4 — Failure Risk engine + Slot Optimizer fit labels (Strong/Good/Weak Fit)
 // v2.2.3 — Engines tab: greyed-out coming soon engines, removed Nerve Efficiency, renamed OC Payout Tracker
 // v2.2.2 — Dedicated Engines tab with separate save, removed scope auto-push
@@ -137,7 +138,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.2.7';
+    const SCRIPT_VERSION = '2.2.8';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2272,7 +2273,7 @@
 
         html += `<div style="font-size:10px;color:#9ca3af;margin-bottom:6px;font-weight:600;">Optimization</div>`;
         html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-slot-optimizer" ${CONFIG.ENGINE_SLOT_OPTIMIZER ? 'checked' : ''}/> <span>Slot Optimizer</span><span class="oc-engine-desc">Auto-calculate best member-to-slot assignments</span></label>`;
-        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-cpr-forecaster" disabled/> <span>CPR Forecaster</span><span class="oc-engine-desc">Project member CPR trends over time</span></label>`;
+        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-cpr-forecaster" ${CONFIG.ENGINE_CPR_FORECASTER ? 'checked' : ''}/> <span>CPR Forecaster</span><span class="oc-engine-desc">Project member CPR trends over time</span></label>`;
 
         html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Risk</div>`;
         html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-failure-risk" ${CONFIG.ENGINE_FAILURE_RISK ? 'checked' : ''}/> <span>Failure Risk</span><span class="oc-engine-desc">Score OC failure probability before launch</span></label>`;
@@ -2290,14 +2291,53 @@
         html += `<div style="text-align:right;margin-top:8px;"><button id="oc-engine-save" class="oc-setting-save-btn">Save Engines</button></div>`;
 
         // Engine results
-        if (engines.slotOptimizer || engines.failureRisk) {
+        if (engines.slotOptimizer || engines.failureRisk || engines.cprForecaster) {
             html += `<div style="margin-top:12px;border-top:1px solid #374151;padding-top:10px;">`;
             if (engines.slotOptimizer) html += renderSlotOptimizer(engines.slotOptimizer);
             if (engines.failureRisk) html += renderFailureRisk(engines.failureRisk);
+            if (engines.cprForecaster) html += renderCprForecaster(engines.cprForecaster);
             html += `</div>`;
         }
 
         html += `</div>`;
+        return html;
+    }
+
+    function renderCprForecaster(engineData) {
+        if (!engineData || !engineData.members || engineData.members.length === 0)
+            return '<div style="color:#6b7280;font-size:11px;">Not enough OC history for forecasting yet.</div>';
+        const { members } = engineData;
+        let html = `<div style="margin:12px 0;border:1px solid #1e3a5f;border-radius:8px;padding:10px;background:#0a141f;">`;
+        html += `<div style="font-size:12px;font-weight:700;color:#60a5fa;margin-bottom:8px;">\u{1f4c8} CPR Forecaster</div>`;
+        html += `<div style="display:flex;flex-direction:column;gap:3px;">`;
+
+        // Header row
+        html += `<div style="display:flex;align-items:center;gap:4px;padding:4px 8px;font-size:9px;color:#6b7280;font-weight:600;">`;
+        html += `<span style="min-width:90px;">Member</span>`;
+        html += `<span style="min-width:45px;">Now</span>`;
+        html += `<span style="min-width:35px;">Lvl</span>`;
+        html += `<span style="min-width:50px;">Trend</span>`;
+        html += `<span style="min-width:55px;">/month</span>`;
+        html += `<span style="min-width:70px;">30d Forecast</span>`;
+        html += `</div>`;
+
+        for (const m of members) {
+            const trendIcon = m.trend === 'improving' ? '\u25b2' : m.trend === 'declining' ? '\u25bc' : '\u25ac';
+            const trendColor = m.trend === 'improving' ? '#4ade80' : m.trend === 'declining' ? '#ef4444' : '#6b7280';
+            const cprColor = m.currentCpr >= 80 ? '#4ade80' : m.currentCpr >= 60 ? '#e5b567' : '#ef4444';
+            const changeStr = m.changePerMonth > 0 ? `+${m.changePerMonth}` : `${m.changePerMonth}`;
+
+            html += `<div style="display:flex;align-items:center;gap:4px;padding:3px 8px;background:#111820;border-radius:3px;font-size:10px;">`;
+            html += `<span style="color:#f3f4f6;font-weight:600;min-width:90px;">${m.name}</span>`;
+            html += `<span style="color:${cprColor};font-weight:600;min-width:45px;">${m.currentCpr.toFixed(0)}%</span>`;
+            html += `<span style="color:#6b7280;min-width:35px;">Lvl ${m.joinable}</span>`;
+            html += `<span style="color:${trendColor};font-weight:700;min-width:50px;">${trendIcon} ${m.trend}</span>`;
+            html += `<span style="color:${trendColor};min-width:55px;">${changeStr}%</span>`;
+            html += `<span style="color:#9ca3af;min-width:70px;">${m.projectedMin}%-${m.projectedMax}%</span>`;
+            html += `</div>`;
+        }
+
+        html += `</div></div>`;
         return html;
     }
 
