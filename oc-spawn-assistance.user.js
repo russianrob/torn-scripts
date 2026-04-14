@@ -1919,6 +1919,18 @@
         CONFIG.HIGH_WEIGHT_THRESHOLD = get('cfg-high-weight-pct');
         CONFIG.HIGH_WEIGHT_MIN_CPR   = get('cfg-high-weight-mincpr');
 
+        // Engine toggles
+        CONFIG.ENGINE_SLOT_OPTIMIZER   = document.getElementById('eng-slot-optimizer').checked;
+        CONFIG.ENGINE_CPR_FORECASTER   = document.getElementById('eng-cpr-forecaster').checked;
+        CONFIG.ENGINE_FAILURE_RISK     = document.getElementById('eng-failure-risk').checked;
+        CONFIG.ENGINE_EXPIRY_RISK      = document.getElementById('eng-expiry-risk').checked;
+        CONFIG.ENGINE_MEMBER_RELIABILITY = document.getElementById('eng-member-reliability').checked;
+        CONFIG.ENGINE_PAYOUT_OPTIMIZER = document.getElementById('eng-payout-optimizer').checked;
+        CONFIG.ENGINE_ITEM_ROI         = document.getElementById('eng-item-roi').checked;
+        CONFIG.ENGINE_NERVE_EFFICIENCY = document.getElementById('eng-nerve-efficiency').checked;
+        CONFIG.ENGINE_GAP_ANALYZER     = document.getElementById('eng-gap-analyzer').checked;
+        CONFIG.ENGINE_MEMBER_PROJECTOR = document.getElementById('eng-member-projector').checked;
+
         // Local persistence
         GM_setValue('cfg_active_days',    CONFIG.ACTIVE_DAYS);
         GM_setValue('cfg_forecast_hours', CONFIG.FORECAST_HOURS);
