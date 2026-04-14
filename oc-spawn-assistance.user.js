@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.3.0
+// @version      2.3.1
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.3.1 — CPR Forecaster: per-level, per-role breakdown
 // v2.3.0 — Remember active tab across refreshes
 // v2.2.9 — CPR Forecaster: per-level trends instead of flat average
 // v2.2.8 — CPR Forecaster engine: 90-day trends, 30-day projections per member
@@ -140,7 +141,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.3.0';
+    const SCRIPT_VERSION = '2.3.1';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2328,20 +2329,36 @@
             html += `<span style="color:${trendColor};font-weight:700;">${trendIcon}</span>`;
             html += `</div>`;
 
-            // Per-level breakdown
+            // Per-level breakdown with roles
             for (const lvl of (m.levels || [])) {
                 const lTrendIcon = lvl.trend === 'improving' ? '\u25b2' : lvl.trend === 'declining' ? '\u25bc' : '\u25ac';
                 const lTrendColor = lvl.trend === 'improving' ? '#4ade80' : lvl.trend === 'declining' ? '#ef4444' : '#6b7280';
                 const lCprColor = lvl.currentCpr >= 80 ? '#4ade80' : lvl.currentCpr >= 60 ? '#e5b567' : '#ef4444';
-                const changeStr = lvl.changePerMonth > 0 ? `+${lvl.changePerMonth}` : `${lvl.changePerMonth}`;
 
-                html += `<div style="display:flex;align-items:center;gap:6px;font-size:10px;padding:1px 0;">`;
-                html += `<span style="color:#6b7280;min-width:35px;">Lvl ${lvl.level}</span>`;
-                html += `<span style="color:${lCprColor};font-weight:600;min-width:35px;">${lvl.currentCpr.toFixed(0)}%</span>`;
-                html += `<span style="color:${lTrendColor};min-width:20px;">${lTrendIcon}</span>`;
-                html += `<span style="color:${lTrendColor};min-width:45px;">${changeStr}%/mo</span>`;
-                html += `<span style="color:#9ca3af;">${lvl.projectedMin}%-${lvl.projectedMax}%</span>`;
+                html += `<div style="font-size:10px;padding:2px 0;">`;
+                html += `<div style="display:flex;align-items:center;gap:6px;color:#9ca3af;font-weight:600;">`;
+                html += `<span style="min-width:35px;">Lvl ${lvl.level}</span>`;
+                html += `<span style="color:${lCprColor};">${lvl.currentCpr.toFixed(0)}%</span>`;
+                html += `<span style="color:${lTrendColor};">${lTrendIcon}</span>`;
                 html += `<span style="color:#374151;font-size:9px;">(${lvl.count} OCs)</span>`;
+                html += `</div>`;
+
+                // Role breakdown within this level
+                for (const r of (lvl.roles || [])) {
+                    const rTrendIcon = r.trend === 'improving' ? '\u25b2' : r.trend === 'declining' ? '\u25bc' : '\u25ac';
+                    const rTrendColor = r.trend === 'improving' ? '#4ade80' : r.trend === 'declining' ? '#ef4444' : '#6b7280';
+                    const rCprColor = r.currentCpr >= 80 ? '#4ade80' : r.currentCpr >= 60 ? '#e5b567' : '#ef4444';
+                    const rChange = r.changePerMonth > 0 ? `+${r.changePerMonth}` : `${r.changePerMonth}`;
+
+                    html += `<div style="display:flex;align-items:center;gap:5px;font-size:9px;padding:0 0 0 16px;">`;
+                    html += `<span style="color:#6b7280;min-width:60px;">${r.role}</span>`;
+                    html += `<span style="color:${rCprColor};font-weight:600;min-width:30px;">${r.currentCpr.toFixed(0)}%</span>`;
+                    html += `<span style="color:${rTrendColor};">${rTrendIcon}</span>`;
+                    html += `<span style="color:${rTrendColor};min-width:40px;">${rChange}%/mo</span>`;
+                    html += `<span style="color:#4b5563;">${r.projectedMin}%-${r.projectedMax}%</span>`;
+                    html += `<span style="color:#374151;">(${r.count})</span>`;
+                    html += `</div>`;
+                }
                 html += `</div>`;
             }
             html += `</div>`;
