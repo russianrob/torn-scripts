@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.7.0
+// @version      2.7.1
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.7.1 — Remove scoring breakdown; add "Join" link on each fallback option
 // v2.7.0 — Dispatcher shows actual execution countdown from Torn API (ready_at) instead of estimated time
 // v2.6.9 — Hide negative hoursToExpiry in dispatcher banner (expired_at can be in the past for active crimes)
 // v2.6.8 — Dispatcher banner always visible: loading spinner on init, status messages when no data or in OC
@@ -147,7 +148,7 @@
 
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
             ENGINE_AUTO_DISPATCHER:  GM_getValue('eng_auto_dispatcher', true),
-            VERSION:           '2.7.0',
+            VERSION:           '2.7.1',
         };
     }
     let CONFIG = loadConfig();
@@ -2758,17 +2759,6 @@
         }
         html += `</div>`;
 
-        // Scoring breakdown (collapsed by default)
-        html += `<details style="margin-top:4px;">`;
-        html += `<summary style="font-size:9px;color:#4b5563;cursor:pointer;">Scoring breakdown</summary>`;
-        html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px;font-size:9px;color:#6b7280;">`;
-        html += `<span>Contribution: ${bd.weightedContribution}</span>`;
-        html += `<span>Time: x${bd.timePriority}</span>`;
-        html += `<span>Overstack: x${bd.overstackPenalty}</span>`;
-        html += `<span>Level: x${bd.levelMatch}</span>`;
-        html += `<span>Scope: x${bd.scopeBonus}</span>`;
-        html += `</div></details>`;
-
         // Fallbacks
         if (fb.length > 0) {
             html += `<details style="margin-top:4px;">`;
@@ -2783,7 +2773,7 @@
                 if (f.roleWeight > 0) html += `<span style="font-size:9px;color:#6b7280;">${f.roleWeight}%w</span>`;
                 html += `<span style="font-size:9px;color:#6b7280;">${f.filledPct}% full</span>`;
                 if (f.isLastSlot) html += `<span style="font-size:9px;color:#f59e0b;font-weight:700;">LAST</span>`;
-
+                html += `<span style="font-size:9px;color:#60a5fa;cursor:pointer;text-decoration:underline;margin-left:auto;" data-fallback-crime-id="${f.crimeId}">Join \u2192</span>`;
                 html += `</div>`;
             }
             html += `</div></details>`;
