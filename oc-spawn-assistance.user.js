@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.7.1
+// @version      2.7.2
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -148,7 +148,7 @@
 
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
             ENGINE_AUTO_DISPATCHER:  GM_getValue('eng_auto_dispatcher', true),
-            VERSION:           '2.7.1',
+            VERSION:           '2.7.2',
         };
     }
     let CONFIG = loadConfig();
@@ -2773,6 +2773,11 @@
                 if (f.roleWeight > 0) html += `<span style="font-size:9px;color:#6b7280;">${f.roleWeight}%w</span>`;
                 html += `<span style="font-size:9px;color:#6b7280;">${f.filledPct}% full</span>`;
                 if (f.isLastSlot) html += `<span style="font-size:9px;color:#f59e0b;font-weight:700;">LAST</span>`;
+                if (f.readyAtHours && f.readyAtHours > 0) {
+                    const fRh = f.readyAtHours;
+                    const fExec = fRh >= 24 ? `${Math.floor(fRh / 24)}d ${Math.round(fRh % 24)}h` : `${fRh}h`;
+                    html += `<span style="font-size:9px;color:#6b7280;">\u{1f552} ${fExec}</span>`;
+                }
                 html += `<span style="font-size:9px;color:#60a5fa;cursor:pointer;text-decoration:underline;margin-left:auto;" data-fallback-crime-id="${f.crimeId}">Join \u2192</span>`;
                 html += `</div>`;
             }
