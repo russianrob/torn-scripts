@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.6.0
+// @version      2.6.1
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -142,7 +142,7 @@
 
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
             ENGINE_AUTO_DISPATCHER:  GM_getValue('eng_auto_dispatcher', false),
-            VERSION:           '2.6.0',
+            VERSION:           '2.6.1',
         };
     }
     let CONFIG = loadConfig();
