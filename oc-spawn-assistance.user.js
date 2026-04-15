@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      3.0.1
+// @version      3.0.2
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -24,6 +24,7 @@
 // v2.6.8 — Dispatcher banner always visible: loading spinner on init, status messages when no data or in OC
 // v2.6.7 — Panel no longer auto-opens; stays closed until user clicks the toggle button (respects oc_panel_closed flag)
 // v2.6.6 — Dispatcher banner: click navigates via hash URL (#crimeId=...) so Torn's own router expands the card; fallbacks also clickable
+// v3.0.2 — dispatcher banner only visible on crimes tab, auto-hides on tab navigation
 // v3.0.1 — auto-retry on fetch errors (3 retries w/ backoff), dispatcher banner shows retry/error state instead of stuck loading
 // v3.0.0 — version bump (6 engines: Slot Optimizer, Failure Risk, CPR Forecaster, Member Projector, Member Reliability, Auto-Dispatcher)
 // v2.4.2 — Fix fetch interceptor causing uncaught promise rejections (red globe in TornPDA)
@@ -159,7 +160,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '3.0.1';
+    const SCRIPT_VERSION = '3.0.2';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2656,9 +2657,16 @@
         return null;
     }
 
+    function isOnCrimesTab() {
+        const h = window.location.hash || '';
+        const u = window.location.href || '';
+        return h.includes('tab=crimes') || u.includes('tab=crimes') || !!document.getElementById('faction-crimes-root');
+    }
+
     // Show a persistent dispatcher banner on the Torn page immediately (loading state)
     function injectDispatcherLoading() {
         if (!CONFIG.ENGINE_AUTO_DISPATCHER) return;
+        if (!isOnCrimesTab()) return; // only show on crimes tab
         if (document.getElementById('oc-dispatcher-torn-banner')) return; // already exists
         const anchor = findTornOcTabAnchor();
         if (!anchor) return;
@@ -2680,6 +2688,7 @@
 
     // Helper: inject a simple one-line status into the Torn page dispatcher slot
     function _injectDispatcherStatus(icon, text, color) {
+        if (!isOnCrimesTab()) { const old = document.getElementById('oc-dispatcher-torn-banner'); if (old) old.remove(); return; }
         const anchor = findTornOcTabAnchor();
         if (!anchor) return;
         const bannerEl = document.createElement('div');
@@ -2695,6 +2704,8 @@
         // Remove old banner if it exists
         const oldBanner = document.getElementById('oc-dispatcher-torn-banner');
         if (oldBanner) oldBanner.remove();
+        // Only render on crimes tab
+        if (!isOnCrimesTab()) return;
 
         // Also update the in-panel fallback
         const panelBanner = document.getElementById('oc-dispatcher-banner');
@@ -3681,6 +3692,14 @@
             setTimeout(runAnalysis, 500);
         }
     }
+
+    // Remove dispatcher banner when navigating away from crimes tab
+    window.addEventListener('hashchange', () => {
+        if (!isOnCrimesTab()) {
+            const b = document.getElementById('oc-dispatcher-torn-banner');
+            if (b) b.remove();
+        }
+    });
 
     // Start DOM scope reader (runs whenever recruiting tab is visible)
     setupScopeDomReader();
