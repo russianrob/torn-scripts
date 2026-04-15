@@ -142,7 +142,7 @@
             ENGINE_MEMBER_RELIABILITY: GM_getValue('eng_member_reliability', false),
 
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
-            ENGINE_AUTO_DISPATCHER:  GM_getValue('eng_auto_dispatcher', false),
+            ENGINE_AUTO_DISPATCHER:  GM_getValue('eng_auto_dispatcher', true),
             VERSION:           '2.6.6',
         };
     }
