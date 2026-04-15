@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      3.0.3
+// @version      3.0.4
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -24,6 +24,7 @@
 // v2.6.8 — Dispatcher banner always visible: loading spinner on init, status messages when no data or in OC
 // v2.6.7 — Panel no longer auto-opens; stays closed until user clicks the toggle button (respects oc_panel_closed flag)
 // v2.6.6 — Dispatcher banner: click navigates via hash URL (#crimeId=...) so Torn's own router expands the card; fallbacks also clickable
+// v3.0.4 — travel alert: only show for fully staffed OCs (not partially filled ones with ready_at in past)
 // v3.0.3 — dispatcher banner re-injects when navigating back to crimes tab
 // v3.0.2 — dispatcher banner only visible on crimes tab, auto-hides on tab navigation
 // v3.0.1 — auto-retry on fetch errors (3 retries w/ backoff), dispatcher banner shows retry/error state instead of stuck loading
@@ -162,7 +163,7 @@
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
     let _lastDispatcherData;         // cache last dispatcher result for tab re-injection
-    const SCRIPT_VERSION = '3.0.3';
+    const SCRIPT_VERSION = '3.0.4';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -3129,7 +3130,11 @@
             if (crime.status !== 'Recruiting' && crime.status !== 'Planning') continue;
             const readyAt = crime.ready_at || 0;
 
-            // Only alert if OC is ready to execute right now
+            // Only alert if OC is fully staffed AND ready to execute right now
+            const slots = crime.slots || [];
+            const filledSlots = slots.filter(s => (s.user_id ?? s.user?.id) != null).length;
+            const totalSlots = slots.length;
+            if (filledSlots < totalSlots) continue; // still recruiting, not actually ready
             if (!(readyAt > 0 && readyAt <= now)) continue;
             const urgency = 'ready now';
 
