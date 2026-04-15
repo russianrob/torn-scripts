@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.6.6
+// @version      2.6.7
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.6.7 — Panel no longer auto-opens; stays closed until user clicks the toggle button (respects oc_panel_closed flag)
 // v2.6.6 — Dispatcher banner: click navigates via hash URL (#crimeId=...) so Torn's own router expands the card; fallbacks also clickable
 // v2.4.3 — Slot Optimizer: show ~ prefix when using overall CPR instead of position-specific CPR
 // v2.4.2 — Fix fetch interceptor causing uncaught promise rejections (red globe in TornPDA)
@@ -143,7 +144,7 @@
 
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
             ENGINE_AUTO_DISPATCHER:  GM_getValue('eng_auto_dispatcher', true),
-            VERSION:           '2.6.6',
+            VERSION:           '2.6.7',
         };
     }
     let CONFIG = loadConfig();
@@ -3590,7 +3591,10 @@
     setupAjaxInterceptor();
 
     if (window.location.href.includes('tab=crimes') || window.location.hash.includes('crimes')) {
-        panelVisible = true; panel.style.display = 'block';
+        // Only auto-open if the user hasn't explicitly closed the panel
+        if (!GM_getValue('oc_panel_closed', false)) {
+            panelVisible = true; panel.style.display = 'block';
+        }
         if (getApiKey()) {
             _lastRefresh = Date.now();
             startRefreshCooldown();
