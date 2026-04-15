@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      3.0.0
+// @version      3.0.1
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -24,6 +24,7 @@
 // v2.6.8 — Dispatcher banner always visible: loading spinner on init, status messages when no data or in OC
 // v2.6.7 — Panel no longer auto-opens; stays closed until user clicks the toggle button (respects oc_panel_closed flag)
 // v2.6.6 — Dispatcher banner: click navigates via hash URL (#crimeId=...) so Torn's own router expands the card; fallbacks also clickable
+// v3.0.1 — auto-retry on fetch errors (3 retries w/ backoff), dispatcher banner shows retry/error state instead of stuck loading
 // v3.0.0 — version bump (6 engines: Slot Optimizer, Failure Risk, CPR Forecaster, Member Projector, Member Reliability, Auto-Dispatcher)
 // v2.4.2 — Fix fetch interceptor causing uncaught promise rejections (red globe in TornPDA)
 // v2.4.1 — Member Projector: stricter readiness tiers (Building 60-69%, Developing 70-74%, Ready 75%+)
@@ -158,7 +159,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '3.0.0';
+    const SCRIPT_VERSION = '3.0.1';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -3497,22 +3498,39 @@
                 if (saveBtn) saveBtn.disabled = false;
             }
 
-            // Fetch OC data from server
+            // Fetch OC data from server (with auto-retry on transient errors)
             setStatus('Fetching OC data…');
             let members, availableCrimes, rawCprCache, viewer, weights, serverResp, engines;
-            try {
-                serverResp = await fetchServerOcData(apiKey);
-                ({ members, availableCrimes, cprCache: rawCprCache, viewer, weights, engines } = serverResp);
-                engines = engines || {};
-            } catch (err) {
-                if (err.status === 403) {
-                    document.getElementById('oc-tab-profile').innerHTML =
-                        `<p class="oc-error">⛔ ${err.message}</p>`;
-                    setStatus('Access denied.');
-                    return;
+            const MAX_RETRIES = 3;
+            const RETRY_DELAYS = [5000, 10000, 20000]; // 5s, 10s, 20s
+            let fetchSuccess = false;
+            for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+                try {
+                    if (attempt > 0) {
+                        setStatus(`Retrying… (${attempt}/${MAX_RETRIES})`);
+                        _injectDispatcherStatus('🔄', `Retrying… (${attempt}/${MAX_RETRIES})`, '#f59e0b');
+                    }
+                    serverResp = await fetchServerOcData(apiKey);
+                    ({ members, availableCrimes, cprCache: rawCprCache, viewer, weights, engines } = serverResp);
+                    engines = engines || {};
+                    fetchSuccess = true;
+                    break;
+                } catch (err) {
+                    if (err.status === 403) {
+                        document.getElementById('oc-tab-profile').innerHTML =
+                            `<p class="oc-error">⛔ ${err.message}</p>`;
+                        setStatus('Access denied.');
+                        _injectDispatcherStatus('⛔', 'Access denied', '#ef4444');
+                        return;
+                    }
+                    if (err.status === 429 || attempt >= MAX_RETRIES) throw err;
+                    // Transient error — wait and retry
+                    const delay = RETRY_DELAYS[attempt] || 20000;
+                    console.warn(`[OC Spawn] Fetch attempt ${attempt + 1} failed: ${err.message}. Retrying in ${delay/1000}s…`);
+                    await new Promise(r => setTimeout(r, delay));
                 }
-                throw err;
             }
+            if (!fetchSuccess) throw new Error('Failed to fetch OC data after retries');
 
             // No faction key cached yet — show waiting message
             if (serverResp.pendingFactionData) {
@@ -3627,6 +3645,8 @@
                 `<p class="oc-error">Error: ${err.message}</p>
                  <p style="color:#6b7280;font-size:11px;">${hint}</p>`;
             setStatus(`Error: ${err.message}`);
+            // Update dispatcher banner so it doesn't stay stuck on loading
+            _injectDispatcherStatus('⚠️', 'Error loading — click Refresh to retry', '#ef4444');
             console.error('[OC Spawn]', err);
         } finally {
             // Refresh button re-enables via cooldown timer (startRefreshCooldown)
