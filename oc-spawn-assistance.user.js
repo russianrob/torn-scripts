@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      3.0.5
+// @version      3.0.6
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -24,6 +24,7 @@
 // v2.6.8 — Dispatcher banner always visible: loading spinner on init, status messages when no data or in OC
 // v2.6.7 — Panel no longer auto-opens; stays closed until user clicks the toggle button (respects oc_panel_closed flag)
 // v2.6.6 — Dispatcher banner: click navigates via hash URL (#crimeId=...) so Torn's own router expands the card; fallbacks also clickable
+// v3.0.6 — Admin eligible list: prioritize OCs with most members filled, remove weight sorting
 // v3.0.5 — fix: re-fetch data when navigating back to crimes tab (not just re-inject stale banner)
 // v3.0.4 — travel alert: only show for fully staffed OCs (not partially filled ones with ready_at in past)
 // v3.0.3 — dispatcher banner re-injects when navigating back to crimes tab
@@ -164,7 +165,7 @@
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
     let _lastDispatcherData;         // cache last dispatcher result for tab re-injection
-    const SCRIPT_VERSION = '3.0.5';
+    const SCRIPT_VERSION = '3.0.6';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2221,8 +2222,9 @@
             if (!slotMap[d]) slotMap[d] = { totalSlots: 0, openSlots: 0, crimes: [] };
             let open = 0, total = 0;
             for (const slot of (crime.slots || [])) { total++; if (!slot.user_id && !slot.user?.id) open++; }
+            const filled = total - open;
             slotMap[d].totalSlots += total; slotMap[d].openSlots += open;
-            slotMap[d].crimes.push({ id: crime.id, name: crime.name, open, total });
+            slotMap[d].crimes.push({ id: crime.id, name: crime.name, open, total, filled });
         }
         return slotMap;
     }
@@ -2945,8 +2947,12 @@
             );
             if (openOCs.length) { matchedLevel = lvl; break; }
         }
-        // Sort by urgency first (expiring soonest), then highest weight
+        // Sort: most filled first, then expiry, then difficulty
         openOCs.sort((a, b) => {
+            const aSlots = a.slots || [], bSlots = b.slots || [];
+            const aFilled = aSlots.filter(s => (s.user_id ?? s.user?.id) != null).length;
+            const bFilled = bSlots.filter(s => (s.user_id ?? s.user?.id) != null).length;
+            if (aFilled !== bFilled) return bFilled - aFilled; // most filled first
             const aExp = a.expired_at || Infinity;
             const bExp = b.expired_at || Infinity;
             if (aExp !== bExp) return aExp - bExp; // soonest expiry first
@@ -2954,26 +2960,23 @@
         });
         if (!openOCs.length) return { type: 'none', text: `No OCs open (Lvl 1-${m.joinable})` };
 
-        let bestCrime = null, bestPos = null, bestPosCPR = -1, bestWeight = -1;
+        let bestCrime = null, bestPos = null, bestPosCPR = -1;
 
         for (const c of openOCs) {
             const labeled = labelSlotPositions(c.slots || []);
             for (const slot of labeled.filter(s => !s.user_id && !s.user?.id)) {
-                const slotWeight = getSlotWeight(weights, c.name, slot.label);
-                // High-weight slots need higher CPR
-                const minCPR = (slotWeight !== null && slotWeight >= HIGH_WEIGHT_THRESHOLD)
-                    ? HIGH_WEIGHT_MIN_CPR : CONFIG.MINCPR;
-                if (memberCPR < minCPR) continue; // CPR too low for this slot
+                if (memberCPR < CONFIG.MINCPR) continue; // CPR too low for this slot
 
                 const pd  = lookupPosCPR(byPos, c.name, slot.position);
                 const posCPR = pd?.cpr || 0;
-                const w = slotWeight ?? 0;
-                // Prefer: highest weight first, then highest role CPR as tiebreaker
-                if (w > bestWeight || (w === bestWeight && posCPR > bestPosCPR)) {
-                    bestPosCPR = posCPR; bestPos = slot.label; // "Thief #1" not just "Thief"
-                    bestCrime = c; bestWeight = w;
+                // Prefer: highest role CPR (OCs already sorted by fill count)
+                if (!bestCrime || posCPR > bestPosCPR) {
+                    bestPosCPR = posCPR; bestPos = slot.label;
+                    bestCrime = c;
                 }
             }
+            // Once we find a match in the most-filled OC, stop
+            if (bestCrime) break;
         }
 
         // Fallback: if no qualifying slot (CPR too low), show best available anyway with a warning
@@ -2987,8 +2990,7 @@
         }
 
         return { type: 'rec', crime: bestCrime.name, position: bestPos,
-            cpr: bestPosCPR > 0 ? bestPosCPR : null, level: matchedLevel, count: openOCs.length,
-            weight: bestWeight };
+            cpr: bestPosCPR > 0 ? bestPosCPR : null, level: matchedLevel, count: openOCs.length };
     }
 
     function renderEligibleMembers(eligible, availableCrimes, weights) {
