@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.6.2
+// @version      2.6.3
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -142,7 +142,7 @@
 
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
             ENGINE_AUTO_DISPATCHER:  GM_getValue('eng_auto_dispatcher', false),
-            VERSION:           '2.6.2',
+            VERSION:           '2.6.3',
         };
     }
     let CONFIG = loadConfig();
@@ -2686,7 +2686,7 @@
         else if (rec.hoursToExpiry && rec.hoursToExpiry < 8) { urgencyColor = '#ef4444'; urgencyBorder = '#7f1d1d'; urgencyBg = '#1a0a0a'; }
         else if (rec.emptySlots <= 2) { urgencyColor = '#60a5fa'; urgencyBorder = '#1e3a5f'; urgencyBg = '#0a1628'; }
 
-        let html = `<div style="padding:8px 10px;background:${urgencyBg};border:1px solid ${urgencyBorder};border-radius:8px;margin:8px 10px;cursor:default;">`;
+        let html = `<div style="padding:8px 10px;background:${urgencyBg};border:1px solid ${urgencyBorder};border-radius:8px;margin:8px 10px;cursor:pointer;transition:opacity 0.15s;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'" data-crime-id="${rec.crimeId}">`;
 
         // Main recommendation row
         html += `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">`;
@@ -2750,6 +2750,21 @@
             const bannerEl = document.createElement('div');
             bannerEl.id = 'oc-dispatcher-torn-banner';
             bannerEl.innerHTML = html;
+            bannerEl.addEventListener('click', (e) => {
+                if (e.target.closest('details summary')) return; // don't scroll when toggling details
+                const cid = rec.crimeId;
+                // Find the OC element on the page by crime ID
+                const crimeEl = document.querySelector(`[data-crime-id="${cid}"], [class*="crimeContainer"][data-id="${cid}"], [id*="${cid}"]`)
+                             || document.querySelector(`a[href*="${cid}"]`)?.closest('[class*="crime"]');
+                if (crimeEl) {
+                    crimeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    // Flash highlight
+                    const origBg = crimeEl.style.outline;
+                    crimeEl.style.outline = '2px solid #60a5fa';
+                    crimeEl.style.outlineOffset = '2px';
+                    setTimeout(() => { crimeEl.style.outline = origBg; crimeEl.style.outlineOffset = ''; }, 2000);
+                }
+            });
             anchor.parent.insertBefore(bannerEl, anchor.ref || null);
         } else {
             // Fallback: inject into the panel banner div
