@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      3.0.4
+// @version      3.0.5
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -24,6 +24,7 @@
 // v2.6.8 — Dispatcher banner always visible: loading spinner on init, status messages when no data or in OC
 // v2.6.7 — Panel no longer auto-opens; stays closed until user clicks the toggle button (respects oc_panel_closed flag)
 // v2.6.6 — Dispatcher banner: click navigates via hash URL (#crimeId=...) so Torn's own router expands the card; fallbacks also clickable
+// v3.0.5 — fix: re-fetch data when navigating back to crimes tab (not just re-inject stale banner)
 // v3.0.4 — travel alert: only show for fully staffed OCs (not partially filled ones with ready_at in past)
 // v3.0.3 — dispatcher banner re-injects when navigating back to crimes tab
 // v3.0.2 — dispatcher banner only visible on crimes tab, auto-hides on tab navigation
@@ -163,7 +164,7 @@
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
     let _lastDispatcherData;         // cache last dispatcher result for tab re-injection
-    const SCRIPT_VERSION = '3.0.4';
+    const SCRIPT_VERSION = '3.0.5';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -3707,15 +3708,17 @@
             const b = document.getElementById('oc-dispatcher-torn-banner');
             if (b) b.remove();
         } else if (CONFIG.ENGINE_AUTO_DISPATCHER && !document.getElementById('oc-dispatcher-torn-banner')) {
-            // Re-inject banner when navigating back to crimes tab
-            // Use a short delay to let Torn's React render the DOM first
+            // Re-inject banner and re-fetch when navigating back to crimes tab
             setTimeout(() => {
                 if (!document.getElementById('oc-dispatcher-torn-banner') && isOnCrimesTab()) {
+                    // Show cached data immediately if available, then refresh
                     if (_lastDispatcherData !== undefined) {
                         renderDispatcherBanner(_lastDispatcherData);
                     } else {
                         injectDispatcherLoading();
                     }
+                    // Trigger a fresh data fetch
+                    runAnalysis();
                 }
             }, 300);
         }
