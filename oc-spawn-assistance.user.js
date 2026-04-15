@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.6.1
+// @version      2.6.2
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -142,7 +142,7 @@
 
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
             ENGINE_AUTO_DISPATCHER:  GM_getValue('eng_auto_dispatcher', false),
-            VERSION:           '2.6.1',
+            VERSION:           '2.6.2',
         };
     }
     let CONFIG = loadConfig();
@@ -2633,30 +2633,39 @@
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //  AUTO-DISPATCHER BANNER — renders above tab content, personalized per player
+    //  AUTO-DISPATCHER BANNER — injected into the actual Torn OC page
+    //  Finds the Recruiting/Planning/Completed tabs and inserts above them
     // ═══════════════════════════════════════════════════════════════════════
+    function findTornOcTabAnchor() {
+        // Strategy 1: buttonsContainer inside faction-crimes-root (Recruiting/Planning/Completed tabs)
+        const btns = document.querySelector('#faction-crimes-root [class*="buttonsContainer"]');
+        if (btns) return { parent: btns.parentElement, ref: btns };
+        // Strategy 2: .faction-tabs
+        const tabs = document.querySelector('.faction-tabs');
+        if (tabs) return { parent: tabs.parentElement, ref: tabs };
+        // Strategy 3: faction-crimes root element
+        const crimes = document.getElementById('faction-crimes') || document.getElementById('faction-crimes-root');
+        if (crimes) return { parent: crimes, ref: crimes.firstChild };
+        return null;
+    }
+
     function renderDispatcherBanner(dispatcherData) {
-        const banner = document.getElementById('oc-dispatcher-banner');
-        if (!banner) return;
+        // Remove old banner if it exists
+        const oldBanner = document.getElementById('oc-dispatcher-torn-banner');
+        if (oldBanner) oldBanner.remove();
+
+        // Also update the in-panel fallback
+        const panelBanner = document.getElementById('oc-dispatcher-banner');
 
         if (!dispatcherData || !dispatcherData.recommendation) {
-            // Show subtle "no recommendation" state or hide
+            if (panelBanner) panelBanner.style.display = 'none';
             if (dispatcherData && dispatcherData.inOC) {
-                banner.style.display = '';
-                banner.innerHTML = `<div style="padding:6px 10px;background:#0d1f17;border:1px solid #166534;border-radius:6px;margin:6px 0;display:flex;align-items:center;gap:8px;">
-                    <span style="font-size:14px;">\u2705</span>
-                    <span style="font-size:11px;color:#4ade80;font-weight:600;">You're in an OC</span>
-                    <span style="font-size:10px;color:#6b7280;">Check My OC tab for details</span>
-                </div>`;
-            } else if (dispatcherData && dispatcherData.reason) {
-                banner.style.display = '';
-                banner.innerHTML = `<div style="padding:6px 10px;background:#111827;border:1px solid #1f2937;border-radius:6px;margin:6px 0;display:flex;align-items:center;gap:8px;">
-                    <span style="font-size:14px;">\u{1f50d}</span>
-                    <span style="font-size:11px;color:#6b7280;">No OC recommendations right now</span>
-                    <span style="font-size:9px;color:#4b5563;">${dispatcherData.reason}</span>
-                </div>`;
-            } else {
-                banner.style.display = 'none';
+                // Don't clutter the Torn page with "you're in an OC" -- they know
+                return;
+            }
+            if (dispatcherData && dispatcherData.reason) {
+                // No recommendation -- don't inject into Torn page
+                return;
             }
             return;
         }
@@ -2677,7 +2686,7 @@
         else if (rec.hoursToExpiry && rec.hoursToExpiry < 8) { urgencyColor = '#ef4444'; urgencyBorder = '#7f1d1d'; urgencyBg = '#1a0a0a'; }
         else if (rec.emptySlots <= 2) { urgencyColor = '#60a5fa'; urgencyBorder = '#1e3a5f'; urgencyBg = '#0a1628'; }
 
-        let html = `<div style="padding:8px 10px;background:${urgencyBg};border:1px solid ${urgencyBorder};border-radius:8px;margin:6px 0;">`;
+        let html = `<div style="padding:8px 10px;background:${urgencyBg};border:1px solid ${urgencyBorder};border-radius:8px;margin:8px 10px;cursor:default;">`;
 
         // Main recommendation row
         html += `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">`;
@@ -2734,8 +2743,21 @@
         }
 
         html += `</div>`;
-        banner.style.display = '';
-        banner.innerHTML = html;
+
+        // Inject into the Torn page itself
+        const anchor = findTornOcTabAnchor();
+        if (anchor) {
+            const bannerEl = document.createElement('div');
+            bannerEl.id = 'oc-dispatcher-torn-banner';
+            bannerEl.innerHTML = html;
+            anchor.parent.insertBefore(bannerEl, anchor.ref || null);
+        } else {
+            // Fallback: inject into the panel banner div
+            if (panelBanner) {
+                panelBanner.style.display = '';
+                panelBanner.innerHTML = html;
+            }
+        }
     }
 
     function renderScopeStrip(scopeProjection) {
