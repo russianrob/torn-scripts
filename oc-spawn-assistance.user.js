@@ -24,7 +24,7 @@
 // v2.6.8 — Dispatcher banner always visible: loading spinner on init, status messages when no data or in OC
 // v2.6.7 — Panel no longer auto-opens; stays closed until user clicks the toggle button (respects oc_panel_closed flag)
 // v2.6.6 — Dispatcher banner: click navigates via hash URL (#crimeId=...) so Torn's own router expands the card; fallbacks also clickable
-// v2.4.3 — Slot Optimizer: show ~ prefix when using overall CPR instead of position-specific CPR
+// v2.7.3 — revert +24h, show raw ready_at with ~ prefix
 // v2.4.2 — Fix fetch interceptor causing uncaught promise rejections (red globe in TornPDA)
 // v2.4.1 — Member Projector: stricter readiness tiers (Building 60-69%, Developing 70-74%, Ready 75%+)
 // v2.4.0 — Rate limiting: 15s cooldown per user, countdown on Refresh button, 429 handling
@@ -158,7 +158,7 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.4.3';
+    const SCRIPT_VERSION = '2.7.3';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
