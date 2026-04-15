@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.6.9
+// @version      2.7.0
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.7.0 — Dispatcher shows actual execution countdown from Torn API (ready_at) instead of estimated time
 // v2.6.9 — Hide negative hoursToExpiry in dispatcher banner (expired_at can be in the past for active crimes)
 // v2.6.8 — Dispatcher banner always visible: loading spinner on init, status messages when no data or in OC
 // v2.6.7 — Panel no longer auto-opens; stays closed until user clicks the toggle button (respects oc_panel_closed flag)
@@ -146,7 +147,7 @@
 
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
             ENGINE_AUTO_DISPATCHER:  GM_getValue('eng_auto_dispatcher', true),
-            VERSION:           '2.6.9',
+            VERSION:           '2.7.0',
         };
     }
     let CONFIG = loadConfig();
@@ -2750,7 +2751,11 @@
             const expColor = rec.hoursToExpiry < 8 ? '#ef4444' : rec.hoursToExpiry < 24 ? '#e5b567' : '#6b7280';
             html += `<span style="color:${expColor};">\u23F1 ${rec.hoursToExpiry}h left</span>`;
         }
-        if (rec.estCompletionHours) html += `<span>\u{1f552} ~${rec.estCompletionHours}h to exec</span>`;
+        if (rec.readyAtHours && rec.readyAtHours > 0) {
+            const rh = rec.readyAtHours;
+            const execStr = rh >= 24 ? `${Math.floor(rh / 24)}d ${Math.round(rh % 24)}h` : `${rh}h`;
+            html += `<span>\u{1f552} executes in ${execStr}</span>`;
+        }
         html += `</div>`;
 
         // Scoring breakdown (collapsed by default)
