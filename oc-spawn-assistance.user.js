@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.6.4
+// @version      2.6.5
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -142,7 +142,7 @@
 
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
             ENGINE_AUTO_DISPATCHER:  GM_getValue('eng_auto_dispatcher', false),
-            VERSION:           '2.6.4',
+            VERSION:           '2.6.5',
         };
     }
     let CONFIG = loadConfig();
@@ -2751,17 +2751,57 @@
             bannerEl.innerHTML = html;
             bannerEl.addEventListener('click', (e) => {
                 if (e.target.closest('details summary')) return; // don't scroll when toggling details
-                const cid = rec.crimeId;
-                // Find the OC element on the page by crime ID
-                const crimeEl = document.querySelector(`[data-crime-id="${cid}"], [class*="crimeContainer"][data-id="${cid}"], [id*="${cid}"]`)
-                             || document.querySelector(`a[href*="${cid}"]`)?.closest('[class*="crime"]');
+                const crimeName = rec.crimeName;
+                const crimeId = rec.crimeId;
+
+                // Strategy 1: Find crime card by matching the crime name text on the page
+                // Torn renders each OC as a panel with the crime name visible
+                const allEls = document.querySelectorAll('#faction-crimes-root [class*="wrapper"], #faction-crimes-root [class*="panel"], #faction-crimes-root [class*="crime"], #faction-crimes-root [class*="scenario"]');
+                let crimeEl = null;
+                for (const el of allEls) {
+                    // Check if this element or its children contain the exact crime name
+                    const nameEl = el.querySelector('[class*="name"], [class*="title"], [class*="header"]');
+                    if (nameEl && nameEl.textContent.trim().includes(crimeName)) {
+                        crimeEl = el;
+                        break;
+                    }
+                }
+
+                // Strategy 2: Broader text search -- find any element with the crime name
+                if (!crimeEl) {
+                    const walker = document.createTreeWalker(
+                        document.getElementById('faction-crimes-root') || document.body,
+                        NodeFilter.SHOW_TEXT, null, false
+                    );
+                    while (walker.nextNode()) {
+                        if (walker.currentNode.textContent.trim() === crimeName) {
+                            // Walk up to find the crime card container
+                            let parent = walker.currentNode.parentElement;
+                            for (let i = 0; i < 8 && parent; i++) {
+                                const cls = parent.className || '';
+                                if (cls.match && cls.match(/wrapper|panel|crime|scenario/i)) {
+                                    crimeEl = parent;
+                                    break;
+                                }
+                                parent = parent.parentElement;
+                            }
+                            if (crimeEl) break;
+                            // Fallback: use the direct parent's parent as the card
+                            crimeEl = walker.currentNode.parentElement?.closest('[class]');
+                            break;
+                        }
+                    }
+                }
+
                 if (crimeEl) {
                     crimeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     // Flash highlight
-                    const origBg = crimeEl.style.outline;
                     crimeEl.style.outline = '2px solid #60a5fa';
                     crimeEl.style.outlineOffset = '2px';
-                    setTimeout(() => { crimeEl.style.outline = origBg; crimeEl.style.outlineOffset = ''; }, 2000);
+                    crimeEl.style.transition = 'outline 0.3s';
+                    setTimeout(() => { crimeEl.style.outline = ''; crimeEl.style.outlineOffset = ''; }, 2500);
+                    // Try clicking it to expand
+                    try { crimeEl.click(); } catch(e) {}
                 }
             });
             anchor.parent.insertBefore(bannerEl, anchor.ref || null);
