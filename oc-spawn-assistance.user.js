@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.6.5
+// @version      2.6.6
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.6.6 — Dispatcher banner: click navigates via hash URL (#crimeId=...) so Torn's own router expands the card; fallbacks also clickable
 // v2.4.3 — Slot Optimizer: show ~ prefix when using overall CPR instead of position-specific CPR
 // v2.4.2 — Fix fetch interceptor causing uncaught promise rejections (red globe in TornPDA)
 // v2.4.1 — Member Projector: stricter readiness tiers (Building 60-69%, Developing 70-74%, Ready 75%+)
@@ -142,7 +143,7 @@
 
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
             ENGINE_AUTO_DISPATCHER:  GM_getValue('eng_auto_dispatcher', false),
-            VERSION:           '2.6.5',
+            VERSION:           '2.6.6',
         };
     }
     let CONFIG = loadConfig();
@@ -2728,7 +2729,7 @@
             html += `<div style="display:flex;flex-direction:column;gap:3px;margin-top:4px;">`;
             for (const f of fb) {
                 const fCprColor = f.cpr >= 80 ? '#4ade80' : f.cpr >= 60 ? '#e5b567' : '#ef4444';
-                html += `<div style="padding:4px 8px;background:#111827;border-radius:4px;border-left:2px solid #374151;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">`;
+                html += `<div style="padding:4px 8px;background:#111827;border-radius:4px;border-left:2px solid #374151;display:flex;align-items:center;gap:8px;flex-wrap:wrap;cursor:pointer;" data-fallback-crime-id="${f.crimeId}" onmouseover="this.style.background='#1f2937'" onmouseout="this.style.background='#111827'">`;
                 html += `<span style="font-size:10px;font-weight:600;color:#d1d5db;">${f.crimeName}</span>`;
                 html += `<span style="font-size:10px;color:#9ca3af;">${f.positionBase}</span>`;
                 html += `<span style="font-size:10px;color:${fCprColor};">${f.cpr}%</span>`;
@@ -2751,57 +2752,13 @@
             bannerEl.innerHTML = html;
             bannerEl.addEventListener('click', (e) => {
                 if (e.target.closest('details summary')) return; // don't scroll when toggling details
-                const crimeName = rec.crimeName;
-                const crimeId = rec.crimeId;
-
-                // Strategy 1: Find crime card by matching the crime name text on the page
-                // Torn renders each OC as a panel with the crime name visible
-                const allEls = document.querySelectorAll('#faction-crimes-root [class*="wrapper"], #faction-crimes-root [class*="panel"], #faction-crimes-root [class*="crime"], #faction-crimes-root [class*="scenario"]');
-                let crimeEl = null;
-                for (const el of allEls) {
-                    // Check if this element or its children contain the exact crime name
-                    const nameEl = el.querySelector('[class*="name"], [class*="title"], [class*="header"]');
-                    if (nameEl && nameEl.textContent.trim().includes(crimeName)) {
-                        crimeEl = el;
-                        break;
-                    }
-                }
-
-                // Strategy 2: Broader text search -- find any element with the crime name
-                if (!crimeEl) {
-                    const walker = document.createTreeWalker(
-                        document.getElementById('faction-crimes-root') || document.body,
-                        NodeFilter.SHOW_TEXT, null, false
-                    );
-                    while (walker.nextNode()) {
-                        if (walker.currentNode.textContent.trim() === crimeName) {
-                            // Walk up to find the crime card container
-                            let parent = walker.currentNode.parentElement;
-                            for (let i = 0; i < 8 && parent; i++) {
-                                const cls = parent.className || '';
-                                if (cls.match && cls.match(/wrapper|panel|crime|scenario/i)) {
-                                    crimeEl = parent;
-                                    break;
-                                }
-                                parent = parent.parentElement;
-                            }
-                            if (crimeEl) break;
-                            // Fallback: use the direct parent's parent as the card
-                            crimeEl = walker.currentNode.parentElement?.closest('[class]');
-                            break;
-                        }
-                    }
-                }
-
-                if (crimeEl) {
-                    crimeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    // Flash highlight
-                    crimeEl.style.outline = '2px solid #60a5fa';
-                    crimeEl.style.outlineOffset = '2px';
-                    crimeEl.style.transition = 'outline 0.3s';
-                    setTimeout(() => { crimeEl.style.outline = ''; crimeEl.style.outlineOffset = ''; }, 2500);
-                    // Try clicking it to expand
-                    try { crimeEl.click(); } catch(e) {}
+                // Check if a fallback item was clicked
+                const fallbackEl = e.target.closest('[data-fallback-crime-id]');
+                const targetCrimeId = fallbackEl ? fallbackEl.dataset.fallbackCrimeId : rec.crimeId;
+                // Navigate to the crime's hash URL -- Torn's React router handles
+                // expanding the card and scrolling to it automatically
+                if (targetCrimeId) {
+                    window.location.hash = `/tab=crimes&crimeId=${targetCrimeId}`;
                 }
             });
             anchor.parent.insertBefore(bannerEl, anchor.ref || null);
