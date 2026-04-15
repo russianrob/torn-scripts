@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      3.0.2
+// @version      3.0.3
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -24,6 +24,7 @@
 // v2.6.8 — Dispatcher banner always visible: loading spinner on init, status messages when no data or in OC
 // v2.6.7 — Panel no longer auto-opens; stays closed until user clicks the toggle button (respects oc_panel_closed flag)
 // v2.6.6 — Dispatcher banner: click navigates via hash URL (#crimeId=...) so Torn's own router expands the card; fallbacks also clickable
+// v3.0.3 — dispatcher banner re-injects when navigating back to crimes tab
 // v3.0.2 — dispatcher banner only visible on crimes tab, auto-hides on tab navigation
 // v3.0.1 — auto-retry on fetch errors (3 retries w/ backoff), dispatcher banner shows retry/error state instead of stuck loading
 // v3.0.0 — version bump (6 engines: Slot Optimizer, Failure Risk, CPR Forecaster, Member Projector, Member Reliability, Auto-Dispatcher)
@@ -160,7 +161,8 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '3.0.2';
+    let _lastDispatcherData;         // cache last dispatcher result for tab re-injection
+    const SCRIPT_VERSION = '3.0.3';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2701,6 +2703,7 @@
     }
 
     function renderDispatcherBanner(dispatcherData) {
+        _lastDispatcherData = dispatcherData; // cache for tab re-injection
         // Remove old banner if it exists
         const oldBanner = document.getElementById('oc-dispatcher-torn-banner');
         if (oldBanner) oldBanner.remove();
@@ -3693,11 +3696,23 @@
         }
     }
 
-    // Remove dispatcher banner when navigating away from crimes tab
+    // Hide/show dispatcher banner on tab navigation
     window.addEventListener('hashchange', () => {
         if (!isOnCrimesTab()) {
             const b = document.getElementById('oc-dispatcher-torn-banner');
             if (b) b.remove();
+        } else if (CONFIG.ENGINE_AUTO_DISPATCHER && !document.getElementById('oc-dispatcher-torn-banner')) {
+            // Re-inject banner when navigating back to crimes tab
+            // Use a short delay to let Torn's React render the DOM first
+            setTimeout(() => {
+                if (!document.getElementById('oc-dispatcher-torn-banner') && isOnCrimesTab()) {
+                    if (_lastDispatcherData !== undefined) {
+                        renderDispatcherBanner(_lastDispatcherData);
+                    } else {
+                        injectDispatcherLoading();
+                    }
+                }
+            }, 300);
         }
     });
 
