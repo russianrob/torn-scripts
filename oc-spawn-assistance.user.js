@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.6.3
+// @version      2.6.4
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -142,7 +142,7 @@
 
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
             ENGINE_AUTO_DISPATCHER:  GM_getValue('eng_auto_dispatcher', false),
-            VERSION:           '2.6.3',
+            VERSION:           '2.6.4',
         };
     }
     let CONFIG = loadConfig();
@@ -2708,7 +2708,6 @@
             html += `<span style="color:${expColor};">\u23F1 ${rec.hoursToExpiry}h left</span>`;
         }
         if (rec.estCompletionHours) html += `<span>\u{1f552} ~${rec.estCompletionHours}h to exec</span>`;
-        html += `<span style="color:#60a5fa;">Score: ${rec.score}</span>`;
         html += `</div>`;
 
         // Scoring breakdown (collapsed by default)
@@ -2736,7 +2735,7 @@
                 if (f.roleWeight > 0) html += `<span style="font-size:9px;color:#6b7280;">${f.roleWeight}%w</span>`;
                 html += `<span style="font-size:9px;color:#6b7280;">${f.filledPct}% full</span>`;
                 if (f.isLastSlot) html += `<span style="font-size:9px;color:#f59e0b;font-weight:700;">LAST</span>`;
-                html += `<span style="font-size:9px;color:#60a5fa;">Score: ${f.score}</span>`;
+
                 html += `</div>`;
             }
             html += `</div></details>`;
