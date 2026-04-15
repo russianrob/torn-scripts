@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.6.7
+// @version      2.6.8
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.6.8 — Dispatcher banner always visible: loading spinner on init, status messages when no data or in OC
 // v2.6.7 — Panel no longer auto-opens; stays closed until user clicks the toggle button (respects oc_panel_closed flag)
 // v2.6.6 — Dispatcher banner: click navigates via hash URL (#crimeId=...) so Torn's own router expands the card; fallbacks also clickable
 // v2.4.3 — Slot Optimizer: show ~ prefix when using overall CPR instead of position-specific CPR
@@ -144,7 +145,7 @@
 
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
             ENGINE_AUTO_DISPATCHER:  GM_getValue('eng_auto_dispatcher', true),
-            VERSION:           '2.6.7',
+            VERSION:           '2.6.8',
         };
     }
     let CONFIG = loadConfig();
@@ -2651,6 +2652,41 @@
         return null;
     }
 
+    // Show a persistent dispatcher banner on the Torn page immediately (loading state)
+    function injectDispatcherLoading() {
+        if (!CONFIG.ENGINE_AUTO_DISPATCHER) return;
+        if (document.getElementById('oc-dispatcher-torn-banner')) return; // already exists
+        const anchor = findTornOcTabAnchor();
+        if (!anchor) return;
+        const bannerEl = document.createElement('div');
+        bannerEl.id = 'oc-dispatcher-torn-banner';
+        bannerEl.innerHTML = `<div style="padding:8px 10px;background:#0a1628;border:1px solid #1e3a5f;border-radius:8px;margin:8px 10px;display:flex;align-items:center;gap:8px;">`
+            + `<span style="font-size:14px;animation:oc-spin 1.2s linear infinite;">\u{1f504}</span>`
+            + `<span style="font-size:11px;color:#9ca3af;">Auto-Dispatcher loading...</span>`
+            + `</div>`;
+        anchor.parent.insertBefore(bannerEl, anchor.ref || null);
+        // Add spin animation if not already present
+        if (!document.getElementById('oc-dispatch-spin-style')) {
+            const style = document.createElement('style');
+            style.id = 'oc-dispatch-spin-style';
+            style.textContent = '@keyframes oc-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }';
+            document.head.appendChild(style);
+        }
+    }
+
+    // Helper: inject a simple one-line status into the Torn page dispatcher slot
+    function _injectDispatcherStatus(icon, text, color) {
+        const anchor = findTornOcTabAnchor();
+        if (!anchor) return;
+        const bannerEl = document.createElement('div');
+        bannerEl.id = 'oc-dispatcher-torn-banner';
+        bannerEl.innerHTML = `<div style="padding:6px 10px;background:#0a1628;border:1px solid #1e3a5f;border-radius:8px;margin:8px 10px;display:flex;align-items:center;gap:8px;">`
+            + `<span style="font-size:13px;">${icon}</span>`
+            + `<span style="font-size:11px;color:${color};">${text}</span>`
+            + `</div>`;
+        anchor.parent.insertBefore(bannerEl, anchor.ref || null);
+    }
+
     function renderDispatcherBanner(dispatcherData) {
         // Remove old banner if it exists
         const oldBanner = document.getElementById('oc-dispatcher-torn-banner');
@@ -2662,13 +2698,17 @@
         if (!dispatcherData || !dispatcherData.recommendation) {
             if (panelBanner) panelBanner.style.display = 'none';
             if (dispatcherData && dispatcherData.inOC) {
-                // Don't clutter the Torn page with "you're in an OC" -- they know
+                // Player is in an OC -- show a brief status
+                _injectDispatcherStatus('\u2705', 'You\'re assigned to an OC', '#4ade80');
                 return;
             }
             if (dispatcherData && dispatcherData.reason) {
-                // No recommendation -- don't inject into Torn page
+                // Has a reason but no recommendation
+                _injectDispatcherStatus('\u{1f4e1}', dispatcherData.reason, '#9ca3af');
                 return;
             }
+            // No data at all (API error etc) -- show waiting state
+            _injectDispatcherStatus('\u{1f4e1}', 'Dispatcher active -- waiting for OC data', '#6b7280');
             return;
         }
 
@@ -3544,9 +3584,14 @@
             // Render Auto-Dispatcher banner (personalized, above all tabs)
             if (engines && engines.autoDispatcher) {
                 renderDispatcherBanner(engines.autoDispatcher);
+            } else if (CONFIG.ENGINE_AUTO_DISPATCHER) {
+                // Engine is on but no data came back -- show waiting state
+                renderDispatcherBanner(null);
             } else {
                 const dBanner = document.getElementById('oc-dispatcher-banner');
                 if (dBanner) dBanner.style.display = 'none';
+                const tornBanner = document.getElementById('oc-dispatcher-torn-banner');
+                if (tornBanner) tornBanner.remove();
             }
 
             // Lock admin tab content if viewer can't admin
@@ -3589,6 +3634,20 @@
 
     // Start ASAP interception
     setupAjaxInterceptor();
+
+    // Inject dispatcher loading banner early (before data arrives)
+    // Retry a few times since Torn's DOM may not be ready yet
+    if (CONFIG.ENGINE_AUTO_DISPATCHER) {
+        let _dispLoadTries = 0;
+        const _tryInjectLoading = () => {
+            if (document.getElementById('oc-dispatcher-torn-banner')) return; // already replaced by real data
+            injectDispatcherLoading();
+            if (!document.getElementById('oc-dispatcher-torn-banner') && _dispLoadTries++ < 10) {
+                setTimeout(_tryInjectLoading, 500);
+            }
+        };
+        setTimeout(_tryInjectLoading, 300);
+    }
 
     if (window.location.href.includes('tab=crimes') || window.location.hash.includes('crimes')) {
         // Only auto-open if the user hasn't explicitly closed the panel

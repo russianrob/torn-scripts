@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.6.7
+// @version      2.6.8
 // @downloadURL  https://tornwar.com/scripts/oc-spawn-assistance.user.js
 // @updateURL    https://tornwar.com/scripts/oc-spawn-assistance.meta.js
 // ==/UserScript==
