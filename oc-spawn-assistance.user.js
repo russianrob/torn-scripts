@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.6.8
+// @version      2.6.9
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.6.9 — Hide negative hoursToExpiry in dispatcher banner (expired_at can be in the past for active crimes)
 // v2.6.8 — Dispatcher banner always visible: loading spinner on init, status messages when no data or in OC
 // v2.6.7 — Panel no longer auto-opens; stays closed until user clicks the toggle button (respects oc_panel_closed flag)
 // v2.6.6 — Dispatcher banner: click navigates via hash URL (#crimeId=...) so Torn's own router expands the card; fallbacks also clickable
@@ -145,7 +146,7 @@
 
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
             ENGINE_AUTO_DISPATCHER:  GM_getValue('eng_auto_dispatcher', true),
-            VERSION:           '2.6.8',
+            VERSION:           '2.6.9',
         };
     }
     let CONFIG = loadConfig();
@@ -2725,7 +2726,7 @@
         let urgencyBorder = '#1e3a5f';
         let urgencyBg = '#0a1628';
         if (rec.isLastSlot) { urgencyColor = '#f59e0b'; urgencyBorder = '#92400e'; urgencyBg = '#1a150a'; }
-        else if (rec.hoursToExpiry && rec.hoursToExpiry < 8) { urgencyColor = '#ef4444'; urgencyBorder = '#7f1d1d'; urgencyBg = '#1a0a0a'; }
+        else if (rec.hoursToExpiry && rec.hoursToExpiry > 0 && rec.hoursToExpiry < 8) { urgencyColor = '#ef4444'; urgencyBorder = '#7f1d1d'; urgencyBg = '#1a0a0a'; }
         else if (rec.emptySlots <= 2) { urgencyColor = '#60a5fa'; urgencyBorder = '#1e3a5f'; urgencyBg = '#0a1628'; }
 
         let html = `<div style="padding:8px 10px;background:${urgencyBg};border:1px solid ${urgencyBorder};border-radius:8px;margin:8px 10px;cursor:pointer;transition:opacity 0.15s;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'" data-crime-id="${rec.crimeId}">`;
@@ -2745,7 +2746,7 @@
         if (rec.roleWeight > 0) html += `<span>\u2696\uFE0F ${rec.roleWeight}% weight</span>`;
         html += `<span>\u{1f4e6} ${rec.filledPct}% filled (${rec.totalSlots - rec.emptySlots}/${rec.totalSlots})</span>`;
         if (rec.isLastSlot) html += `<span style="color:#f59e0b;font-weight:700;">\u26A1 LAST SLOT</span>`;
-        if (rec.hoursToExpiry !== null) {
+        if (rec.hoursToExpiry !== null && rec.hoursToExpiry > 0) {
             const expColor = rec.hoursToExpiry < 8 ? '#ef4444' : rec.hoursToExpiry < 24 ? '#e5b567' : '#6b7280';
             html += `<span style="color:${expColor};">\u23F1 ${rec.hoursToExpiry}h left</span>`;
         }
