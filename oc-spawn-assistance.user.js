@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OC Spawn Assistance
 // @namespace    torn-oc-spawn-assistance
-// @version      2.3.3
+// @version      3.0.10
 // @description  Analyzes faction OC slots vs member availability with scope budget and priority ordering
 // @author       RussianRob
 // @match        https://www.torn.com/factions.php*
@@ -18,6 +18,33 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CHANGELOG
 // ═══════════════════════════════════════════════════════════════════════════════
+// v2.7.1 — Remove scoring breakdown; add "Join" link on each fallback option
+// v2.7.0 — Dispatcher shows actual execution countdown from Torn API (ready_at) instead of estimated time
+// v2.6.9 — Hide negative hoursToExpiry in dispatcher banner (expired_at can be in the past for active crimes)
+// v2.6.8 — Dispatcher banner always visible: loading spinner on init, status messages when no data or in OC
+// v2.6.7 — Panel no longer auto-opens; stays closed until user clicks the toggle button (respects oc_panel_closed flag)
+// v2.6.6 — Dispatcher banner: click navigates via hash URL (#crimeId=...) so Torn's own router expands the card; fallbacks also clickable
+// v3.0.10 — Disabled Slot Optimizer engine since Auto-Dispatcher serves similar purpose
+// v3.0.9 — Removed hardcoded 15s refresh cooldown completely for faster button re-enable
+// v3.0.8 — Reduced refresh cooldown from 15s to 3s for faster button re-enable
+// v3.0.7 — Reduced retry delays (1s, 2s, 3s vs 5s, 10s, 20s) for faster refresh responsiveness
+// v3.0.6 — Admin eligible list: prioritize OCs with most members filled, remove weight sorting
+// v3.0.5 — fix: re-fetch data when navigating back to crimes tab (not just re-inject stale banner)
+// v3.0.4 — travel alert: only show for fully staffed OCs (not partially filled ones with ready_at in past)
+// v3.0.3 — dispatcher banner re-injects when navigating back to crimes tab
+// v3.0.2 — dispatcher banner only visible on crimes tab, auto-hides on tab navigation
+// v3.0.1 — auto-retry on fetch errors (3 retries w/ backoff), dispatcher banner shows retry/error state instead of stuck loading
+// v3.0.0 — version bump (6 engines: Slot Optimizer, Failure Risk, CPR Forecaster, Member Projector, Member Reliability, Auto-Dispatcher)
+// v2.4.2 — Fix fetch interceptor causing uncaught promise rejections (red globe in TornPDA)
+// v2.4.1 — Member Projector: stricter readiness tiers (Building 60-69%, Developing 70-74%, Ready 75%+)
+// v2.4.0 — Rate limiting: 15s cooldown per user, countdown on Refresh button, 429 handling
+// v2.3.9 — Member Reliability: predict scores for new members with no OC history
+// v2.3.8 — Traveling alert: only show members flying in OCs that are ready now
+// v2.3.7 — Traveling alert: include Recruiting OCs that are ready now
+// v2.3.6 — Traveling alert: only flags members flying in OCs within 30 min of starting or in Planning
+// v2.3.5 — Traveling alert banner: warns when members in an OC are flying
+// v2.3.4 — Member Reliability engine: track success rates, consistency, activity, and reliability scores
+// v2.3.3 — Member Projector engine: estimate OC potential, readiness, and progression timeline
 // v2.3.2 — Slot Optimizer recommendation shown in My OC viewer card
 // v2.3.1 — CPR Forecaster: per-level, per-role breakdown
 // v2.3.0 — Remember active tab across refreshes
@@ -126,12 +153,11 @@
             ENGINE_SLOT_OPTIMIZER:   GM_getValue('eng_slot_optimizer', false),
             ENGINE_CPR_FORECASTER:   GM_getValue('eng_cpr_forecaster', false),
             ENGINE_FAILURE_RISK:     GM_getValue('eng_failure_risk', false),
-            ENGINE_EXPIRY_RISK:      GM_getValue('eng_expiry_risk', false),
+
             ENGINE_MEMBER_RELIABILITY: GM_getValue('eng_member_reliability', false),
-            ENGINE_PAYOUT_OPTIMIZER: GM_getValue('eng_payout_optimizer', false),
-            ENGINE_ITEM_ROI:         GM_getValue('eng_item_roi', false),
-            ENGINE_GAP_ANALYZER:     GM_getValue('eng_gap_analyzer', false),
+
             ENGINE_MEMBER_PROJECTOR: GM_getValue('eng_member_projector', false),
+            ENGINE_AUTO_DISPATCHER:  GM_getValue('eng_auto_dispatcher', true),
         };
     }
     let CONFIG = loadConfig();
@@ -141,7 +167,8 @@
     let lastScopeProjection = null;
     let scopePushTimer  = null;
     let settingsReady    = false;  // true after server settings loaded
-    const SCRIPT_VERSION = '2.3.3';
+    let _lastDispatcherData;         // cache last dispatcher result for tab re-injection
+    const SCRIPT_VERSION = '3.0.10';
     const SERVER = 'https://tornwar.com';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -866,18 +893,21 @@
 
         // Intercept Fetch
         const oldFetch = window.fetch;
-        window.fetch = async function() {
-            const res = await oldFetch.apply(this, arguments);
-            const url = arguments[0] instanceof Request ? arguments[0].url : arguments[0];
-            if (url && url.includes('step=getCrimesData')) {
+        window.fetch = function() {
+            const args = arguments;
+            const p = oldFetch.apply(this, args);
+            p.then(res => {
                 try {
-                    const cloned = res.clone();
-                    const data = await cloned.json();
-                    const s = data?.scope_balance ?? data?.scope;
-                    if (typeof s === 'number') handleDetectedScope(s, 'AJAX (Fetch)');
+                    const url = args[0] instanceof Request ? args[0].url : args[0];
+                    if (url && url.includes('step=getCrimesData')) {
+                        res.clone().json().then(data => {
+                            const s = data?.scope_balance ?? data?.scope;
+                            if (typeof s === 'number') handleDetectedScope(s, 'AJAX (Fetch)');
+                        }).catch(() => {});
+                    }
                 } catch (e) {}
-            }
-            return res;
+            }).catch(() => {}); // never swallow the original rejection
+            return p; // return original promise chain untouched
         };
     }
 
@@ -1307,6 +1337,10 @@
             const err = new Error(r.data?.error || 'Access restricted to faction members only.');
             err.status = 403; throw err;
         }
+        if (r.status === 429) {
+            const err = new Error(r.data?.error || 'Too many requests — please wait a moment.');
+            err.status = 429; throw err;
+        }
         if (!r.ok) throw new Error(r.data?.error || `Server error (${r.status})`);
         return r.data;
     }
@@ -1726,6 +1760,7 @@
             <button class="oc-tab" data-tab="metrics" id="oc-metrics-tab" style="display:none;">Metrics</button>
             <button class="oc-tab" data-tab="engines" id="oc-engines-tab" style="display:none;">Engines</button>
         </div>
+        <div id="oc-dispatcher-banner" style="display:none;"></div>
         <div id="oc-tab-profile"></div>
         <div id="oc-tab-admin" style="display:none;"></div>
         <div id="oc-tab-manager" style="display:none;"></div>
@@ -1785,9 +1820,28 @@
         handle: panel.querySelector('h2'),
     });
     let _lastRefresh = 0;
+    let _refreshTimer = null;
+    function startRefreshCooldown() {
+        const btn = document.getElementById('oc-spawn-refresh');
+        btn.disabled = true;
+        let remaining = 3;  // Reduced from 15 to 3 seconds for faster responsiveness
+        btn.textContent = `\u21bb ${remaining}s`;
+        clearInterval(_refreshTimer);
+        _refreshTimer = setInterval(() => {
+            remaining--;
+            if (remaining <= 0) {
+                clearInterval(_refreshTimer);
+                btn.textContent = '\u21bb Refresh';
+                btn.disabled = false;
+            } else {
+                btn.textContent = `\u21bb ${remaining}s`;
+            }
+        }, 1000);
+    }
     document.getElementById('oc-spawn-refresh').addEventListener('click', () => {
-        if (Date.now() - _lastRefresh < 3000) return; // 3s cooldown between refreshes
+        if (Date.now() - _lastRefresh < 3000) return; // 3s cooldown between refreshes (reduced from 15s for faster responsiveness)
         _lastRefresh = Date.now();
+        startRefreshCooldown();
         runAnalysis();
     });
     document.getElementById('oc-spawn-close').addEventListener('click', () => {
@@ -1899,22 +1953,18 @@
         CONFIG.ENGINE_SLOT_OPTIMIZER   = document.getElementById('eng-slot-optimizer').checked;
         CONFIG.ENGINE_CPR_FORECASTER   = document.getElementById('eng-cpr-forecaster').checked;
         CONFIG.ENGINE_FAILURE_RISK     = document.getElementById('eng-failure-risk').checked;
-        CONFIG.ENGINE_EXPIRY_RISK      = document.getElementById('eng-expiry-risk').checked;
+
         CONFIG.ENGINE_MEMBER_RELIABILITY = document.getElementById('eng-member-reliability').checked;
-        CONFIG.ENGINE_PAYOUT_OPTIMIZER = document.getElementById('eng-payout-optimizer').checked;
-        CONFIG.ENGINE_ITEM_ROI         = document.getElementById('eng-item-roi').checked;
-        CONFIG.ENGINE_GAP_ANALYZER     = document.getElementById('eng-gap-analyzer').checked;
+
         CONFIG.ENGINE_MEMBER_PROJECTOR = document.getElementById('eng-member-projector').checked;
+        CONFIG.ENGINE_AUTO_DISPATCHER  = document.getElementById('eng-auto-dispatcher').checked;
 
         GM_setValue('eng_slot_optimizer',       CONFIG.ENGINE_SLOT_OPTIMIZER);
         GM_setValue('eng_cpr_forecaster',       CONFIG.ENGINE_CPR_FORECASTER);
         GM_setValue('eng_failure_risk',         CONFIG.ENGINE_FAILURE_RISK);
-        GM_setValue('eng_expiry_risk',          CONFIG.ENGINE_EXPIRY_RISK);
         GM_setValue('eng_member_reliability',   CONFIG.ENGINE_MEMBER_RELIABILITY);
-        GM_setValue('eng_payout_optimizer',     CONFIG.ENGINE_PAYOUT_OPTIMIZER);
-        GM_setValue('eng_item_roi',             CONFIG.ENGINE_ITEM_ROI);
-        GM_setValue('eng_gap_analyzer',         CONFIG.ENGINE_GAP_ANALYZER);
         GM_setValue('eng_member_projector',     CONFIG.ENGINE_MEMBER_PROJECTOR);
+        GM_setValue('eng_auto_dispatcher',      CONFIG.ENGINE_AUTO_DISPATCHER);
 
         const apiKey = getApiKey();
         if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') {
@@ -1923,12 +1973,9 @@
                 engine_slot_optimizer:   CONFIG.ENGINE_SLOT_OPTIMIZER,
                 engine_cpr_forecaster:   CONFIG.ENGINE_CPR_FORECASTER,
                 engine_failure_risk:     CONFIG.ENGINE_FAILURE_RISK,
-                engine_expiry_risk:      CONFIG.ENGINE_EXPIRY_RISK,
                 engine_member_reliability: CONFIG.ENGINE_MEMBER_RELIABILITY,
-                engine_payout_optimizer: CONFIG.ENGINE_PAYOUT_OPTIMIZER,
-                engine_item_roi:         CONFIG.ENGINE_ITEM_ROI,
-                engine_gap_analyzer:     CONFIG.ENGINE_GAP_ANALYZER,
                 engine_member_projector: CONFIG.ENGINE_MEMBER_PROJECTOR,
+                engine_auto_dispatcher:  CONFIG.ENGINE_AUTO_DISPATCHER,
             });
             await gmRequest(`${SERVER}/api/oc/engines/update?${p}`);
         }
@@ -2178,8 +2225,9 @@
             if (!slotMap[d]) slotMap[d] = { totalSlots: 0, openSlots: 0, crimes: [] };
             let open = 0, total = 0;
             for (const slot of (crime.slots || [])) { total++; if (!slot.user_id && !slot.user?.id) open++; }
+            const filled = total - open;
             slotMap[d].totalSlots += total; slotMap[d].openSlots += open;
-            slotMap[d].crimes.push({ id: crime.id, name: crime.name, open, total });
+            slotMap[d].crimes.push({ id: crime.id, name: crime.name, open, total, filled });
         }
         return slotMap;
     }
@@ -2283,27 +2331,29 @@
 
         html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Risk</div>`;
         html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-failure-risk" ${CONFIG.ENGINE_FAILURE_RISK ? 'checked' : ''}/> <span>Failure Risk</span><span class="oc-engine-desc">Score OC failure probability before launch</span></label>`;
-        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-expiry-risk" disabled/> <span>Expiry Risk</span><span class="oc-engine-desc">Flag OCs at risk of expiring unfilled</span></label>`;
-        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-member-reliability" disabled/> <span>Member Reliability</span><span class="oc-engine-desc">Track member availability and completion rates</span></label>`;
 
-        html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Economy</div>`;
-        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-payout-optimizer" disabled/> <span>OC Payout Tracker</span><span class="oc-engine-desc">Track payout per hour across OC types</span></label>`;
-        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-item-roi" disabled/> <span>Item ROI</span><span class="oc-engine-desc">Track item costs vs OC payout returns</span></label>`;
+        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-member-reliability" ${CONFIG.ENGINE_MEMBER_RELIABILITY ? 'checked' : ''}/> <span>Member Reliability</span><span class="oc-engine-desc">Track member availability, completion rates, and consistency</span></label>`;
 
         html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Recruitment</div>`;
-        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-gap-analyzer" disabled/> <span>Gap Analyzer</span><span class="oc-engine-desc">Identify which roles/levels your faction needs</span></label>`;
-        html += `<label class="oc-engine-toggle oc-engine-disabled"><input type="checkbox" id="eng-member-projector" disabled/> <span>Member Projector</span><span class="oc-engine-desc">Estimate new member OC potential</span></label>`;
+        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-member-projector" ${CONFIG.ENGINE_MEMBER_PROJECTOR ? 'checked' : ''}/> <span>Member Projector</span><span class="oc-engine-desc">Estimate member OC potential and project readiness for higher levels</span></label>`;
+
+        html += `<div style="font-size:10px;color:#9ca3af;margin:8px 0 6px;font-weight:600;">Dispatch</div>`;
+        html += `<label class="oc-engine-toggle"><input type="checkbox" id="eng-auto-dispatcher" ${CONFIG.ENGINE_AUTO_DISPATCHER ? 'checked' : ''}/> <span>Auto-Dispatcher</span><span class="oc-engine-desc">Personalized "join this OC" recommendation banner for each member</span></label>`;
 
         html += `<div style="text-align:right;margin-top:8px;"><button id="oc-engine-save" class="oc-setting-save-btn">Save Engines</button></div>`;
 
         // Engine results
-        if (engines.slotOptimizer || engines.failureRisk || engines.cprForecaster) {
+        if (engines.slotOptimizer || engines.failureRisk || engines.cprForecaster || engines.memberProjector || engines.memberReliability) {
             html += `<div style="margin-top:12px;border-top:1px solid #374151;padding-top:10px;">`;
             if (engines.slotOptimizer) html += renderSlotOptimizer(engines.slotOptimizer);
             if (engines.failureRisk) html += renderFailureRisk(engines.failureRisk);
             if (engines.cprForecaster) html += renderCprForecaster(engines.cprForecaster);
+            if (engines.memberProjector) html += renderMemberProjector(engines.memberProjector);
+            if (engines.memberReliability) html += renderMemberReliability(engines.memberReliability);
+
             html += `</div>`;
         }
+        // Note: Auto-Dispatcher renders as a persistent banner above tab content, not in engines tab
 
         html += `</div>`;
         return html;
@@ -2420,7 +2470,9 @@
                 html += `<span style="color:#6b7280;">\u2192</span>`;
                 html += `<span style="color:#74c69d;font-weight:600;">${a.crimeName}</span>`;
                 html += `<span style="color:#9ca3af;">${a.position}</span>`;
-                html += `<span style="color:${cprColor};font-weight:600;">${a.positionCpr ? a.positionCpr.toFixed(0) + '%' : a.memberCpr.toFixed(0) + '%'}</span>`;
+                const displayCpr = a.positionCpr || a.memberCpr;
+                const cprPrefix = a.isEstimatedCpr ? '~' : '';
+                html += `<span style="color:${cprColor};font-weight:600;">${cprPrefix}${displayCpr.toFixed(0)}%</span>`;
                 html += `<span style="color:#6b7280;">Lvl ${a.difficulty}</span>`;
 
                 const cprVal = a.positionCpr || a.memberCpr;
@@ -2433,6 +2485,354 @@
         }
         html += `</div>`;
         return html;
+    }
+
+    function renderMemberProjector(engineData) {
+        if (!engineData || !engineData.members || engineData.members.length === 0)
+            return '<div style="color:#6b7280;font-size:11px;padding:8px;">No member data available for projection. Members need OC history to generate projections.</div>';
+        const { members, benchmarks, progressionTimes } = engineData;
+
+        let html = `<div style="margin:12px 0;border:1px solid #1d4ed8;border-radius:8px;padding:10px;background:#0a1425;">`;
+        html += `<div style="font-size:12px;font-weight:700;color:#60a5fa;margin-bottom:8px;">\u{1f52e} Member Projector</div>`;
+
+        // Summary stats
+        const ready = members.filter(m => m.projection?.readiness === 'ready').length;
+        const developing = members.filter(m => m.projection?.readiness === 'developing').length;
+        const building = members.filter(m => m.projection?.readiness === 'building').length;
+        const notReady = members.filter(m => m.projection?.readiness === 'not_ready').length;
+        const estimated = members.filter(m => m.isEstimated).length;
+
+        html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;font-size:10px;color:#9ca3af;">`;
+        html += `<span>\u{1f7e2} <b style="color:#4ade80;">${ready}</b> ready</span>`;
+        html += `<span>\u{1f7e1} <b style="color:#e5b567;">${developing}</b> developing</span>`;
+        html += `<span>\u{1f7e0} <b style="color:#f97316;">${building}</b> building</span>`;
+        html += `<span>\u{1f534} <b style="color:#ef4444;">${notReady}</b> not ready</span>`;
+        if (estimated > 0) html += `<span>\u{1f535} <b style="color:#60a5fa;">${estimated}</b> estimated (no OC data)</span>`;
+        html += `</div>`;
+
+        // Benchmarks bar
+        if (benchmarks && Object.keys(benchmarks).length > 0) {
+            html += `<div style="margin-bottom:10px;padding:6px 8px;background:#111827;border-radius:4px;">`;
+            html += `<div style="font-size:10px;color:#6b7280;margin-bottom:4px;">Faction OC Level Benchmarks (avg CPR)</div>`;
+            html += `<div style="display:flex;gap:6px;flex-wrap:wrap;">`;
+            for (const lvl of Object.keys(benchmarks).sort((a, b) => Number(a) - Number(b))) {
+                const b = benchmarks[lvl];
+                html += `<span style="background:#1e293b;padding:2px 6px;border-radius:3px;font-size:10px;color:#d1d5db;">`;
+                html += `Lvl ${lvl}: <b style="color:#60a5fa;">${b.avgCpr}%</b>`;
+                html += `<span style="color:#4b5563;"> (${b.minCpr}-${b.maxCpr}%)</span>`;
+                html += `</span>`;
+            }
+            html += `</div></div>`;
+        }
+
+        // Member cards
+        html += `<div style="display:flex;flex-direction:column;gap:4px;">`;
+        for (const m of members) {
+            const proj = m.projection;
+            // Border color by readiness
+            let borderColor = '#374151'; // default grey
+            if (proj?.readiness === 'ready') borderColor = '#2d6a4f';
+            else if (proj?.readiness === 'developing') borderColor = '#92400e';
+            else if (proj?.readiness === 'building') borderColor = '#78350f';
+            else if (proj?.readiness === 'not_ready') borderColor = '#7f1d1d';
+
+            html += `<div style="padding:6px 8px;background:#111827;border-left:3px solid ${borderColor};border-radius:4px;">`;
+
+            // Header row: name, current level, CPR
+            const cprColor = m.currentLevelCpr >= 75 ? '#4ade80' : m.currentLevelCpr >= 60 ? '#e5b567' : '#ef4444';
+            html += `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">`;
+            html += `<span style="color:#f3f4f6;font-weight:600;font-size:11px;min-width:90px;">${m.name}</span>`;
+            html += `<span style="color:#9ca3af;font-size:10px;">Lvl ${m.level}</span>`;
+            html += `<span style="color:#6b7280;font-size:10px;">OC Lvl ${m.currentOcLevel}</span>`;
+            html += `<span style="color:${cprColor};font-weight:600;font-size:10px;">${m.currentLevelCpr}%</span>`;
+            if (m.isEstimated) html += `<span style="color:#60a5fa;font-size:9px;font-style:italic;">est.</span>`;
+            html += `</div>`;
+
+            // Detail row: OC experience + best roles
+            html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px;font-size:9px;color:#6b7280;">`;
+            if (m.totalOCs > 0) {
+                html += `<span>${m.totalOCs} OCs over ${m.daysSinceFirstOC}d</span>`;
+                if (m.daysSinceLastOC > 7) html += `<span style="color:#ef4444;">inactive ${m.daysSinceLastOC}d</span>`;
+            } else {
+                html += `<span>No OC history</span>`;
+            }
+            if (m.bestRoles.length > 0) {
+                html += `<span>Best: ${m.bestRoles.map(r => `${r.role} (${r.cpr}%)`).join(', ')}</span>`;
+            }
+            html += `</div>`;
+
+            // Projection row
+            if (proj) {
+                const readinessColor = proj.readiness === 'ready' ? '#4ade80' : proj.readiness === 'developing' ? '#e5b567' : proj.readiness === 'building' ? '#f97316' : '#ef4444';
+                html += `<div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap;">`;
+                html += `<span style="color:${readinessColor};font-weight:600;font-size:10px;">${proj.readinessLabel}</span>`;
+                html += `<span style="color:#9ca3af;font-size:10px;">for Lvl ${proj.nextLevel}</span>`;
+                if (proj.benchmarkCpr !== null) {
+                    html += `<span style="color:#6b7280;font-size:9px;">bench: ${proj.benchmarkCpr}%</span>`;
+                }
+                if (proj.gapToBenchmark !== null && proj.gapToBenchmark > 0) {
+                    html += `<span style="color:#ef4444;font-size:9px;">gap: -${proj.gapToBenchmark}%</span>`;
+                }
+                if (proj.estimatedDays !== null && proj.estimatedDays > 0) {
+                    html += `<span style="color:#60a5fa;font-size:9px;">~${proj.estimatedDays}d</span>`;
+                }
+                if (proj.suggestedRoles.length > 0 && (proj.readiness === 'ready' || proj.readiness === 'developing')) {
+                    html += `<span style="color:#4b5563;font-size:9px;">try: ${proj.suggestedRoles.join(', ')}</span>`;
+                }
+                html += `</div>`;
+            }
+
+            html += `</div>`;
+        }
+        html += `</div></div>`;
+        return html;
+    }
+
+    function renderMemberReliability(engineData) {
+        if (!engineData || !engineData.members || engineData.members.length === 0)
+            return '<div style="color:#6b7280;font-size:11px;padding:8px;">No reliability data available. Members need OC history to generate scores.</div>';
+        const { members, summary } = engineData;
+
+        let html = `<div style="margin:12px 0;border:1px solid #7c3aed;border-radius:8px;padding:10px;background:#0f0a25;">`;
+        html += `<div style="font-size:12px;font-weight:700;color:#a78bfa;margin-bottom:8px;">\u{1f4ca} Member Reliability</div>`;
+
+        // Summary bar
+        html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:10px;color:#9ca3af;">`;
+        html += `<span>Avg: <b style="color:#f3f4f6;">${summary.avgReliability}</b>/100</span>`;
+        html += `<span style="color:#4ade80;">\u{1f7e2} ${summary.tierCounts.Reliable || 0} Reliable</span>`;
+        html += `<span style="color:#60a5fa;">\u{1f535} ${summary.tierCounts.Dependable || 0} Dependable</span>`;
+        html += `<span style="color:#e5b567;">\u{1f7e1} ${summary.tierCounts.Inconsistent || 0} Inconsistent</span>`;
+        html += `<span style="color:#f97316;">\u{1f7e0} ${summary.tierCounts.Unreliable || 0} Unreliable</span>`;
+        html += `<span style="color:#ef4444;">\u{1f534} ${summary.tierCounts.Inactive || 0} Inactive</span>`;
+        if (summary.tierCounts.New) html += `<span style="color:#a78bfa;">\u{1f7e3} ${summary.tierCounts.New} New</span>`;
+        html += `</div>`;
+
+        // Member cards
+        html += `<div style="display:flex;flex-direction:column;gap:3px;">`;
+        for (const m of members) {
+            // Score bar width
+            const barWidth = Math.max(2, m.reliabilityScore);
+
+            html += `<div style="padding:5px 8px;background:#111827;border-left:3px solid ${m.tierColor};border-radius:4px;">`;
+
+            // Row 1: Name, score, tier
+            html += `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">`;
+            html += `<span style="color:#f3f4f6;font-weight:600;font-size:11px;min-width:90px;">${m.name}</span>`;
+            html += `<span style="color:${m.tierColor};font-weight:700;font-size:11px;">${m.reliabilityScore}</span>`;
+            html += `<div style="flex:1;min-width:40px;max-width:80px;height:4px;background:#1f2937;border-radius:2px;overflow:hidden;">`;
+            html += `<div style="width:${barWidth}%;height:100%;background:${m.tierColor};border-radius:2px;"></div></div>`;
+            html += `<span style="color:${m.tierColor};font-size:10px;font-weight:600;">${m.tier}</span>`;
+            html += `</div>`;
+
+            // Row 2: Stats
+            html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px;font-size:9px;color:#6b7280;">`;
+            if (m.successRate !== null) {
+                const srColor = m.successRate >= 90 ? '#4ade80' : m.successRate >= 70 ? '#e5b567' : '#ef4444';
+                html += `<span>Win: <b style="color:${srColor};">${m.successRate}%</b> (${m.succeeded}/${m.totalOCs})</span>`;
+            } else if (m.isNewMember) {
+                const dif = m.daysInFaction || 0;
+                html += `<span style="color:#a78bfa;">New member${dif > 0 ? ` (${dif}d in faction)` : ''}</span>`;
+            } else {
+                html += `<span>No OC data</span>`;
+            }
+            if (m.ocsPerMonth > 0) html += `<span>${m.ocsPerMonth}/mo</span>`;
+            if (m.consistency > 0) html += `<span>Consist: ${m.consistency}%</span>`;
+            if (m.currentStreak > 0) html += `<span style="color:#4ade80;">\u{1f525} ${m.currentStreak} streak</span>`;
+            html += `<span style="color:${m.activityScore >= 60 ? '#4ade80' : m.activityScore >= 30 ? '#e5b567' : '#ef4444'};">${m.activityLabel}</span>`;
+            if (m.topRole) html += `<span>${m.topRole.role} (${m.topRole.count}x)</span>`;
+            if (m.daysSinceLastOC !== null && m.daysSinceLastOC > 14) html += `<span style="color:#ef4444;">last OC ${m.daysSinceLastOC}d ago</span>`;
+            html += `</div>`;
+
+            html += `</div>`;
+        }
+        html += `</div></div>`;
+        return html;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  AUTO-DISPATCHER BANNER — injected into the actual Torn OC page
+    //  Finds the Recruiting/Planning/Completed tabs and inserts above them
+    // ═══════════════════════════════════════════════════════════════════════
+    function findTornOcTabAnchor() {
+        // Strategy 1: buttonsContainer inside faction-crimes-root (Recruiting/Planning/Completed tabs)
+        const btns = document.querySelector('#faction-crimes-root [class*="buttonsContainer"]');
+        if (btns) return { parent: btns.parentElement, ref: btns };
+        // Strategy 2: .faction-tabs
+        const tabs = document.querySelector('.faction-tabs');
+        if (tabs) return { parent: tabs.parentElement, ref: tabs };
+        // Strategy 3: faction-crimes root element
+        const crimes = document.getElementById('faction-crimes') || document.getElementById('faction-crimes-root');
+        if (crimes) return { parent: crimes, ref: crimes.firstChild };
+        return null;
+    }
+
+    function isOnCrimesTab() {
+        const h = window.location.hash || '';
+        const u = window.location.href || '';
+        return h.includes('tab=crimes') || u.includes('tab=crimes') || !!document.getElementById('faction-crimes-root');
+    }
+
+    // Show a persistent dispatcher banner on the Torn page immediately (loading state)
+    function injectDispatcherLoading() {
+        if (!CONFIG.ENGINE_AUTO_DISPATCHER) return;
+        if (!isOnCrimesTab()) return; // only show on crimes tab
+        if (document.getElementById('oc-dispatcher-torn-banner')) return; // already exists
+        const anchor = findTornOcTabAnchor();
+        if (!anchor) return;
+        const bannerEl = document.createElement('div');
+        bannerEl.id = 'oc-dispatcher-torn-banner';
+        bannerEl.innerHTML = `<div style="padding:8px 10px;background:#0a1628;border:1px solid #1e3a5f;border-radius:8px;margin:8px 10px;display:flex;align-items:center;gap:8px;">`
+            + `<span style="font-size:14px;animation:oc-spin 1.2s linear infinite;">\u{1f504}</span>`
+            + `<span style="font-size:11px;color:#9ca3af;">Auto-Dispatcher loading...</span>`
+            + `</div>`;
+        anchor.parent.insertBefore(bannerEl, anchor.ref || null);
+        // Add spin animation if not already present
+        if (!document.getElementById('oc-dispatch-spin-style')) {
+            const style = document.createElement('style');
+            style.id = 'oc-dispatch-spin-style';
+            style.textContent = '@keyframes oc-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }';
+            document.head.appendChild(style);
+        }
+    }
+
+    // Helper: inject a simple one-line status into the Torn page dispatcher slot
+    function _injectDispatcherStatus(icon, text, color) {
+        if (!isOnCrimesTab()) { const old = document.getElementById('oc-dispatcher-torn-banner'); if (old) old.remove(); return; }
+        const anchor = findTornOcTabAnchor();
+        if (!anchor) return;
+        const bannerEl = document.createElement('div');
+        bannerEl.id = 'oc-dispatcher-torn-banner';
+        bannerEl.innerHTML = `<div style="padding:6px 10px;background:#0a1628;border:1px solid #1e3a5f;border-radius:8px;margin:8px 10px;display:flex;align-items:center;gap:8px;">`
+            + `<span style="font-size:13px;">${icon}</span>`
+            + `<span style="font-size:11px;color:${color};">${text}</span>`
+            + `</div>`;
+        anchor.parent.insertBefore(bannerEl, anchor.ref || null);
+    }
+
+    function renderDispatcherBanner(dispatcherData) {
+        _lastDispatcherData = dispatcherData; // cache for tab re-injection
+        // Remove old banner if it exists
+        const oldBanner = document.getElementById('oc-dispatcher-torn-banner');
+        if (oldBanner) oldBanner.remove();
+        // Only render on crimes tab
+        if (!isOnCrimesTab()) return;
+
+        // Also update the in-panel fallback
+        const panelBanner = document.getElementById('oc-dispatcher-banner');
+
+        if (!dispatcherData || !dispatcherData.recommendation) {
+            if (panelBanner) panelBanner.style.display = 'none';
+            if (dispatcherData && dispatcherData.inOC) {
+                // Player is in an OC -- show a brief status
+                _injectDispatcherStatus('\u2705', 'You\'re assigned to an OC', '#4ade80');
+                return;
+            }
+            if (dispatcherData && dispatcherData.reason) {
+                // Has a reason but no recommendation
+                _injectDispatcherStatus('\u{1f4e1}', dispatcherData.reason, '#9ca3af');
+                return;
+            }
+            // No data at all (API error etc) -- show waiting state
+            _injectDispatcherStatus('\u{1f4e1}', 'Dispatcher active -- waiting for OC data', '#6b7280');
+            return;
+        }
+
+        const rec = dispatcherData.recommendation;
+        const fb = dispatcherData.fallbacks || [];
+        const bd = rec.breakdown || {};
+
+        // CPR source badge
+        const cprBadge = rec.cprSource === 'position' ? '\u{1f3af}' : rec.cprSource === 'level' ? '\u{1f4ca}' : '\u{1f4d0}';
+        const cprLabel = rec.cprSource === 'position' ? 'position CPR' : rec.cprSource === 'level' ? 'level CPR' : 'est. CPR';
+
+        // Urgency styling
+        let urgencyColor = '#374151';
+        let urgencyBorder = '#1e3a5f';
+        let urgencyBg = '#0a1628';
+        if (rec.isLastSlot) { urgencyColor = '#f59e0b'; urgencyBorder = '#92400e'; urgencyBg = '#1a150a'; }
+        else if (rec.hoursToExpiry && rec.hoursToExpiry > 0 && rec.hoursToExpiry < 8) { urgencyColor = '#ef4444'; urgencyBorder = '#7f1d1d'; urgencyBg = '#1a0a0a'; }
+        else if (rec.emptySlots <= 2) { urgencyColor = '#60a5fa'; urgencyBorder = '#1e3a5f'; urgencyBg = '#0a1628'; }
+
+        let html = `<div style="padding:8px 10px;background:${urgencyBg};border:1px solid ${urgencyBorder};border-radius:8px;margin:8px 10px;cursor:pointer;transition:opacity 0.15s;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'" data-crime-id="${rec.crimeId}">`;
+
+        // Main recommendation row
+        html += `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">`;
+        html += `<span style="font-size:16px;">\u{1f680}</span>`;
+        html += `<span style="font-size:12px;font-weight:700;color:#f3f4f6;">Join <span style="color:#60a5fa;">'${rec.crimeName}'</span></span>`;
+        html += `<span style="font-size:11px;color:#9ca3af;">\u2014</span>`;
+        html += `<span style="font-size:11px;font-weight:600;color:${urgencyColor};">${rec.positionBase} slot</span>`;
+        html += `</div>`;
+
+        // Stats row
+        html += `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;font-size:10px;color:#9ca3af;">`;
+        const cprColor = rec.cpr >= 80 ? '#4ade80' : rec.cpr >= 60 ? '#e5b567' : '#ef4444';
+        html += `<span>${cprBadge} <b style="color:${cprColor};">${rec.cpr}%</b> ${cprLabel}</span>`;
+        if (rec.roleWeight > 0) html += `<span>\u2696\uFE0F ${rec.roleWeight}% weight</span>`;
+        html += `<span>\u{1f4e6} ${rec.filledPct}% filled (${rec.totalSlots - rec.emptySlots}/${rec.totalSlots})</span>`;
+        if (rec.isLastSlot) html += `<span style="color:#f59e0b;font-weight:700;">\u26A1 LAST SLOT</span>`;
+        if (rec.hoursToExpiry !== null && rec.hoursToExpiry > 0) {
+            const expColor = rec.hoursToExpiry < 8 ? '#ef4444' : rec.hoursToExpiry < 24 ? '#e5b567' : '#6b7280';
+            html += `<span style="color:${expColor};">\u23F1 ${rec.hoursToExpiry}h left</span>`;
+        }
+        if (rec.readyAtHours && rec.readyAtHours > 0) {
+            const rh = rec.readyAtHours;
+            const execStr = rh >= 24 ? `${Math.floor(rh / 24)}d ${Math.round(rh % 24)}h` : `${rh}h`;
+            html += `<span>\u{1f552} ~${execStr}</span>`;
+        }
+        html += `</div>`;
+
+        // Fallbacks
+        if (fb.length > 0) {
+            html += `<details style="margin-top:4px;">`;
+            html += `<summary style="font-size:10px;color:#4b5563;cursor:pointer;">\u{1f504} ${fb.length} more option${fb.length > 1 ? 's' : ''}</summary>`;
+            html += `<div style="display:flex;flex-direction:column;gap:3px;margin-top:4px;">`;
+            for (const f of fb) {
+                const fCprColor = f.cpr >= 80 ? '#4ade80' : f.cpr >= 60 ? '#e5b567' : '#ef4444';
+                html += `<div style="padding:4px 8px;background:#111827;border-radius:4px;border-left:2px solid #374151;display:flex;align-items:center;gap:8px;flex-wrap:wrap;cursor:pointer;" data-fallback-crime-id="${f.crimeId}" onmouseover="this.style.background='#1f2937'" onmouseout="this.style.background='#111827'">`;
+                html += `<span style="font-size:10px;font-weight:600;color:#d1d5db;">${f.crimeName}</span>`;
+                html += `<span style="font-size:10px;color:#9ca3af;">${f.positionBase}</span>`;
+                html += `<span style="font-size:10px;color:${fCprColor};">${f.cpr}%</span>`;
+                if (f.roleWeight > 0) html += `<span style="font-size:9px;color:#6b7280;">${f.roleWeight}%w</span>`;
+                html += `<span style="font-size:9px;color:#6b7280;">${f.filledPct}% full</span>`;
+                if (f.isLastSlot) html += `<span style="font-size:9px;color:#f59e0b;font-weight:700;">LAST</span>`;
+                if (f.readyAtHours && f.readyAtHours > 0) {
+                    const fRh = f.readyAtHours;
+                    const fExec = fRh >= 24 ? `${Math.floor(fRh / 24)}d ${Math.round(fRh % 24)}h` : `${fRh}h`;
+                    html += `<span style="font-size:9px;color:#6b7280;">\u{1f552} ~${fExec}</span>`;
+                }
+                html += `<span style="font-size:9px;color:#60a5fa;cursor:pointer;text-decoration:underline;margin-left:auto;" data-fallback-crime-id="${f.crimeId}">Join \u2192</span>`;
+                html += `</div>`;
+            }
+            html += `</div></details>`;
+        }
+
+        html += `</div>`;
+
+        // Inject into the Torn page itself
+        const anchor = findTornOcTabAnchor();
+        if (anchor) {
+            const bannerEl = document.createElement('div');
+            bannerEl.id = 'oc-dispatcher-torn-banner';
+            bannerEl.innerHTML = html;
+            bannerEl.addEventListener('click', (e) => {
+                if (e.target.closest('details summary')) return; // don't scroll when toggling details
+                // Check if a fallback item was clicked
+                const fallbackEl = e.target.closest('[data-fallback-crime-id]');
+                const targetCrimeId = fallbackEl ? fallbackEl.dataset.fallbackCrimeId : rec.crimeId;
+                // Navigate to the crime's hash URL -- Torn's React router handles
+                // expanding the card and scrolling to it automatically
+                if (targetCrimeId) {
+                    window.location.hash = `/tab=crimes&crimeId=${targetCrimeId}`;
+                }
+            });
+            anchor.parent.insertBefore(bannerEl, anchor.ref || null);
+        } else {
+            // Fallback: inject into the panel banner div
+            if (panelBanner) {
+                panelBanner.style.display = '';
+                panelBanner.innerHTML = html;
+            }
+        }
     }
 
     function renderScopeStrip(scopeProjection) {
@@ -2550,8 +2950,12 @@
             );
             if (openOCs.length) { matchedLevel = lvl; break; }
         }
-        // Sort by urgency first (expiring soonest), then highest weight
+        // Sort: most filled first, then expiry, then difficulty
         openOCs.sort((a, b) => {
+            const aSlots = a.slots || [], bSlots = b.slots || [];
+            const aFilled = aSlots.filter(s => (s.user_id ?? s.user?.id) != null).length;
+            const bFilled = bSlots.filter(s => (s.user_id ?? s.user?.id) != null).length;
+            if (aFilled !== bFilled) return bFilled - aFilled; // most filled first
             const aExp = a.expired_at || Infinity;
             const bExp = b.expired_at || Infinity;
             if (aExp !== bExp) return aExp - bExp; // soonest expiry first
@@ -2559,26 +2963,23 @@
         });
         if (!openOCs.length) return { type: 'none', text: `No OCs open (Lvl 1-${m.joinable})` };
 
-        let bestCrime = null, bestPos = null, bestPosCPR = -1, bestWeight = -1;
+        let bestCrime = null, bestPos = null, bestPosCPR = -1;
 
         for (const c of openOCs) {
             const labeled = labelSlotPositions(c.slots || []);
             for (const slot of labeled.filter(s => !s.user_id && !s.user?.id)) {
-                const slotWeight = getSlotWeight(weights, c.name, slot.label);
-                // High-weight slots need higher CPR
-                const minCPR = (slotWeight !== null && slotWeight >= HIGH_WEIGHT_THRESHOLD)
-                    ? HIGH_WEIGHT_MIN_CPR : CONFIG.MINCPR;
-                if (memberCPR < minCPR) continue; // CPR too low for this slot
+                if (memberCPR < CONFIG.MINCPR) continue; // CPR too low for this slot
 
                 const pd  = lookupPosCPR(byPos, c.name, slot.position);
                 const posCPR = pd?.cpr || 0;
-                const w = slotWeight ?? 0;
-                // Prefer: highest weight first, then highest role CPR as tiebreaker
-                if (w > bestWeight || (w === bestWeight && posCPR > bestPosCPR)) {
-                    bestPosCPR = posCPR; bestPos = slot.label; // "Thief #1" not just "Thief"
-                    bestCrime = c; bestWeight = w;
+                // Prefer: highest role CPR (OCs already sorted by fill count)
+                if (!bestCrime || posCPR > bestPosCPR) {
+                    bestPosCPR = posCPR; bestPos = slot.label;
+                    bestCrime = c;
                 }
             }
+            // Once we find a match in the most-filled OC, stop
+            if (bestCrime) break;
         }
 
         // Fallback: if no qualifying slot (CPR too low), show best available anyway with a warning
@@ -2592,8 +2993,7 @@
         }
 
         return { type: 'rec', crime: bestCrime.name, position: bestPos,
-            cpr: bestPosCPR > 0 ? bestPosCPR : null, level: matchedLevel, count: openOCs.length,
-            weight: bestWeight };
+            cpr: bestPosCPR > 0 ? bestPosCPR : null, level: matchedLevel, count: openOCs.length };
     }
 
     function renderEligibleMembers(eligible, availableCrimes, weights) {
@@ -2720,7 +3120,63 @@
         </div>`;
     }
 
-    function renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes, weights, engines) {
+    function buildTravelingAlert(availableCrimes, members) {
+        const memberArr = Array.isArray(members) ? members : Object.values(members || {});
+        const statusMap = {}; // uid -> { name, state }
+        for (const m of memberArr) {
+            const uid = String(m.id || m.playerId || m.uid);
+            const state = (m.status?.state || 'Okay').toLowerCase();
+            statusMap[uid] = { name: m.name || m.playerName || uid, state };
+        }
+
+        const now = Math.floor(Date.now() / 1000);
+
+        const alerts = []; // { memberName, crimeName, position, difficulty, urgency }
+        for (const crime of (availableCrimes || [])) {
+            if (crime.status !== 'Recruiting' && crime.status !== 'Planning') continue;
+            const readyAt = crime.ready_at || 0;
+
+            // Only alert if OC is fully staffed AND ready to execute right now
+            const slots = crime.slots || [];
+            const filledSlots = slots.filter(s => (s.user_id ?? s.user?.id) != null).length;
+            const totalSlots = slots.length;
+            if (filledSlots < totalSlots) continue; // still recruiting, not actually ready
+            if (!(readyAt > 0 && readyAt <= now)) continue;
+            const urgency = 'ready now';
+
+            for (const slot of (crime.slots || [])) {
+                const uid = String(slot.user_id ?? slot.user?.id ?? '');
+                if (!uid) continue;
+                const info = statusMap[uid];
+                if (!info) continue;
+                if (info.state === 'traveling') {
+                    alerts.push({
+                        memberName: info.name,
+                        crimeName: crime.name || 'Unknown',
+                        position: slot.position || 'Unknown',
+                        difficulty: crime.difficulty || 0,
+                        urgency,
+                    });
+                }
+            }
+        }
+        if (alerts.length === 0) return '';
+
+        let html = `<div style="background:#7f1d1d;border:1px solid #ef4444;border-radius:6px;padding:8px 10px;margin-bottom:8px;">`;
+        html += `<div style="font-size:11px;font-weight:700;color:#fca5a5;margin-bottom:4px;">\u2708\ufe0f ${alerts.length} member${alerts.length > 1 ? 's' : ''} traveling in an OC ready to execute</div>`;
+        for (const a of alerts) {
+            html += `<div style="font-size:10px;color:#fecaca;padding:2px 0;">`;
+            html += `<b style="color:#f3f4f6;">${a.memberName}</b>`;
+            html += ` <span style="color:#ef4444;">\u2192</span> `;
+            html += `${a.crimeName} (${a.position}) <span style="color:#9ca3af;">Lvl ${a.difficulty}</span>`;
+            html += ` <span style="color:#fbbf24;font-weight:600;">${a.urgency}</span>`;
+            html += `</div>`;
+        }
+        html += `</div>`;
+        return html;
+    }
+
+    function renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes, weights, engines, members) {
         const total = eligible.length + skipped.length;
         const eli   = eligible.length;
         const free  = eligible.filter(m => !m.inOC).length;
@@ -2745,7 +3201,9 @@
             '<p style="color:#6b7280;font-size:11px;">No personal OC data yet — refresh to load.</p>';
 
         // Admin tab — everything else
+        const travelAlert = buildTravelingAlert(availableCrimes, members);
         document.getElementById('oc-tab-admin').innerHTML = `
+            ${travelAlert}
             <div class="oc-stats-strip">
                 <span class="oc-stat-chip"><b>${total}</b> members</span>
                 <span class="oc-stat-chip"><b>${eli}</b> eligible</span>
@@ -3034,15 +3492,14 @@
                 CONFIG.SCOPE                   = srvSettings.scope;
 
                 // Engine toggles
-                CONFIG.ENGINE_SLOT_OPTIMIZER   = srvSettings.engine_slot_optimizer   ?? CONFIG.ENGINE_SLOT_OPTIMIZER;
+                CONFIG.ENGINE_SLOT_OPTIMIZER   = false;  // Disabled since Auto-Dispatcher serves similar purpose
                 CONFIG.ENGINE_CPR_FORECASTER   = srvSettings.engine_cpr_forecaster   ?? CONFIG.ENGINE_CPR_FORECASTER;
                 CONFIG.ENGINE_FAILURE_RISK     = srvSettings.engine_failure_risk     ?? CONFIG.ENGINE_FAILURE_RISK;
-                CONFIG.ENGINE_EXPIRY_RISK      = srvSettings.engine_expiry_risk      ?? CONFIG.ENGINE_EXPIRY_RISK;
+
                 CONFIG.ENGINE_MEMBER_RELIABILITY = srvSettings.engine_member_reliability ?? CONFIG.ENGINE_MEMBER_RELIABILITY;
-                CONFIG.ENGINE_PAYOUT_OPTIMIZER = srvSettings.engine_payout_optimizer ?? CONFIG.ENGINE_PAYOUT_OPTIMIZER;
-                CONFIG.ENGINE_ITEM_ROI         = srvSettings.engine_item_roi         ?? CONFIG.ENGINE_ITEM_ROI;
-                CONFIG.ENGINE_GAP_ANALYZER     = srvSettings.engine_gap_analyzer     ?? CONFIG.ENGINE_GAP_ANALYZER;
+
                 CONFIG.ENGINE_MEMBER_PROJECTOR = srvSettings.engine_member_projector ?? CONFIG.ENGINE_MEMBER_PROJECTOR;
+                CONFIG.ENGINE_AUTO_DISPATCHER  = srvSettings.engine_auto_dispatcher  ?? CONFIG.ENGINE_AUTO_DISPATCHER;
 
                 // Sync local storage with server values
                 GM_setValue('cfg_active_days',         CONFIG.ACTIVE_DAYS);
@@ -3056,12 +3513,9 @@
                 GM_setValue('eng_slot_optimizer',       CONFIG.ENGINE_SLOT_OPTIMIZER);
                         GM_setValue('eng_cpr_forecaster',       CONFIG.ENGINE_CPR_FORECASTER);
                 GM_setValue('eng_failure_risk',         CONFIG.ENGINE_FAILURE_RISK);
-                GM_setValue('eng_expiry_risk',          CONFIG.ENGINE_EXPIRY_RISK);
                 GM_setValue('eng_member_reliability',   CONFIG.ENGINE_MEMBER_RELIABILITY);
-                GM_setValue('eng_payout_optimizer',     CONFIG.ENGINE_PAYOUT_OPTIMIZER);
-                GM_setValue('eng_item_roi',             CONFIG.ENGINE_ITEM_ROI);
-                GM_setValue('eng_gap_analyzer',         CONFIG.ENGINE_GAP_ANALYZER);
                 GM_setValue('eng_member_projector',     CONFIG.ENGINE_MEMBER_PROJECTOR);
+                GM_setValue('eng_auto_dispatcher',      CONFIG.ENGINE_AUTO_DISPATCHER);
 
                 populateSettings();
                 settingsReady = true;
@@ -3069,22 +3523,39 @@
                 if (saveBtn) saveBtn.disabled = false;
             }
 
-            // Fetch OC data from server
+            // Fetch OC data from server (with auto-retry on transient errors)
             setStatus('Fetching OC data…');
             let members, availableCrimes, rawCprCache, viewer, weights, serverResp, engines;
-            try {
-                serverResp = await fetchServerOcData(apiKey);
-                ({ members, availableCrimes, cprCache: rawCprCache, viewer, weights, engines } = serverResp);
-                engines = engines || {};
-            } catch (err) {
-                if (err.status === 403) {
-                    document.getElementById('oc-tab-profile').innerHTML =
-                        `<p class="oc-error">⛔ ${err.message}</p>`;
-                    setStatus('Access denied.');
-                    return;
+            const MAX_RETRIES = 3;
+            const RETRY_DELAYS = [1000, 2000, 3000]; // 1s, 2s, 3s (reduced from 5s, 10s, 20s for faster responsiveness)
+            let fetchSuccess = false;
+            for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+                try {
+                    if (attempt > 0) {
+                        setStatus(`Retrying… (${attempt}/${MAX_RETRIES})`);
+                        _injectDispatcherStatus('🔄', `Retrying… (${attempt}/${MAX_RETRIES})`, '#f59e0b');
+                    }
+                    serverResp = await fetchServerOcData(apiKey);
+                    ({ members, availableCrimes, cprCache: rawCprCache, viewer, weights, engines } = serverResp);
+                    engines = engines || {};
+                    fetchSuccess = true;
+                    break;
+                } catch (err) {
+                    if (err.status === 403) {
+                        document.getElementById('oc-tab-profile').innerHTML =
+                            `<p class="oc-error">⛔ ${err.message}</p>`;
+                        setStatus('Access denied.');
+                        _injectDispatcherStatus('⛔', 'Access denied', '#ef4444');
+                        return;
+                    }
+                    if (err.status === 429 || attempt >= MAX_RETRIES) throw err;
+                    // Transient error — wait and retry
+                    const delay = RETRY_DELAYS[attempt] || 20000;
+                    console.warn(`[OC Spawn] Fetch attempt ${attempt + 1} failed: ${err.message}. Retrying in ${delay/1000}s…`);
+                    await new Promise(r => setTimeout(r, delay));
                 }
-                throw err;
             }
+            if (!fetchSuccess) throw new Error('Failed to fetch OC data after retries');
 
             // No faction key cached yet — show waiting message
             if (serverResp.pendingFactionData) {
@@ -3129,7 +3600,7 @@
             lastScopeProjection         = scopeProjection; // cache for tooltip
             const recs                  = buildRecommendations(eligible, slotMap, scopeProjection);
 
-            renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes, weights, engines);
+            renderBody(recs, eligible, skipped, scopeProjection, viewer, availableCrimes, weights, engines, members);
 
             // Always show tab bar with both tabs
             const tabBar   = document.getElementById('oc-tab-bar');
@@ -3153,6 +3624,19 @@
 
             // Render Engines tab content
             document.getElementById('oc-tab-engines').innerHTML = renderEnginesTab(engines);
+
+            // Render Auto-Dispatcher banner (personalized, above all tabs)
+            if (engines && engines.autoDispatcher) {
+                renderDispatcherBanner(engines.autoDispatcher);
+            } else if (CONFIG.ENGINE_AUTO_DISPATCHER) {
+                // Engine is on but no data came back -- show waiting state
+                renderDispatcherBanner(null);
+            } else {
+                const dBanner = document.getElementById('oc-dispatcher-banner');
+                if (dBanner) dBanner.style.display = 'none';
+                const tornBanner = document.getElementById('oc-dispatcher-torn-banner');
+                if (tornBanner) tornBanner.remove();
+            }
 
             // Lock admin tab content if viewer can't admin
             const settingsGear = document.getElementById('oc-spawn-settings');
@@ -3186,19 +3670,64 @@
                 `<p class="oc-error">Error: ${err.message}</p>
                  <p style="color:#6b7280;font-size:11px;">${hint}</p>`;
             setStatus(`Error: ${err.message}`);
+            // Update dispatcher banner so it doesn't stay stuck on loading
+            _injectDispatcherStatus('⚠️', 'Error loading — click Refresh to retry', '#ef4444');
             console.error('[OC Spawn]', err);
         } finally {
-            refreshBtn.disabled = false;
+            // Refresh button re-enables via cooldown timer (startRefreshCooldown)
         }
     }
 
     // Start ASAP interception
     setupAjaxInterceptor();
 
-    if (window.location.href.includes('tab=crimes') || window.location.hash.includes('crimes')) {
-        panelVisible = true; panel.style.display = 'block';
-        if (getApiKey()) setTimeout(runAnalysis, 500);
+    // Inject dispatcher loading banner early (before data arrives)
+    // Retry a few times since Torn's DOM may not be ready yet
+    if (CONFIG.ENGINE_AUTO_DISPATCHER) {
+        let _dispLoadTries = 0;
+        const _tryInjectLoading = () => {
+            if (document.getElementById('oc-dispatcher-torn-banner')) return; // already replaced by real data
+            injectDispatcherLoading();
+            if (!document.getElementById('oc-dispatcher-torn-banner') && _dispLoadTries++ < 10) {
+                setTimeout(_tryInjectLoading, 500);
+            }
+        };
+        setTimeout(_tryInjectLoading, 300);
     }
+
+    if (window.location.href.includes('tab=crimes') || window.location.hash.includes('crimes')) {
+        // Only auto-open if the user hasn't explicitly closed the panel
+        if (!GM_getValue('oc_panel_closed', false)) {
+            panelVisible = true; panel.style.display = 'block';
+        }
+        if (getApiKey()) {
+            _lastRefresh = Date.now();
+            startRefreshCooldown();
+            setTimeout(runAnalysis, 500);
+        }
+    }
+
+    // Hide/show dispatcher banner on tab navigation
+    window.addEventListener('hashchange', () => {
+        if (!isOnCrimesTab()) {
+            const b = document.getElementById('oc-dispatcher-torn-banner');
+            if (b) b.remove();
+        } else if (CONFIG.ENGINE_AUTO_DISPATCHER && !document.getElementById('oc-dispatcher-torn-banner')) {
+            // Re-inject banner and re-fetch when navigating back to crimes tab
+            setTimeout(() => {
+                if (!document.getElementById('oc-dispatcher-torn-banner') && isOnCrimesTab()) {
+                    // Show cached data immediately if available, then refresh
+                    if (_lastDispatcherData !== undefined) {
+                        renderDispatcherBanner(_lastDispatcherData);
+                    } else {
+                        injectDispatcherLoading();
+                    }
+                    // Trigger a fresh data fetch
+                    runAnalysis();
+                }
+            }, 300);
+        }
+    });
 
     // Start DOM scope reader (runs whenever recruiting tab is visible)
     setupScopeDomReader();
